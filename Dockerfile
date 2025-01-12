@@ -17,17 +17,8 @@ RUN apt-get update && \
     apt-get install -y $(cut -d# -f1 </tmp/apt-base-packages | envsubst) \
     && rm -rf /var/lib/apt/lists/* /tmp/apt-base-packages
 
-## Computer vision stage
-FROM ros2_base AS ros2_cv
-
-# Install apt packages
-COPY apt-cv-packages /tmp/apt-cv-packages
-RUN apt-get update && \
-    apt-get install -y $(cut -d# -f1 </tmp/apt-cv-packages | envsubst) \
-    && rm -rf /var/lib/apt/lists/* /tmp/apt-cv-packages
-
 ## Development stage
-FROM ros2_cv AS ros2_dev
+FROM ros2_base AS ros2_dev
 
 # Install apt packages
 COPY apt-dev-packages /tmp/apt-dev-packages
@@ -59,7 +50,7 @@ RUN if getent group $GROUP_ID > /dev/null; then \
     && echo $USER_NAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USER_NAME \
     && chmod 0440 /etc/sudoers.d/$USER_NAME
 
-# Add user to video group to allow access to webcam
+# Add user to video group to allow access to video sources
 RUN sudo usermod --append --groups video $USER_NAME
 
 RUN rosdep update

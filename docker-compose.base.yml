@@ -1,0 +1,14 @@
+# docker-compose.base.yml
+services:
+  base: # name of this service, will be used in basecontainer.json
+    image: ros2_base # the image will have this name once built
+    build:
+      context: .
+      dockerfile: Dockerfile # the only dockerfile
+      args:
+        ROS_DISTRO: jazzy 
+      target: ros2_base # must match the stage name in Dockerfile
+    environment:
+      - DISPLAY=$DISPLAY
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_DRIVER_CAPABILITIES=all
