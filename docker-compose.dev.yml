@@ -4,7 +4,7 @@ services:
     image: ros2_dev # the image will have this name once built
     extends:
       file: docker-compose.base.yml # extend the below service from this file
-      service: ros2_base
+      service: base
     build:
       context: .
       dockerfile: Dockerfile
