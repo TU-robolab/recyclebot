@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ENV_FILE=".devcontainer/.env"
+ENV_FILE=".env"
 
 echo "USER_NAME=${USER}" > ${ENV_FILE}
 echo "USER_ID=$(id -u $USER)" >> ${ENV_FILE}
