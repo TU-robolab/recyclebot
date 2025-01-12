@@ -1,0 +1,35 @@
+# cv dependencies (optional)
+libopencv-dev
+libopencv-contrib-dev
+python3-opencv
+libyaml-cpp-dev
+libjsoncpp-dev
+libeigen3-dev
+libglew-dev
+libglfw3-dev
+libgtest-dev
+libpcl-dev
+nlohmann-json3-dev
+
+# ros vision deps
+ros-$ROS_DISTRO-image-publisher
+ros-$ROS_DISTRO-image-common
+ros-$ROS_DISTRO-vision-msgs
+ros-$ROS_DISTRO-vision-opencv
+ros-$ROS_DISTRO-pcl-conversions
+ros-$ROS_DISTRO-camera-calibration
+ros-$ROS_DISTRO-image-view
+
+# recommended tools
+git-lfs
+
+# ROS packages (optional)
+ros-$ROS_DISTRO-rviz2
+ros-$ROS_DISTRO-tf-transformations
+ros-$ROS_DISTRO-rqt-graph
+ros-$ROS_DISTRO-rosbag2-storage-mcap
+ros-$ROS_DISTRO-ament-cmake-clang-format
+
+# debugging (optional)
+gdb
+
