@@ -1,77 +1,23 @@
-# recyclebot
+# recycleBot
 
 
 For recyclebot, the  devenv workflow  uses Docker for ROS. This ensures that code runs in an isolated environment on the computer at hand, ensuring portability and version consistency between devices.
 
-[TOC]
+- [Setting up the recyclebot environment](#setting-up-the-recyclebot-environment)
+  * [1. **Prepare a Docker Image**](#1---prepare-a-docker-image--)
+  * [Prerequisites](#prerequisites)
+  * [Run basic devcontainer setup with docker compose](#run-basic-devcontainer-setup-with-docker-compose)
+  * [**Common issues**](#--common-issues--)
+- [Design of Container Structure](#design-of-container-structure)
+  * [**Deployment vs. Development Containers**](#--deployment-vs-development-containers--)
 
-
-
-## Design of Container Structure
-
-* there are two main types of containers: **development containers** and **deployment containers**:
-
-------
-
-### **Deployment vs. Development Containers**
-
-- **Deployment (prod) Containers** :
-  - Everything (ROS, your configurations, workspace, etc.) is set up in the `Dockerfile`.
-  - No bind mounts or local directories are used; the container runs in isolation.
-- **Development (dev) Containers**:
-  - Used for active prototyping
-  - prioritizes  flexibility to edit files, build, and experiment without frequent image rebuilds via:
-    - **build-cache** to the `.bashrc` or build artifacts in the container are stored in the **build_cache** volume, so you don’t lose progress when the container shuts down.
-    - **git based development** - syncing code to container is simple by updating git repositories and using the bind mount, and can happen in your local computers/setup
-      - if you want to **debug locally in container**, you can use the **VScode dev containers plugin directly**
-        - this allows you to run/develop projects inside the container environment directly in VS Code
-
-------
-
-### **Common issues**
-
-**Resetting the Build Cache due to build issues**:
-
-- for build problems in the container, resets the container to a clean state by deleting the `build_cache` volume:
-
-  ```bash
-  docker volume rm build_cache
-  ```
-
-
-**permission denied while trying to connect to the Docker daemon socket**
-
-* ensure docker daemon is running:
-  ```bash
-  sudo systemctl status docker
-  sudo systemctl start docker # if not started , if so , do sudo systemctl restart docker
-  sudo systemctl enable docker # ensure it starts in system init
-  ```
-
-* Verify docker is installed correctly:
-
-  ```bash
-  docker --version
-  docker run hello-world
-  ```
-
-* check docker daemon socket:
-
-  ```bash
-  ls -l /var/run/docker.sock
-  
-  # output should be
-  $ srw-rw---- 1 root docker ...
-  
-  ```
-
-  
+<small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
 
 _______
 
-### Setting up the recyclebot environment
+## Setting up the recyclebot environment
 
-#### 1. **Prepare a Docker Image**
+### 1. **Prepare a Docker Image**
 
 - We create an image in two steps:
   - **base** - **ROS & basic packages are installed** (ROS2 jazzy - supported until 2029).
@@ -86,7 +32,7 @@ You will find different kinds of files in this repository.
   - Mounts local source code  to the container's ROS workspace directory.
 - `apt-**-packages` - contains list of packages installed in each phase of the docker image build
 
-#### Prerequisites
+### Prerequisites
 
 *  Ubuntu linux (preferably 24.04.1 LTS) - use `hostnamectl` cmd to check the current version
 
@@ -126,7 +72,7 @@ You will find different kinds of files in this repository.
     
       
 
-#### Run basic devcontainer setup with docker compose
+### Run basic devcontainer setup with docker compose
 
 1. clone the repository into your computer home: 
 
@@ -148,11 +94,11 @@ You will find different kinds of files in this repository.
 
    * you should see something like: 
 
-     ![image-20250119211628872](To Do/image-20250119211628872.png)
+     ![image-20250119211628872](resources/image-20250119211628872.png)
 
 4. run `docker ps` to see final container:
 
-   ![image-20250119211726811](To Do/image-20250119211726811.png)
+   ![image-20250119211726811](resources/image-20250119211726811.png)
 
 5. connect to container once built:
 
@@ -165,3 +111,66 @@ You will find different kinds of files in this repository.
      ![image-20250119211846522](resources/image-20250119211846522.png)
 
      ![image-20250119211917016](resources/image-20250119211917016.png)
+
+
+------
+
+### **Common issues**
+
+**Resetting the Build Cache due to build issues**:
+
+- for build problems in the container, resets the container to a clean state by deleting the `build_cache` volume:
+
+  ```bash
+  docker volume rm build_cache
+  ```
+
+
+**permission denied while trying to connect to the Docker daemon socket**
+
+* ensure docker daemon is running:
+
+  ```bash
+  sudo systemctl status docker
+  sudo systemctl start docker # if not started , if so , do sudo systemctl restart docker
+  sudo systemctl enable docker # ensure it starts in system init
+  ```
+
+* Verify docker is installed correctly:
+
+  ```bash
+  docker --version
+  docker run hello-world
+  ```
+
+* check docker daemon socket:
+
+  ```bash
+  ls -l /var/run/docker.sock
+  
+  # output should be
+  $ srw-rw---- 1 root docker ...
+  
+  ```
+
+
+____
+
+## Design of Container Structure
+
+* there are two main types of containers: **development containers** and **deployment containers**:
+
+### **Deployment vs. Development Containers**
+
+- **Deployment (prod) Containers** :
+  - Everything (ROS, your configurations, workspace, etc.) is set up in the `Dockerfile`.
+  - No bind mounts or local directories are used; the container runs in isolation.
+- **Development (dev) Containers**:
+  - Used for active prototyping
+  - prioritizes  flexibility to edit files, build, and experiment without frequent image rebuilds via:
+    - **build-cache** to the `.bashrc` or build artifacts in the container are stored in the **build_cache** volume, so you don’t lose progress when the container shuts down.
+    - **git based development** - syncing code to container is simple by updating git repositories and using the bind mount, and can happen in your local computers/setup
+      - if you want to **debug locally in container**, you can use the **VScode dev containers plugin directly**
+        - this allows you to run/develop projects inside the container environment directly in VS Code
+
+------
