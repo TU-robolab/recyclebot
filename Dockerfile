@@ -5,6 +5,8 @@ ENV ROS_DISTRO=${ROS_DISTRO}
 
 RUN export DEBIAN_FRONTEND=noninteractive
 
+# Make default shell in Dockerfile bash instead of sh
+SHELL ["/bin/bash", "-c"]
 
 # Install basic packages and set up locales
 RUN apt update -y && apt-get -y install --no-install-recommends locales gettext \
@@ -54,11 +56,11 @@ fi \
 # Add user to video group to allow access to video sources
 RUN sudo usermod --append --groups video $USER_NAME
 
-# Create a custom ros2 overlay workspace and workspace for development
+# Create a custom ros2 overlay workspace for development
 ENV ROS2_WS=/home/$USER_NAME/ros2_ws
 RUN mkdir -p ${ROS2_WS}/src 
 
-# Builds the ROS2 workspace
+# Build the ROS2 workspace
 RUN cd ${ROS2_WS}/src && \
     sudo apt-get update && \
     . /opt/ros/${ROS_DISTRO}/setup.bash && \
