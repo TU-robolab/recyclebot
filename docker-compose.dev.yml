@@ -19,6 +19,7 @@ services:
       - SYS_PTRACE
     privileged: true
     # Interactive shell
+    #runtime: nvidia
     stdin_open: true
     tty: true
     network_mode: host
@@ -30,3 +31,4 @@ services:
       - /home/$USER_NAME/data:/home/$USER_NAME/data:rw
       - /dev/bus/usb:/dev/bus/usb # for usb access, depends where its located
       - ../workspaces:/home/$USER_NAME/workspaces
+      - ./packages:/home/$USER_NAME/ros2_ws/src # add bind mount for packages developed for recyclebot to the workspace

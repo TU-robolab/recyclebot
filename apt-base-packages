@@ -5,3 +5,7 @@ curl
 git
 python3-pip
 python-is-python3
+nano
+openssh-server
+python3
+tmux
