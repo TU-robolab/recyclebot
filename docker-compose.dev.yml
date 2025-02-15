@@ -9,10 +9,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        USER_NAME: $USER_NAME
-        USER_ID: $USER_ID
-        GROUP_NAME: $GROUP_NAME
-        GROUP_ID: $GROUP_ID
+        USER_NAME: ${USER_NAME}
+        USER_ID: ${USER_ID}
+        GROUP_NAME: ${GROUP_NAME}
+        GROUP_ID: ${GROUP_ID}
       target: ros2_dev
     # debugging
     cap_add:
@@ -24,11 +24,11 @@ services:
     tty: true
     network_mode: host
     ipc: host
-    user: $USER_NAME
+    user: ${USER_NAME}
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw # gui
-      - /home/$USER_NAME/.ssh:/home/$USER_NAME/.ssh:ro # git credentials
-      #- /home/$USER_NAME/data:/home/$USER_NAME/data:rw
+      - /home/${USER_NAME}/.ssh:/home/${USER_NAME}/.ssh:ro # git credentials
+      #- /home/${USER_NAME}/data:/home/${USER_NAME}/data:rw
       #- /dev/bus/usb:/dev/bus/usb # for usb access, depends where its located
-      #- ../workspaces:/home/$USER_NAME/workspaces
-      - ./packages:/home/$USER_NAME/ros2_ws/src:rw # add bind mount for packages developed for recyclebot to the workspace
+      #- ../workspaces:/home/${USER_NAME}/workspaces
+      - ./packages:/home/${USER_NAME}/ros2_ws/src:rw # add bind mount for packages developed for recyclebot to the workspace

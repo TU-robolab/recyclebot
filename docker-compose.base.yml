@@ -9,7 +9,7 @@ services:
         ROS_DISTRO: jazzy 
       target: ros2_base # must match the stage name in Dockerfile
     environment:
-      - DISPLAY=$DISPLAY
+      - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
       - NVIDIA_DRIVER_CAPABILITIES=all  # Grants all NVIDIA driver capabilities to the container
       - NVIDIA_VISIBLE_DEVICES=all      # Makes all NVIDIA devices visible to the container
