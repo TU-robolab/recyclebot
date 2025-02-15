@@ -9,7 +9,7 @@ nano
 openssh-server
 python3
 tmux
-ibx11-xcb1
+libx11-xcb1
 libxcb1 
 libxcb-glx0 
 libxcb-keysyms1 
