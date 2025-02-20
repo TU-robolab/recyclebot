@@ -35,29 +35,29 @@ ARG USER_ID
 ARG GROUP_NAME
 ARG GROUP_ID
 
-RUN if getent group $GROUP_ID > /dev/null; then \
-OLD_GROUP_NAME=$(getent group $GROUP_ID |  cut -d: -f1); \
-groupmod --new-name $USER_NAME $OLD_GROUP_NAME; \
+RUN if getent group ${GROUP_ID} > /dev/null; then \
+OLD_GROUP_NAME=$(getent group ${GROUP_ID} |  cut -d: -f1); \
+groupmod --new-name ${USER_NAME} ${OLD_GROUP_NAME}; \
 else \
-groupadd --gid $GROUP_ID $USER_NAME; \
+groupadd --gid ${GROUP_ID} ${USER_NAME}; \
 fi \
-&& if getent passwd $USER_ID > /dev/null; then \
-OLD_USER_NAME=$(getent passwd $USER_ID |  cut -d: -f1); \
-usermod -l $USER_NAME $OLD_USER_NAME; \
-usermod -d /home/$USER_NAME -m $USER_NAME; \
+&& if getent passwd ${USER_ID} > /dev/null; then \
+OLD_USER_NAME=$(getent passwd ${USER_ID} |  cut -d: -f1); \
+usermod -l ${USER_NAME} ${OLD_USER_NAME}; \
+usermod -d /home/${USER_NAME} -m ${USER_NAME}; \
 else \
-useradd -s /bin/bash --uid $USER_ID --gid $GROUP_ID -m $USER_NAME; \
+useradd -s /bin/bash --uid ${USER_ID} --gid ${GROUP_ID} -m ${USER_NAME}; \
 fi \
 && apt-get update \
 && apt-get install -y sudo \
-&& echo $USER_NAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USER_NAME \
-&& chmod 0440 /etc/sudoers.d/$USER_NAME
+&& echo ${USER_NAME} ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/${USER_NAME} \
+&& chmod 0440 /etc/sudoers.d/${USER_NAME}
 
 # Add user to video group to allow access to video sources
-RUN sudo usermod --append --groups video $USER_NAME
+RUN sudo usermod --append --groups video ${USER_NAME}
 
 # Create a custom ros2 overlay workspace for development
-ENV ROS2_WS=/home/$USER_NAME/ros2_ws
+ENV ROS2_WS=/home/${USER_NAME}/ros2_ws
 RUN mkdir -p ${ROS2_WS}/src 
 
 # Build the ROS2 workspace
