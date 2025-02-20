@@ -10,6 +10,9 @@ services:
       target: ros2_base # must match the stage name in Dockerfile
     environment:
       - DISPLAY=${DISPLAY}
+      - QT_QPA_PLATFORM=xcb
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
       - QT_X11_NO_MITSHM=1
       - NVIDIA_DRIVER_CAPABILITIES=all  # Grants all NVIDIA driver capabilities to the container
       - NVIDIA_VISIBLE_DEVICES=all      # Makes all NVIDIA devices visible to the container
