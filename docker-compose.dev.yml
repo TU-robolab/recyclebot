@@ -27,7 +27,7 @@ services:
     user: ${USER_NAME}
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw # gui
-      - /run/user/${USER_ID}:/run/user/${USER_ID}" # wayland compability for GUI
+      - /run/user/${USER_ID}:/run/user/${USER_ID} # wayland compability for GUI
 # wayland GUI
       - /home/${USER_NAME}/.ssh:/home/${USER_NAME}/.ssh:ro # git credentials
       #- /home/${USER_NAME}/data:/home/${USER_NAME}/data:rw
