@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'rec_bot_core = recycle_bot.rec_bot_core:main'
+            'rec_bot_core = recycle_bot.rec_bot_core:main',
+            'rec_bot_control = recycle_bot.rec_bot_control:main'
         ],
     },
 )
