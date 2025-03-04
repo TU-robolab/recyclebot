@@ -7,8 +7,29 @@
   <maintainer email="todo@todo.todo">Elvis Borges</maintainer>
   <license>MIT</license>
 
+  <!-- ROS2 Core Dependencies -->
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+
+  <!-- MoveIt2 Dependencies -->
+  <depend>moveit_ros_planning_interface</depend>
+  <depend>moveit_core</depend>
+
+  <!-- TF2 Dependencies for Coordinate Transforms -->
+  <depend>tf2_ros</depend>
+  <depend>tf_transformations</depend>
+
+  <!-- UR16e Robot Driver -->
+  <depend>ur_robot_driver</depend>
+
+  <!-- ROS2 Controller Interfaces -->
+  <depend>controller_manager</depend>
+  <depend>control_msgs</depend>
+
+  <!-- YAML Configuration Handling -->
+  <depend>python3-yaml</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
