@@ -70,7 +70,10 @@ You will find different kinds of files in this repository.
        docker run hello-world
       ```
     
-      
+    - run this in your host system terminal to allow Docker to Use Wayland in your host system (in case your ubuntu uses wayland instead of X11 for GUI forwarding to container)
+      ```
+        xhost +si:localuser:$USER
+      ```
 
 ### Run basic devcontainer setup with docker compose
 
