@@ -16,13 +16,20 @@ services:
       target: ros2_dev
     # debugging
     cap_add:
-      - SYS_PTRACE
+      - SYS_PTRACE # tracing 
+      - SYS_NICE   # real time kernel patch
+    ulimits:
+      rtprio: 99
+      rttime: -1 # corresponds to 'unlimited'
+      memlock: -1 # unlimited
     privileged: true
     # Interactive shell
     #runtime: nvidia
     stdin_open: true
     tty: true
     network_mode: host
+    extra_hosts:
+      - "${REMOTE_HOSTNAME}:${REMOTE_IP}"
     ipc: host
     user: ${USER_NAME}
     volumes:
