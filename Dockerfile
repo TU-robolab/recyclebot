@@ -60,10 +60,8 @@ RUN sudo usermod --append --groups video ${USER_NAME}
 ENV ROS2_WS=/home/${USER_NAME}/ros2_ws
 RUN mkdir -p ${ROS2_WS}/src 
 
-# Clone Universal Robots ROS2 Driver &  Build the ROS2 workspace
+# Build the ROS2 workspace
 RUN cd ${ROS2_WS}/src && \
-    git clone -b main https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver.git src/Universal_Robots_ROS2_Driver && \
-    vcs import src --skip-existing --input src/Universal_Robots_ROS2_Driver/Universal_Robots_ROS2_Driver.${ROS_DISTRO}.repos && \
     sudo apt-get update && \
     . /opt/ros/${ROS_DISTRO}/setup.bash && \
     cd .. && \
