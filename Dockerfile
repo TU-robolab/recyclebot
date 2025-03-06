@@ -60,15 +60,17 @@ RUN sudo usermod --append --groups video ${USER_NAME}
 ENV ROS2_WS=/home/${USER_NAME}/ros2_ws
 RUN mkdir -p ${ROS2_WS}/src 
 
-# Build the ROS2 workspace
+# Clone Universal Robots ROS2 Driver &  Build the ROS2 workspace
 RUN cd ${ROS2_WS}/src && \
+    git clone -b main https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver.git src/Universal_Robots_ROS2_Driver && \
+    vcs import src --skip-existing --input src/Universal_Robots_ROS2_Driver/Universal_Robots_ROS2_Driver-not-released.${ROS_DISTRO}.repos && \
     sudo apt-get update && \
     . /opt/ros/${ROS_DISTRO}/setup.bash && \
     cd .. && \
     rosdep update && rosdep install --from-paths src --ignore-src -r -y --rosdistro ${ROS_DISTRO} && \
     sudo apt-get clean && \
     sudo rm -rf /var/lib/apt/lists/* && \
-    colcon build --symlink-install
+    colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 # Source ROS workspace automatically when new terminal is opened
 RUN sudo echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc && \
@@ -82,4 +84,4 @@ COPY ./ros_entrypoint.sh /ros_entrypoint.sh
 # Source ROS in the main terminal
 ENTRYPOINT ["/ros_entrypoint.sh"]
 
-CMD ["bash"]
+#CMD ["bash"]

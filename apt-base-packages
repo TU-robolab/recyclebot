@@ -23,3 +23,5 @@ libxcb-sync1
 libxcb-icccm4
 libxcb-xinerama0
 libxcb-dri3-0
+python3-vcstool
+python3-colcon-common-extensions
