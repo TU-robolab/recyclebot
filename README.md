@@ -46,6 +46,20 @@ You will find different kinds of files in this repository.
     sudo reboot
     ```
 
+*  Install the real time kernel on your Ubuntu (needed for UR control)
+  * ```bash
+    # attach account to canonical to enable pro ubuntu mode
+    sudo pro attach
+    # update your dependencies
+    sudo apt update && sudo apt install ubuntu-advantage-tools
+    # enable real time kernel mode 
+    sudo pro enable realtime-kernel
+
+    # reboot the system
+    reboot
+    ``` 
+
+
 * Docker -  install using the updated [docker installation page](https://docs.docker.com/engine/install/ubuntu/#prerequisites) WoW
 
   * ensure docker is given access priviledges:
