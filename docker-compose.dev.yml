@@ -34,7 +34,7 @@ services:
     user: ${USER_NAME}
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw # gui
-      - /tmp/.docker.xauth:/tmp/.docker.xauth:rw
+      - /tmp/.docker.xauth:/tmp/.docker.xauth:rw #xauthority
       - /run/user/${USER_ID}:/run/user/${USER_ID} # wayland compability for GUI
 # wayland GUI
       - /home/${USER_NAME}/.ssh:/home/${USER_NAME}/.ssh:ro # git credentials
