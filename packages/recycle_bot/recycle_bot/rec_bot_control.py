@@ -88,9 +88,15 @@ class cobot_control(Node):
         
         self.executing_task = True
         # each task execution goes from pick -> neutral -> place
-
+        """ neutral_pose = self.create_pose(
+            [
+                {'target_bin_1': {'position': [393.43, -247.56, 1.24], 'orientation': [0.187876, -0.6345103, -0.7318231, 0.1628935]}}
+            ]
+        )
+        """
         pick_pose, place_pose = self.task_queue.popleft() # FIFO order
         
+
         if self.move_to_pose(pick_pose):
             self.get_logger().info("Pick successful, moving to place.")
             if self.move_to_pose(place_pose):
