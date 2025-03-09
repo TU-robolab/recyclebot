@@ -1,0 +1,10 @@
+# YAML defining sorting target locations 
+# in the future these will be specified, but for now lets have 1 bin 
+# defined as a conjuntion of a position and orientation in reference to base link:
+# with a cartesian coordinate as the position (mm),
+# and a quaternion as the orientation ([x, y, z, w])
+sorting_sequence:
+  - target_bin_1: { position: [393.43, -247.56, 1.24], orientation: [ 0.187876, -0.6345103, -0.7318231, 0.1628935 ] }
+#  - place2: { position: [x2, y2, z2], orientation: [qx2, qy2, qz2, qw2] }
+#  - place3: { position: [x3, y3, z3], orientation: [qx3, qy3, qz3, qw3] }
+cycle: true   # decides whether to cycle through the sequence of targets when end is reached or not

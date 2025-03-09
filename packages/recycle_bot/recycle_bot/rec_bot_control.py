@@ -1,14 +1,19 @@
+# System Imports
+import yaml
+import os
+
+from collections import deque
+
+# ROS2 imports
 import rclpy
+import tf2_ros
+
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Bool
 from moveit_commander import MoveGroupCommander
-import tf2_ros
-import yaml
-import os
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy
-from collections import deque
 
 class cobot_control(Node):
     def __init__(self):
@@ -17,17 +22,18 @@ class cobot_control(Node):
         # Load sorting sequence from YAML file
         self.sorting_sequence = self.load_sorting_sequence()
         self.sequence_index = 0
-        self.task_queue = deque()
+        # implemented as thread-safe deque, for now we use FIFO
+        self.task_queue = deque() 
         self.executing_task = False
 
         # MoveIt2 Interface
         self.move_group = MoveGroupCommander('manipulator')
         
-        # TF2 Listener
+        # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
-        # Vision subscriber (detects object availability and poses)
+        # to be used for vision subscriber (detects object availability and poses)
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, depth=10)
         self.create_subscription(PoseStamped, '/vision/detected_object', self.vision_callback, qos_profile)
         
@@ -88,6 +94,11 @@ class cobot_control(Node):
         self.move_group.clear_pose_targets()
         return success
 
+    def print_current_status(self):
+        """queries and prints robot's state"""
+        current_pose = self.move_group.get_current_pose().pose
+        print("Current End-Effector Pose:", current_pose)
+        
 
 def main():
     rclpy.init()
