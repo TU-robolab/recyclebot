@@ -23,6 +23,7 @@ ros-$ROS_DISTRO-image-view
 # ros core deps
 ros-$ROS_DISTRO-turtle-nest
 ros-$ROS_DISTRO-navigation2
+ros-$ROS_DISTRO-ros2controlcli
 
 # recommended tools
 git-lfs

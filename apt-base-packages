@@ -23,6 +23,12 @@ libxcb-sync1
 libxcb-icccm4
 libxcb-xinerama0
 libxcb-dri3-0
+xauth
+libgl1-mesa-glx
+libxext6
+libxrender1
+dbus-x11
+x11-xserver-utils
 python3-vcstool
 python3-colcon-common-extensions
 x11-apps
