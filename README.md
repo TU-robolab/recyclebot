@@ -3,13 +3,14 @@
 
 For recyclebot, the  devenv workflow  uses Docker for ROS. This ensures that code runs in an isolated environment on the computer at hand, ensuring portability and version consistency between devices.
 
-- [Setting up the recyclebot environment](#setting-up-the-recyclebot-environment)
-  * [1. **Prepare a Docker Image**](#1---prepare-a-docker-image--)
-  * [Prerequisites](#prerequisites)
-  * [Run basic devcontainer setup with docker compose](#run-basic-devcontainer-setup-with-docker-compose)
-  * [**Common issues**](#--common-issues--)
-- [Design of Container Structure](#design-of-container-structure)
-  * [**Deployment vs. Development Containers**](#--deployment-vs-development-containers--)
+- [recycleBot](#recyclebot)
+  - [Setting up the recyclebot environment](#setting-up-the-recyclebot-environment)
+    - [1. **Prepare a Docker Image**](#1-prepare-a-docker-image)
+    - [Prerequisites](#prerequisites)
+    - [Run basic devcontainer setup with docker compose](#run-basic-devcontainer-setup-with-docker-compose)
+    - [**Common issues**](#common-issues)
+  - [Design of Container Structure](#design-of-container-structure)
+    - [**Deployment vs. Development Containers**](#deployment-vs-development-containers)
 
 <small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
 
@@ -191,3 +192,4 @@ ____
         - this allows you to run/develop projects inside the container environment directly in VS Code
 
 ------
+vnc setup cv@cv-NUC8i3BEH:~/recyclebot$ x0vncserver -localhost no -passwordfile ~/.vnc/passwd -display $DISPLAY
