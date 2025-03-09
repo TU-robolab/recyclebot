@@ -7,6 +7,7 @@ from collections import deque
 # ROS2 imports
 import rclpy
 import tf2_ros
+import rospy
 
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
@@ -55,21 +56,29 @@ class cobot_control(Node):
     def vision_callback(self, msg: PoseStamped):
         """Handles incoming object pose from the vision system and queues it."""
         try:
+            # convert from camera transform to robot base-link reference
             transform = self.tf_buffer.lookup_transform('base_link', msg.header.frame_id, rclpy.time.Time())
             transformed_pose = tf2_ros.do_transform_pose(msg, transform)
+
+            # retrieve target bin location (base-link reference)
             target_pose = self.get_next_sorting_pose()
+
+            # add sorting task to FIFO queue
             self.task_queue.append((transformed_pose, target_pose))
             self.get_logger().info("Queued new sorting task.")
         except Exception as e:
-            self.get_logger().warn(f"TF transform failed: {e}")
+            self.get_logger().warn(f"Not able to process detected trash: {e}")
 
     def get_next_sorting_pose(self):
-        """Returns the next target pose from the predefined sequence, cycling if needed."""
+        """Returns the next target pose from the predefined sorting sequence, cycles sequence if needed."""
         if not self.sorting_sequence:
             self.get_logger().error("No sorting sequence available!")
             return None
+        
         target_pose = self.sorting_sequence[self.sequence_index]
         self.sequence_index = (self.sequence_index + 1) % len(self.sorting_sequence)
+        
+        # TODO convert from return YAML value into posetamped datatype
         return target_pose
 
     def process_tasks(self):
@@ -78,7 +87,9 @@ class cobot_control(Node):
             return
         
         self.executing_task = True
-        pick_pose, place_pose = self.task_queue.popleft()
+        # each task execution goes from pick -> neutral -> place
+
+        pick_pose, place_pose = self.task_queue.popleft() # FIFO order
         
         if self.move_to_pose(pick_pose):
             self.get_logger().info("Pick successful, moving to place.")
@@ -99,6 +110,39 @@ class cobot_control(Node):
         current_pose = self.move_group.get_current_pose().pose
         print("Current End-Effector Pose:", current_pose)
         
+    def create_pose(self, location , element_idx=0):
+        """ 
+         element_index tells you whcih element you would like
+         location based on format from YAML file, eg for current YAML, input would be:
+         [
+            {
+                'target_bin_1': {
+                    'position': [393.43, -247.56, 1.24],
+                    'orientation': [0.187876, -0.6345103, -0.7318231, 0.1628935]
+                }
+            }
+         ]
+        """
+
+        pose = PoseStamped()
+        
+        # Header configuration
+        pose.header.stamp = rospy.Time.now()
+        pose.header.frame_id = "base_link"
+        
+        location_name = list(location[element_idx].keys())[0]
+        # Position coordinates
+        pose.pose.position.x = location[location_name]['position'][0]
+        pose.pose.position.y = location[location_name]['position'][1]
+        pose.pose.position.z = location[location_name]['position'][2]
+        
+        # Orientation quaternion 
+        pose.pose.orientation.x = location[location_name]['orientation'][0]
+        pose.pose.orientation.y = location[location_name]['orientation'][1]
+        pose.pose.orientation.z = location[location_name]['orientation'][2]
+        pose.pose.orientation.w = location[location_name]['orientation'][3]
+        
+        return pose
 
 def main():
     rclpy.init()
