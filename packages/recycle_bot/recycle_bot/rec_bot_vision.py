@@ -44,7 +44,7 @@ class VisionDetector(Node):
         self.last_image = None
         self.image_lock = Lock()
         
-        # create list to track detected trash (max 128 values)
+        # create list to track detected trash (max 128 values ~4.2 secs at 30FPS)
         self.detection_deque = deque(maxlen=128)
         self.detection_lock = Lock()
 
@@ -57,7 +57,7 @@ class VisionDetector(Node):
                                        callback_group=ReentrantCallbackGroup()
         )
         
-        # subscribe to visio topict
+        # subscribe to vision topic
         self.image_sub = self.create_subscription(
             Image,
             #'/camera/color/image_raw',
@@ -70,10 +70,10 @@ class VisionDetector(Node):
         self.detection_pub = self.create_publisher(Detection2DArray, 
                                                   'object_detections', 10
         )
-        # Processing timer
+        # timer for processing detections queue, every 100 ms 
         self.timer = self.create_timer(0.1, self.process_deque)
         
-        self.get_logger().info("Vision Detection node initialized")
+        self.get_logger().info("vision detection node initialized")
 
     """ 
     thread-safe image callback, only 1 thread can update 
@@ -86,7 +86,7 @@ class VisionDetector(Node):
 
     """ 
     thread-safe detection callback, runs the model on capture
-    and published the detection 
+    and publish the detection 
     """
     def trigger_callback(self, request, response):
         with self.image_lock:
@@ -97,13 +97,13 @@ class VisionDetector(Node):
             
             cv_image = self.bridge.imgmsg_to_cv2(self.last_image, 'bgr8')
             
-        # Preprocess image for ONNX model
+        # preprocess image for ONNX model
         input_tensor = self.preprocess_image(cv_image)
         
-        # Run inference
+        # run inference
         outputs = self.model.run(None, {'input': input_tensor})
         
-        # Process detections
+        # process detections
         detections = self.postprocess_output(outputs, cv_image.shape)
         
         # Add unique detections to deque
@@ -117,7 +117,8 @@ class VisionDetector(Node):
         return response
 
     def preprocess_image(self, image):
-        # Model-specific preprocessing (adjust based on your model requirements)
+        # model-specific preprocessing example
+        
         resized = cv2.resize(image, (640, 640))
         normalized = resized.astype(np.float32) / 255.0
         return np.transpose(normalized, (2, 0, 1))[np.newaxis, ...]
@@ -129,7 +130,7 @@ class VisionDetector(Node):
         class_ids = outputs[2][0]
         
         for box, score, class_id in zip(boxes, scores, class_ids):
-            if score < 0.5:  # Confidence threshold
+            if score < 0.5:  # confidence threshold to skip detection
                 continue
                 
             # Convert coordinates to image space
@@ -171,6 +172,7 @@ class VisionDetector(Node):
         return False
 
     def process_deque(self):
+        # skip if empty
         if not self.detection_deque:
             return
             
@@ -179,6 +181,7 @@ class VisionDetector(Node):
         
         with self.detection_lock:
             while self.detection_deque:
+                # fifo order 
                 det = self.detection_deque.popleft()
                 
                 d = Detection2D()
