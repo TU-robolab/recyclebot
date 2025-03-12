@@ -152,10 +152,15 @@ class cobot_control(Node):
 
 def main():
     rclpy.init()
-    node = cobot_control()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    ur_node = cobot_control()
+    try:
+        rclpy.spin(rec_bot_core)
+    except KeyboardInterrupt:
+        pass
+
+    ur_node.destroy_node()
+    rclpy.try_shutdown()
+
 
 if __name__ == '__main__':
     main()
