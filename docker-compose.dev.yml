@@ -22,7 +22,7 @@ services:
       rtprio: 99
       rttime: -1 # corresponds to 'unlimited'
       memlock: -1 # unlimited
-    privileged: true
+    # privileged: true
     # Interactive shell
     #runtime: nvidia
     stdin_open: true
@@ -32,6 +32,12 @@ services:
       - "${REMOTE_HOSTNAME}:${REMOTE_IP}"
     ipc: host
     user: ${USER_NAME}
+    healthcheck:
+      test: /ros_entrypoint.sh rostopic list || exit 1
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 1m
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw # gui
       - /tmp/.docker.xauth:/tmp/.docker.xauth:rw #xauthority
