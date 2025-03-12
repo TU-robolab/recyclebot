@@ -32,3 +32,5 @@ x11-xserver-utils
 python3-vcstool
 python3-colcon-common-extensions
 x11-apps
+# networking 
+iputils-ping
