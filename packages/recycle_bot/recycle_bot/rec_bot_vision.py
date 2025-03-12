@@ -14,7 +14,7 @@ import rospy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
-
+from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
 from std_srvs.srv import Trigger
@@ -57,18 +57,38 @@ class VisionDetector(Node):
                                        callback_group=ReentrantCallbackGroup()
         )
         
-        # subscribe to vision topic
-        self.image_sub = self.create_subscription(
-            Image,
-            #'/camera/color/image_raw',
-           # self.image_callback,
-           # 10,
-           # callback_group=ReentrantCallbackGroup()
+        """
+            subscribe to vision topic for rbg image from realsense: 
+            depth(0)  Format:RGB8 , Width:1280, Height:720, FPS:30
+        """
+        # setup ROS quality of service for camera frames
+        qos_camera_feed = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,  # keep only the latest frames
+            depth=5,  # buffer up to 5 frames
+            reliability=ReliabilityPolicy.BEST_EFFORT, # Drop frames if necessary for speed
+            durability=DurabilityPolicy.VOLATILE  # no need to keep old frames
         )
 
+        self.image_sub = self.create_subscription(
+            Image,
+            '/camera/camera/color/image_raw',
+            self.image_callback,
+            qos_camera_feed, 
+            callback_group=ReentrantCallbackGroup()
+        )
+
+        # setup ROS quality of service for detections
+        qos_detected_objects = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,  # store recent messages
+            depth=10,  # buffer up to 10 detections
+            reliability=ReliabilityPolicy.RELIABLE,  # ensure all detections arrive
+            durability=DurabilityPolicy.VOLATILE  # no need to retain past detections
+        )
+        
         # publish an array of current detections     
         self.detection_pub = self.create_publisher(Detection2DArray, 
-                                                  'object_detections', 10
+                                                  'object_detections',
+                                                   qos_detected_objects
         )
         # timer for processing detections queue, every 100 ms 
         self.timer = self.create_timer(0.1, self.process_deque)
