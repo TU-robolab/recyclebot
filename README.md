@@ -193,3 +193,8 @@ ____
 
 ------
 vnc setup cv@cv-NUC8i3BEH:~/recyclebot$ x0vncserver -localhost no -passwordfile ~/.vnc/passwd -display $DISPLAY
+
+
+___ 
+for pose euler to quaternion conversions
+https://www.andre-gaschler.com/rotationconverter/
