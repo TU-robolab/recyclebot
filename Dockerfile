@@ -71,8 +71,9 @@ RUN cd ${ROS2_WS}/src && \
     colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 # Source ROS workspace automatically when new terminal is opened
-RUN sudo echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc && \
-    sudo echo ". ${ROS2_WS}/install/setup.bash" >> ~/.bashrc 
+RUN sudo echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${USER_NAME}/.bashrc && \
+    sudo echo ". ${ROS2_WS}/install/setup.bash" >> /home/${USER_NAME}/.bashrc \
+    sudo echo "alias ros='ros2'" >> /home/${USER_NAME}/.bashrc
 
 WORKDIR ${ROS2_WS}
 
