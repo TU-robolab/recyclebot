@@ -154,7 +154,7 @@ def main():
     rclpy.init()
     ur_node = cobot_control()
     try:
-        rclpy.spin(rec_bot_core)
+        rclpy.spin(ur_node)
     except KeyboardInterrupt:
         pass
 
