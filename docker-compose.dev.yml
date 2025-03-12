@@ -44,7 +44,7 @@ services:
       - /run/user/${USER_ID}:/run/user/${USER_ID} # wayland compability for GUI
 # wayland GUI
       - /home/${USER_NAME}/.ssh:/home/${USER_NAME}/.ssh:ro # git credentials
-      - /dev:/dev
+      - /dev:/dev # access to generic devices to container
       #- /home/${USER_NAME}/data:/home/${USER_NAME}/data:rw
       #- /dev/bus/usb:/dev/bus/usb # for usb access, depends where its located
       # - /dev/ttyUR:/dev/ttyUR # for gripper

@@ -11,6 +11,9 @@ libgtest-dev
 libpcl-dev
 nlohmann-json3-dev
 
+# vision deps 
+librealsense2-udev-rules
+
 # ros vision deps
 ros-$ROS_DISTRO-image-publisher
 ros-$ROS_DISTRO-image-common
