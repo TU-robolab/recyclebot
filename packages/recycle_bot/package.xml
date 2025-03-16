@@ -29,9 +29,6 @@
   <depend>controller_manager</depend>
   <depend>control_msgs</depend>
 
-  <!-- vision libraries -->
-  <exec_depend>onnxruntime</exec_depend>
-
   <!-- YAML Configuration Handling -->
   <depend>python3-yaml</depend>
 

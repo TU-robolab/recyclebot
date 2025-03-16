@@ -29,6 +29,11 @@ RUN apt-get update && \
 apt-get install -y $(cut -d# -f1 </tmp/apt-dev-packages | envsubst) \
 && rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
 
+# Install python packages
+COPY python-dev-packages /tmp/python-dev-packages
+RUN pip install --no-cache-dir -U $(cut -d# -f1 </tmp/python-dev-packages | envsubst) \
+&& rm -rf /tmp/python-dev-packages
+
 # Add user with same UID and GID as your host system, replace if one exists with same UID
 ARG USER_NAME=ros2
 ARG USER_ID
