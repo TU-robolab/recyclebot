@@ -19,7 +19,6 @@ setup(
     ],
     install_requires=['setuptools'] + install_requires,  # add requirements from requirements.txt
     zip_safe=True,
-    zip_safe=True,
     maintainer='Elvis Borges',
     maintainer_email='todo@todo.todo',
     description='TODO: Package description',
