@@ -9,7 +9,7 @@ from threading import Lock
 # ROS2 imports
 import rclpy
 import tf2_ros
-import rospy
+
 
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup

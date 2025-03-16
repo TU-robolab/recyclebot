@@ -7,7 +7,7 @@ from collections import deque
 # ROS2 imports
 import rclpy
 import tf2_ros
-import rospy
+
 
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
@@ -133,7 +133,7 @@ class cobot_control(Node):
         pose = PoseStamped()
         
         # Header configuration
-        pose.header.stamp = rospy.Time.now()
+        pose.header.stamp = rclpy.Time.now()
         pose.header.frame_id = "base_link"
         
         location_name = list(location[element_idx].keys())[0]
