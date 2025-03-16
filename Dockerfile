@@ -31,7 +31,7 @@ apt-get install -y $(cut -d# -f1 </tmp/apt-dev-packages | envsubst) \
 
 # Install python packages
 COPY python-dev-packages /tmp/python-dev-packages
-RUN pip install --no-cache-dir -U $(cut -d# -f1 </tmp/python-dev-packages | envsubst) \
+RUN python -m pip install --no-cache-dir -U $(cut -d# -f1 </tmp/python-dev-packages | envsubst) \
 && rm -rf /tmp/python-dev-packages
 
 # Add user with same UID and GID as your host system, replace if one exists with same UID
