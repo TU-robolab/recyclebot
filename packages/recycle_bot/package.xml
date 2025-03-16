@@ -12,6 +12,7 @@
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
+  <depend>std_srvs</depend>
 
   <!-- MoveIt2 Dependencies -->
   <depend>moveit_ros_planning_interface</depend>
@@ -27,6 +28,9 @@
   <!-- ROS2 Controller Interfaces -->
   <depend>controller_manager</depend>
   <depend>control_msgs</depend>
+
+  <!-- vision libraries -->
+  <exec_depend>onnxruntime</exec_depend>
 
   <!-- YAML Configuration Handling -->
   <depend>python3-yaml</depend>
