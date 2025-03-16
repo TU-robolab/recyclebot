@@ -8,6 +8,7 @@ package_name = 'recycle_bot'
 requirements_path = Path(__file__).parent / 'requirements.txt'
 install_requires = requirements_path.read_text().splitlines() if requirements_path.exists() else []
 
+print(find_packages(exclude=['test']))
 setup(
     name=package_name,
     version='0.0.0',
