@@ -56,12 +56,25 @@ fi \
 # Add user to video group to allow access to video sources
 RUN sudo usermod --append --groups video ${USER_NAME}
 
+# install system python dependencies
+RUN sudo apt update && apt install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-colcon-common-extensions
+
+    
 # Create a custom ros2 overlay workspace for development
 ENV ROS2_WS=/home/${USER_NAME}/ros2_ws
 RUN mkdir -p ${ROS2_WS}/src 
 
-# Build the ROS2 workspace
+# create a virtual environment inside Docker
+RUN python3 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+
+# Build the ROS2 workspace & Install python dependencies inside the virtual environment
 RUN cd ${ROS2_WS}/src && \
+    python3 -m pip install -r recycle_bot/requirements.txt \
     sudo apt-get update && \
     . /opt/ros/${ROS_DISTRO}/setup.bash && \
     cd .. && \
