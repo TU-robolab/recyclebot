@@ -1,3 +1,2 @@
 onnxruntime
-numpy
-cv2
+numpy<2
