@@ -32,6 +32,10 @@
   <!-- YAML Configuration Handling -->
   <depend>python3-yaml</depend>
 
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>onnxruntime</exec_depend>
+  <exec_depend>numpy</exec_depend>
+  
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
