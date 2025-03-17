@@ -10,6 +10,6 @@ if [ -d "/venv" ]; then
 fi
 
 . "alias ros='ros2'"
-source ~/.bashrc  # alias ros='ros2'
+#source ~/.bashrc  # alias ros='ros2'
 
 exec "$@"
