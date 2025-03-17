@@ -75,7 +75,7 @@ ENV PATH="/venv/bin:$PATH"
 
 # Build the ROS2 workspace & Install python dependencies inside the virtual environment
 RUN cd ${ROS2_WS}/src && \
-    python3 -m pip install -r /tmp/requirements.txt \
+    python3 -m pip install -r /tmp/requirements.txt && \
     sudo apt-get update && \
     . /opt/ros/${ROS_DISTRO}/setup.bash && \
     cd .. && \
