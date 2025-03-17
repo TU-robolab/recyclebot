@@ -6,9 +6,16 @@ package_name = 'recycle_bot'
 
 # read dependencies from requirements.txt
 requirements_path = Path(__file__).parent / 'requirements.txt'
-install_requires = requirements_path.read_text().splitlines() if requirements_path.exists() else []
+install_requires = ['setuptools']
 
-print(find_packages(exclude=['test']))
+if requirements_path.exists():
+    with open(requirements_path, "r") as f:
+        requirements = [
+            line.strip() for line in f
+            if line.strip() and not line.startswith("#")  # ignore blank lines & comments
+        ]
+        install_requires.extend(requirements)
+
 setup(
     name=package_name,
     version='0.0.0',
@@ -18,7 +25,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools'] + install_requires,  # add requirements from requirements.txt
+    install_requires=install_requires,  # add requirements from requirements.txt
     zip_safe=True,
     maintainer='Elvis Borges',
     maintainer_email='todo@todo.todo',
