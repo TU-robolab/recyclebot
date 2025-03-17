@@ -25,6 +25,7 @@ services:
     # privileged: true
     # Interactive shell
     #runtime: nvidia
+    entrypoint: ["/ros_entrypoint.sh"]  # use the entrypoint script
     stdin_open: true
     tty: true
     network_mode: host
