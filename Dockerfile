@@ -69,12 +69,13 @@ ENV ROS2_WS=/home/${USER_NAME}/ros2_ws
 RUN mkdir -p ${ROS2_WS}/src 
 
 # create a virtual environment inside Docker
+COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
 RUN python3 -m venv /venv
 ENV PATH="/venv/bin:$PATH"
 
 # Build the ROS2 workspace & Install python dependencies inside the virtual environment
 RUN cd ${ROS2_WS}/src && \
-    python3 -m pip install -r ./packages/recycle_bot/requirements.txt \
+    python3 -m pip install -r /tmp/requirements.txt \
     sudo apt-get update && \
     . /opt/ros/${ROS_DISTRO}/setup.bash && \
     cd .. && \
