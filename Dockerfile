@@ -86,7 +86,7 @@ RUN cd ${ROS2_WS}/src && \
 
 # Source ROS workspace automatically when new terminal is opened
 RUN sudo echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${USER_NAME}/.bashrc && \
-    sudo echo ". ${ROS2_WS}/install/setup.bash" >> /home/${USER_NAME}/.bashrc \
+    sudo echo ". ${ROS2_WS}/install/setup.bash" >> /home/${USER_NAME}/.bashrc && \
     sudo echo "alias ros='ros2'" >> /home/${USER_NAME}/.bashrc
 
 WORKDIR ${ROS2_WS}
