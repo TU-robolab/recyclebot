@@ -92,7 +92,7 @@ RUN sudo echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${USER_NAME}/.bashr
 WORKDIR ${ROS2_WS}
 
 # Source ROS in the main terminal
-COPY ./ros_entrypoint.sh /ros_entrypoint.sh
+COPY --chmod=755 ./ros_entrypoint.sh /ros_entrypoint.sh
 
 # Source ROS in the main terminal
 ENTRYPOINT ["/ros_entrypoint.sh"]
