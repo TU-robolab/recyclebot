@@ -63,7 +63,6 @@ RUN sudo apt update && apt install -y \
     python3-venv \
     python3-colcon-common-extensions
 
-    
 # Create a custom ros2 overlay workspace for development
 ENV ROS2_WS=/home/${USER_NAME}/ros2_ws
 RUN mkdir -p ${ROS2_WS}/src && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}
