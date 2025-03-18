@@ -66,7 +66,7 @@ RUN sudo apt update && apt install -y \
     
 # Create a custom ros2 overlay workspace for development
 ENV ROS2_WS=/home/${USER_NAME}/ros2_ws
-RUN mkdir -p ${ROS2_WS}/src 
+RUN mkdir -p ${ROS2_WS}/src && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}
 
 # create a virtual environment inside Docker
 COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
@@ -85,9 +85,9 @@ RUN cd ${ROS2_WS}/src && \
     colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 # Source ROS workspace automatically when new terminal is opened
-RUN sudo echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${USER_NAME}/.bashrc && \
-    sudo echo ". ${ROS2_WS}/install/setup.bash" >> /home/${USER_NAME}/.bashrc && \
-    sudo echo "alias ros='ros2'" >> /home/${USER_NAME}/.bashrc
+RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" | sudo tee -a /home/${USER_NAME}/.bashrc \
+    && echo ". ${ROS2_WS}/install/setup.bash" | sudo tee -a /home/${USER_NAME}/.bashrc \
+    && echo "alias ros='ros2'" | sudo tee -a /home/${USER_NAME}/.bashrc
 
 WORKDIR ${ROS2_WS}
 
