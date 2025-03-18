@@ -34,7 +34,7 @@ services:
     ipc: host
     user: ${USER_NAME}
     healthcheck:
-      test: /ros_entrypoint.sh rostopic list || exit 1
+      test: /ros_entrypoint.sh ros2 topic list || exit 1
       interval: 5m
       timeout: 10s
       retries: 3
@@ -43,7 +43,6 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw # gui
       - /tmp/.docker.xauth:/tmp/.docker.xauth:rw #xauthority
       - /run/user/${USER_ID}:/run/user/${USER_ID} # wayland compability for GUI
-# wayland GUI
       - /home/${USER_NAME}/.ssh:/home/${USER_NAME}/.ssh:ro # git credentials
       - /dev:/dev # access to generic devices to container
       #- /home/${USER_NAME}/data:/home/${USER_NAME}/data:rw
