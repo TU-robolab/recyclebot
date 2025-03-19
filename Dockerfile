@@ -88,8 +88,6 @@ RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" | sudo tee -a /home/${USER_NAME}/
     && echo ". ${ROS2_WS}/install/setup.bash" | sudo tee -a /home/${USER_NAME}/.bashrc \
     && echo "alias ros='ros2'" | sudo tee -a /home/${USER_NAME}/.bashrc
 
-# switch to work user
-USER ${USER_NAME}    
 WORKDIR ${ROS2_WS}
 
 # Source ROS in the main terminal
