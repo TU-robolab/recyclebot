@@ -198,3 +198,119 @@ vnc setup cv@cv-NUC8i3BEH:~/recyclebot$ x0vncserver -localhost no -passwordfile 
 ___ 
 for pose euler to quaternion conversions
 https://www.andre-gaschler.com/rotationconverter/
+
+
+
+# ROS 2 Gripper Control Stack
+
+This package contains a modular ROS 2 stack for controlling a gripper over a serial interface.
+
+---
+
+## Package Overview
+
+The project consists of **three main components**:
+
+---
+
+### 1. `grip_interface`
+
+A simple and clean ROS 2 service definition for triggering gripper actions.
+
+#### Service Definition
+
+```
+string action
+---
+bool success
+string message
+```
+
+- `action`: Command string to be interpreted by the gripper (e.g. "grip", "release").
+- `success`: Indicates whether the command was executed successfully.
+- `message`: Human-readable status or error description.
+
+---
+
+### 2. `grip_command_package`
+
+This package is the core control logic for operating the gripper via a serial interface. It includes both a ROS 2 node and a launch file, integrating the hardware interface (remote_serial) and the UR robot driver for full system startup.
+
+#### Key Components
+A fully featured node that:
+
+Implements the grip_interface service under `/gripper_action`
+Publishes serial commands via `/serial/com1/inject/output`
+Subscribes to `/serial/com1/inspect/input` to receive inspection data
+Publishes object detection results on `/object_detection/status`
+Periodically sends sensor queries using a timer
+Has a debug parameter (set via launch file) to control verbose logging
+Initializes the gripper on startup via a custom serial command
+Launch File: `master_launch.py`
+
+
+#### This launch file brings up the full system, including:
+
+- UR Robot Driver
+Launches ur_robot_driver with tool communication enabled, using `/tmp/ttyUR` as the tool port.
+
+- Serial Interface (remote_serial)
+Starts the `remote_serial_standalone` node with full configuration for baud rate, data bits, stop bits, flow control, etc.
+
+- Gripper Node
+Launches `gripper_node` from `grip_command_package`.
+
+This launch setup ensures the entire pipeline — robot arm, serial access, and gripper control — comes online seamlessly.
+
+### 3. `serial`
+
+This package integrates the powerful and flexible [`remote_serial`](https://github.com/openvmp/serial) implementation.
+
+### Highlights
+
+- Full ROS 2 integration for serial I/O
+- Handles serial line **saturation gracefully**
+- Prevents data loss and blocking behavior
+- Exposes serial ports as ROS 2 interfaces for introspection and debugging
+
+This package ensures **stable and performant communication** even in high-throughput or error-prone serial environments.
+
+---
+
+## Getting Started
+
+### Start the robot:
+
+Start robot over teach pendant and initiialize it so its at least in robot idle mode
+
+
+### Start the system:
+
+```bash
+ros2 launch grip_command_package master.launch.py
+```
+
+This will:
+- Start the UR driver
+- Connect to the gripper over serial
+- Bring up the service interface
+- Publishes the gripper status on `/object_detection/status`
+
+### Send a Command
+
+You can call the service like this:
+
+```bash
+ros2 service call /gripper_action grip_interface/srv/GripCommand "{action: 'grip'}"
+```
+or
+```bash
+ros2 service call /gripper_action grip_interface/srv/GripCommand "{action: 'release'}"
+```
+
+### Echo the gripper detection status:
+```bash
+ros2 topic echo /object_detection/status
+```
+
+---
