@@ -22,7 +22,7 @@ setup(
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages',
-            ['resource/' + package_name]),
+         ['pkg_resources/' + "test-merged-trash-data-rb-v1.onnx"]),
         ('share/' + package_name, ['package.xml']),
     ],
     install_requires=install_requires,  # add requirements from requirements.txt
