@@ -35,10 +35,10 @@ class VisionDetector(Node):
         
 
         # initialize ONNX model initialization (model in pkg_resources location)
-        tmp_model_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "test-merged-trash-data-rb-v1.onnx" )
-        self.model = ort.InferenceSession(tmp_model_path, 
-                         providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
-        )
+        # tmp_model_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "test-merged-trash-data-rb-v1.onnx" )
+        # self.model = ort.InferenceSession(tmp_model_path, 
+        #                  providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
+        # )
 
         # used labels
         self.class_labels = ['bottle_pet', 'box_pp', 'bucket', 'canister', 'cup_pp-ps', 'flower_pot', 'lid_pp-ps', 'non-food_bottle', 'other', 'watering_can']
