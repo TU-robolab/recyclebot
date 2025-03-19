@@ -34,10 +34,10 @@ class VisionDetector(Node):
         
 
         # initialize ONNX model initialization (model in resources location)
-        tmp_model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'sorting_sequence.yaml')
-        self.model = ort.InferenceSession(tmp_model_path, 
-                         providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
-        )
+        # tmp_model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'sorting_sequence.yaml')
+        # self.model = ort.InferenceSession(tmp_model_path, 
+        #                  providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
+        # )
         # used labels
         self.class_labels = ['class1', 'class2', ...]  
         

@@ -33,7 +33,7 @@ services:
       - "${REMOTE_HOSTNAME}:${REMOTE_IP}"
     ipc: host
     user: ${USER_NAME}
-    healthcheck:
+    healthcheck: # periodic check to ensure container is healthy
       test: /ros_entrypoint.sh ros2 topic list || exit 1
       interval: 5m
       timeout: 10s
@@ -41,7 +41,7 @@ services:
       start_period: 1m
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw # gui
-      - /tmp/.docker.xauth:/tmp/.docker.xauth:rw #xauthority
+      - /tmp/.docker.xauth:/tmp/.docker.xauth:rw # xauthority permission file
       - /run/user/${USER_ID}:/run/user/${USER_ID} # wayland compability for GUI
       - /home/${USER_NAME}/.ssh:/home/${USER_NAME}/.ssh:ro # git credentials
       - /dev:/dev # access to generic devices to container
@@ -50,6 +50,7 @@ services:
       # - /dev/ttyUR:/dev/ttyUR # for gripper
       #- ../workspaces:/home/${USER_NAME}/workspaces
       - ./packages:/home/${USER_NAME}/ros2_ws/src:rw # add bind mount for packages developed for recyclebot to the workspace
+      - ./resources:/home/${USER_NAME}/ros2_ws/recycle_bot:rw # add bind mount for resources needed for recyclebot to the package
     device_cgroup_rules:
       - 'c 81:* rmw'  # allow access to video IO
       - 'c 189:* rmw' # allow access to USB devices
