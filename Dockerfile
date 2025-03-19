@@ -5,31 +5,31 @@ ENV ROS_DISTRO=${ROS_DISTRO}
 
 RUN export DEBIAN_FRONTEND=noninteractive
 
-# Make default shell in Dockerfile bash instead of sh
+# make default shell in Dockerfile bash instead of sh
 SHELL ["/bin/bash", "-c"]
 
-# Install basic packages and set up locales
+# install basic packages and set up locales
 RUN apt update -y && apt-get -y install --no-install-recommends locales gettext \
 && rm -rf /var/lib/apt/lists/*
 RUN locale-gen en_GB.UTF-8; update-locale LC_ALL=en_GB.UTF-8 LANG=en_GB.UTF-8
 ENV LANG en_GB.UTF-8
 
-# Install apt packages
+# install apt packages
 COPY apt-base-packages /tmp/apt-base-packages
 RUN apt-get update && \
 apt-get install -y $(cut -d# -f1 </tmp/apt-base-packages | envsubst) \
 && rm -rf /var/lib/apt/lists/* /tmp/apt-base-packages
 
-## Development stage
+## development stage
 FROM ros2_base AS ros2_dev
 
-# Install apt packages
+# install apt packages
 COPY apt-dev-packages /tmp/apt-dev-packages
 RUN apt-get update && \
 apt-get install -y $(cut -d# -f1 </tmp/apt-dev-packages | envsubst) \
 && rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
 
-# Add user with same UID and GID as your host system, replace if one exists with same UID
+# add user with same UID and GID as your host system, replace if one exists with same UID
 ARG USER_NAME=ros2
 ARG USER_ID
 ARG GROUP_NAME
@@ -53,7 +53,7 @@ fi \
 && echo ${USER_NAME} ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/${USER_NAME} \
 && chmod 0440 /etc/sudoers.d/${USER_NAME}
 
-# Add user to video group to allow access to video sources
+# add user to video group to allow access to video sources
 RUN sudo usermod --append --groups video ${USER_NAME}
 
 # install system python dependencies
@@ -63,7 +63,7 @@ RUN sudo apt update && apt install -y \
     python3-venv \
     python3-colcon-common-extensions
 
-# Create a custom ros2 overlay workspace for development
+# create a custom ros2 overlay workspace for development
 ENV ROS2_WS=/home/${USER_NAME}/ros2_ws
 RUN mkdir -p ${ROS2_WS}/src && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}
 
@@ -72,7 +72,7 @@ COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
 RUN python3 -m venv /venv
 ENV PATH="/venv/bin:$PATH"
 
-# Build the ROS2 workspace & Install python dependencies inside the virtual environment
+# build the ROS2 workspace & Install python dependencies inside the virtual environment
 RUN cd ${ROS2_WS}/src && \
     python3 -m pip install -r /tmp/requirements.txt && \
     apt-get update && \
@@ -83,11 +83,13 @@ RUN cd ${ROS2_WS}/src && \
     rm -rf /var/lib/apt/lists/* && \
     colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 
-# Source ROS workspace automatically when new terminal is opened
+# source ROS workspace automatically when new terminal is opened
 RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" | sudo tee -a /home/${USER_NAME}/.bashrc \
     && echo ". ${ROS2_WS}/install/setup.bash" | sudo tee -a /home/${USER_NAME}/.bashrc \
     && echo "alias ros='ros2'" | sudo tee -a /home/${USER_NAME}/.bashrc
 
+# switch to work user
+USER ${USER_NAME}    
 WORKDIR ${ROS2_WS}
 
 # Source ROS in the main terminal

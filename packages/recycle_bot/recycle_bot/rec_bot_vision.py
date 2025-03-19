@@ -2,6 +2,7 @@
 import yaml
 import os
 import time
+import getpass
 
 from collections import deque
 from threading import Lock
@@ -33,13 +34,14 @@ class VisionDetector(Node):
         super().__init__('vision_detector')
         
 
-        # initialize ONNX model initialization (model in resources location)
-        # tmp_model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'sorting_sequence.yaml')
-        # self.model = ort.InferenceSession(tmp_model_path, 
-        #                  providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
-        # )
+        # initialize ONNX model initialization (model in pkg_resources location)
+        tmp_model_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "test-merged-trash-data-rb-v1.onnx" )
+        self.model = ort.InferenceSession(tmp_model_path, 
+                         providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
+        )
+
         # used labels
-        self.class_labels = ['class1', 'class2', ...]  
+        self.class_labels = ['bottle_pet', 'box_pp', 'bucket', 'canister', 'cup_pp-ps', 'flower_pot', 'lid_pp-ps', 'non-food_bottle', 'other', 'watering_can']
         
         # Image configuration
         self.bridge = CvBridge()
