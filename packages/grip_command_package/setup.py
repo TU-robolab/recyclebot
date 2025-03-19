@@ -23,8 +23,6 @@ setup(
     entry_points={
         'console_scripts': [
             'gripper_node = grip_command_package.gripper_node:main',
-            'gripper_node_v2 = grip_command_package.gripper_node_v2:main',
-            'gripper_node_v4 = grip_command_package.gripper_node_v4:main',
         ],
     },
 )
