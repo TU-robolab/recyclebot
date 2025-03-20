@@ -70,13 +70,13 @@ RUN mkdir -p ${ROS2_WS}/src && sudo chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS
 # install apt dev packages
 COPY apt-dev-packages /tmp/apt-dev-packages
 RUN sudo apt-get update \
-&& sudo apt-get install -y $(cut -d# -f1 </tmp/apt-dev-packages | envsubst) \
-&& sudo apt-get clean \
-&& sudo rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
+    && sudo apt-get install -y $(cut -d# -f1 </tmp/apt-dev-packages | envsubst) \
+    && sudo apt-get clean \
+    && sudo rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
 
 # build the ROS2 workspace 
 RUN cd ${ROS2_WS}/src \
-    && git clone https://github.com/openvmp/serial.git \
+    && sudo git clone https://github.com/openvmp/serial.git \
     && sudo apt-get update \
     && . /opt/ros/${ROS_DISTRO}/setup.bash \ 
     && cd .. \
@@ -95,8 +95,8 @@ COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
 
 # install python dependencies inside the virtual environment
 RUN cd ${ROS2_WS}/src \
-&& python3 -m pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
-&& sudo rm -rf /tmp/requirements.txt
+    && python3 -m pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
+    && sudo rm -rf /tmp/requirements.txt
 
 # source ROS workspace automatically when new terminal is opened
 RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" | sudo tee -a /home/${USER_NAME}/.bashrc \
