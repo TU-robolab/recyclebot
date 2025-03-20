@@ -14,12 +14,12 @@ set -e
 echo "ROS2 and ROS2_WS environment setup completed."
 
 # activate Python virtual environment (if it exists)
-if [ -d "/venv" ]; then
-    source /venv/bin/activate
-    echo "Python virtual environment activated."
-else
-    echo "Warning: Python virtual environment (/venv) not found!"
-fi
+# if [ -d "/venv" ]; then
+#     source /venv/bin/activate
+#     echo "Python virtual environment activated."
+# else
+#     echo "Warning: Python virtual environment (/venv) not found!"
+# fi
 # export PYTHONPATH="$PYTHONPATH:$(python -c 'import site; print(site.getsitepackages()[0])')"
 
 
