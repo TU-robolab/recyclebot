@@ -2,24 +2,27 @@
 set -e
 
 # Error handler to prevent shell detachment
-error_handler() {
-    echo "❌ Error encountered in entrypoint script."
-    echo "🔄 Dropping into interactive shell instead of exiting..."
-    exec /bin/bash  # Keep the shell open for debugging
-}
-trap error_handler ERR  # Catch errors and invoke error_handler()
+# error_handler() {
+#     echo "❌ Error encountered in entrypoint script."
+#     echo "🔄 Dropping into interactive shell instead of exiting..."
+#     exec /bin/bash  # Keep the shell open for debugging
+# }
+# trap error_handler ERR  # Catch errors and invoke error_handler()
 
-# . "/opt/ros/${ROS_DISTRO}/setup.bash"
-# . "${ROS2_WS}/install/setup.bash"
+. "/opt/ros/${ROS_DISTRO}/setup.bash"
+. "${ROS2_WS}/install/setup.bash"
+echo "ROS2 and ROS2_WS environment setup completed."
 
 # activate Python virtual environment (if it exists)
 if [ -d "/venv" ]; then
     source /venv/bin/activate
+    echo "Python virtual environment activated."
+else
+    echo "Warning: Python virtual environment (/venv) not found!"
 fi
+# export PYTHONPATH="$PYTHONPATH:$(python -c 'import site; print(site.getsitepackages()[0])')"
 
-export PYTHONPATH="$PYTHONPATH:$(python -c 'import site; print(site.getsitepackages()[0])')"
 
-echo "ROS2 and virtual environment setup completed!"
 
 exec "$@"
 
