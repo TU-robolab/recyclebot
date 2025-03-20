@@ -92,7 +92,7 @@ ENV PATH="/venv/bin:$PATH"
 
 # install python dependencies inside the virtual environment
 RUN cd ${ROS2_WS}/src \
-&& python3 -m pip install -r /tmp/requirements.txt \
+&& python3 -m pip install --no-cache-dir -r /tmp/requirements.txt \
 && rm -rf /tmp/requirements.txt
 
 # source ROS workspace automatically when new terminal is opened
