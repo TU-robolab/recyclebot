@@ -76,13 +76,14 @@ RUN sudo apt-get update \
 
 # build the ROS2 workspace 
 RUN cd ${ROS2_WS}/src \
-&& sudo apt-get update \
-&& . /opt/ros/${ROS_DISTRO}/setup.bash \ 
-&& cd .. \
-&& rosdep update && rosdep install --from-paths src --ignore-src -r -y --rosdistro ${ROS_DISTRO} \
-&& sudo apt-get clean \
-&& sudo rm -rf /var/lib/apt/lists/* \
-&& colcon build --symlink-install 
+    && git clone https://github.com/openvmp/serial.git \
+    && sudo apt-get update \
+    && . /opt/ros/${ROS_DISTRO}/setup.bash \ 
+    && cd .. \
+    && rosdep update && rosdep install --from-paths src --ignore-src -r -y --rosdistro ${ROS_DISTRO} \
+    && sudo apt-get clean \
+    && sudo rm -rf /var/lib/apt/lists/* \
+    && colcon build --symlink-install 
 # colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 # we only use pip install for packages that are not available in apt environment
