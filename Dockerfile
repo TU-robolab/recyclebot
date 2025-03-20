@@ -94,7 +94,7 @@ ENV PATH="${ROS2_WS}/venv/bin:${PATH}"
 # install python dependencies inside the virtual environment
 RUN cd ${ROS2_WS}/src \
 && python3 -m pip install --no-cache-dir -r /tmp/requirements.txt \
-&& rm -rf /tmp/requirements.txt
+&& sudo rm -rf /tmp/requirements.txt
 
 # source ROS workspace automatically when new terminal is opened
 RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" | sudo tee -a /home/${USER_NAME}/.bashrc \
