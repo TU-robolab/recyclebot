@@ -12,6 +12,7 @@ libpcl-dev
 nlohmann-json3-dev
 
 # vision deps 
+python3-numpy
 
 # ros vision deps
 ros-${ROS_DISTRO}-image-publisher
