@@ -87,8 +87,9 @@ RUN cd ${ROS2_WS}/src \
 
 # create a virtual python environment inside Docker
 COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
-RUN python3 -m venv /venv
-ENV PATH="/venv/bin:$PATH"
+RUN python3 -m venv ${ROS2_WS}/venv \
+    && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}/venv
+ENV PATH="${ROS2_WS}/venv/bin:${PATH}"
 
 # install python dependencies inside the virtual environment
 RUN cd ${ROS2_WS}/src \
