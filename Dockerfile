@@ -86,15 +86,15 @@ RUN cd ${ROS2_WS}/src \
 # colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 # create a virtual python environment inside Docker
-COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
-RUN python3 -m venv ${ROS2_WS}/venv \
-    && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}/venv
-ENV PATH="${ROS2_WS}/venv/bin:${PATH}"
+# COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
+# RUN python3 -m venv ${ROS2_WS}/venv \
+#     && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}/venv
+# ENV PATH="${ROS2_WS}/venv/bin:${PATH}"
 
 # install python dependencies inside the virtual environment
-RUN cd ${ROS2_WS}/src \
-&& python3 -m pip install --no-cache-dir -r /tmp/requirements.txt \
-&& sudo rm -rf /tmp/requirements.txt
+# RUN cd ${ROS2_WS}/src \
+# && python3 -m pip install --no-cache-dir -r /tmp/requirements.txt \
+# && sudo rm -rf /tmp/requirements.txt
 
 # source ROS workspace automatically when new terminal is opened
 RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" | sudo tee -a /home/${USER_NAME}/.bashrc \

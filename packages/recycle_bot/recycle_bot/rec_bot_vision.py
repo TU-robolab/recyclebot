@@ -23,7 +23,7 @@ from std_srvs.srv import Trigger
 # vision imports
 import cv2
 import onnxruntime as ort
-import numpy as np
+#import numpy as np
 
 from cv_bridge import CvBridge
 
@@ -122,7 +122,7 @@ class VisionDetector(Node):
             cv_image = self.bridge.imgmsg_to_cv2(self.last_image, 'bgr8')
             
         # preprocess image for ONNX model
-        input_tensor = self.preprocess_image(cv_image)
+        #input_tensor = self.preprocess_image(cv_image)
         
         # run inference
         outputs = self.model.run(None, {'input': input_tensor})
@@ -144,8 +144,8 @@ class VisionDetector(Node):
         # model-specific preprocessing example
         
         resized = cv2.resize(image, (640, 640))
-        normalized = resized.astype(np.float32) / 255.0
-        return np.transpose(normalized, (2, 0, 1))[np.newaxis, ...]
+        #normalized = resized.astype(np.float32) / 255.0
+       # return np.transpose(normalized, (2, 0, 1))[np.newaxis, ...]
 
     def postprocess_output(self, outputs, img_shape):
         detections = []
