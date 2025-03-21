@@ -11,7 +11,6 @@ from threading import Lock
 import rclpy
 import tf2_ros
 
-
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -22,26 +21,29 @@ from std_srvs.srv import Trigger
 
 # vision imports
 import cv2
-import onnxruntime as ort
-#import numpy as np
+import torch
 
+from ultralytics import YOLO
 from cv_bridge import CvBridge
 
 
 
 class VisionDetector(Node):
     def __init__(self):
-        super().__init__('vision_detector')
+        super().__init__("vision_detector")
         
 
-        # initialize ONNX model initialization (model in pkg_resources location)
-        # tmp_model_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "test-merged-trash-data-rb-v1.onnx" )
-        # self.model = ort.InferenceSession(tmp_model_path, 
-        #                  providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
-        # )
+        # initialize yolo model  (model in pkg_resources location)
+        tmp_model_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "rb-y11-v3.pt" )
+        self.model = YOLO(tmp_model_path)
+
+        # set hardware device for inference
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.get_logger().info(f"Using device: {self.device}")
+        self.model.to(self.device)
 
         # used labels
-        self.class_labels = ['bottle_pet', 'box_pp', 'bucket', 'canister', 'cup_pp-ps', 'flower_pot', 'lid_pp-ps', 'non-food_bottle', 'other', 'watering_can']
+        self.class_labels = ["bottle_pet","box_pp","bucket","canister","cup_pp-ps","flower_pot","lid_pp-ps","non-food_bottle","other","watering_can"]
         
         # Image configuration
         self.bridge = CvBridge()
@@ -56,7 +58,7 @@ class VisionDetector(Node):
         self.similarity_threshold = 0.7  
         
         # create ROS2 interfaces to triger capture of goals
-        self.srv = self.create_service(Trigger, 'capture_detections', 
+        self.srv = self.create_service(Trigger, "capture_detections", 
                                        self.trigger_callback,
                                        callback_group=ReentrantCallbackGroup()
         )
@@ -75,7 +77,7 @@ class VisionDetector(Node):
 
         self.image_sub = self.create_subscription(
             Image,
-            '/camera/camera/color/image_raw',
+            "/camera/camera/color/image_raw",
             self.image_callback,
             qos_camera_feed, 
             callback_group=ReentrantCallbackGroup()
@@ -91,7 +93,7 @@ class VisionDetector(Node):
         
         # publish an array of current detections     
         self.detection_pub = self.create_publisher(Detection2DArray, 
-                                                  'object_detections',
+                                                  "object_detections",
                                                    qos_detected_objects
         )
         # timer for processing detections queue, every 100 ms 
@@ -110,78 +112,77 @@ class VisionDetector(Node):
 
     """ 
     thread-safe detection callback, runs the model on capture
-    and publish the detection 
+    and publishes the detections 
     """
     def trigger_callback(self, request, response):
+        # keep lock on last image only as long as necessary
         with self.image_lock:
             if self.last_image is None:
                 response.success = False
                 response.message = "No image available"
                 return response
             
-            cv_image = self.bridge.imgmsg_to_cv2(self.last_image, 'bgr8')
-            
-        # preprocess image for ONNX model
-        #input_tensor = self.preprocess_image(cv_image)
+            # convert ROS image to OpenCV format
+            cv_image = self.bridge.imgmsg_to_cv2(self.last_image, "bgr8")
         
-        # run inference
-        outputs = self.model.run(None, {'input': input_tensor})
+        # run inference with YOLO11 (outside of image lock)
+        inf_results = self.model(cv_image, conf=0.5)  # Confidence threshold of 0.5
         
         # process detections
-        detections = self.postprocess_output(outputs, cv_image.shape)
+        detections = self.process_yolo_results(inf_results, cv_image)
         
-        # Add unique detections to deque
+        # add unique detections to deque (only alter detections inside the lock)
         with self.detection_lock:
+            added_count = 0
             for det in detections:
                 if not self.is_duplicate(det):
                     self.detection_deque.append(det)
+                    added_count += 1
         
         response.success = True
-        response.message = f"Added {len(detections)} potential new detections"
-        return response
+        response.message = f"Added {added_count} potential new detections"
+        return response            
 
-    def preprocess_image(self, image):
-        # model-specific preprocessing example
-        
-        resized = cv2.resize(image, (640, 640))
-        #normalized = resized.astype(np.float32) / 255.0
-       # return np.transpose(normalized, (2, 0, 1))[np.newaxis, ...]
-
-    def postprocess_output(self, outputs, img_shape):
+    def process_yolo_results(self, results, img):
         detections = []
-        boxes = outputs[0][0]
-        scores = outputs[1][0]
-        class_ids = outputs[2][0]
         
-        for box, score, class_id in zip(boxes, scores, class_ids):
-            if score < 0.5:  # confidence threshold to skip detection
-                continue
-                
-            # Convert coordinates to image space
-            y_min, x_min, y_max, x_max = box
-            height, width = img_shape[:2]
+        # process YOLO results (first detection result if batched)
+        result = results[0]
+        
+        # get bounding boxes and format detections object list with req params
+        boxes = result.boxes
+        
+        for box in boxes:
+            # get box coordinates (in xywh format)
+            x, y, w, h = box.xywh[0].cpu().numpy()
             
+            # get confidence and class ID
+            confidence = float(box.conf.cpu().numpy()[0])
+            class_id = int(box.cls.cpu().numpy()[0])
+            
+            # convert to correct format for our pipeline
             detection = {
-                'class_id': int(class_id),
-                'label': self.class_labels[int(class_id)],
-                'confidence': float(score),
-                'bbox': (
-                    int(x_min * width),
-                    int(y_min * height),
-                    int((x_max - x_min) * width),
-                    int((y_max - y_min) * height)
+                "class_id": class_id,
+                "label": self.class_labels[class_id] if class_id < len(self.class_labels) else f"class_{class_id}",
+                "confidence": confidence,
+                "bbox": (
+                    int(x - w/2),  # x1
+                    int(y - h/2),  # y1
+                    int(w),        # width
+                    int(h)         # height
                 ),
-                'timestamp': time.time()
+                "timestamp": time.time()
             }
+            
             detections.append(detection)
         
         return detections
-
+   
     def is_duplicate(self, new_det):
         for existing_det in self.detection_deque:
             # Calculate IoU for duplicate detection check
-            box_a = new_det['bbox']
-            box_b = existing_det['bbox']
+            box_a = new_det["bbox"]
+            box_b = existing_det["bbox"]
             
             x_a = max(box_a[0], box_b[0])
             y_a = max(box_a[1], box_b[1])
@@ -209,14 +210,14 @@ class VisionDetector(Node):
                 det = self.detection_deque.popleft()
                 
                 d = Detection2D()
-                d.bbox.center.position.x = float(det['bbox'][0] + det['bbox'][2]/2)
-                d.bbox.center.position.y = float(det['bbox'][1] + det['bbox'][3]/2)
-                d.bbox.size_x = float(det['bbox'][2])
-                d.bbox.size_y = float(det['bbox'][3])
+                d.bbox.center.position.x = float(det["bbox"][0] + det["bbox"][2]/2)
+                d.bbox.center.position.y = float(det["bbox"][1] + det["bbox"][3]/2)
+                d.bbox.size_x = float(det["bbox"][2])
+                d.bbox.size_y = float(det["bbox"][3])
                 
                 hypothesis = ObjectHypothesisWithPose()
-                hypothesis.hypothesis.class_id = det['label']
-                hypothesis.hypothesis.score = det['confidence']
+                hypothesis.hypothesis.class_id = det["label"]
+                hypothesis.hypothesis.score = det["confidence"]
                 d.results.append(hypothesis)
                 
                 detection_array.detections.append(d)
@@ -236,5 +237,5 @@ def main(args=None):
         node.destroy_node()
         rclpy.shutdown()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

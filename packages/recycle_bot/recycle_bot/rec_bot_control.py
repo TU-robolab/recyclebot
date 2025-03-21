@@ -18,7 +18,7 @@ from moveit_commander import MoveGroupCommander
 
 class cobot_control(Node):
     def __init__(self):
-        super().__init__('cobot_control')
+        super().__init__("cobot_control")
         
         # Load sorting sequence from YAML file
         self.sorting_sequence = self.load_sorting_sequence()
@@ -28,7 +28,7 @@ class cobot_control(Node):
         self.executing_task = False
 
         # MoveIt2 Interface
-        self.move_group = MoveGroupCommander('manipulator')
+        self.move_group = MoveGroupCommander("manipulator")
         
         # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
@@ -36,7 +36,7 @@ class cobot_control(Node):
 
         # to be used for vision subscriber (detects object availability and poses)
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, depth=10)
-        self.create_subscription(PoseStamped, '/vision/detected_object', self.vision_callback, qos_profile)
+        self.create_subscription(PoseStamped, "/vision/detected_object", self.vision_callback, qos_profile)
         
         # Timer for checking and processing tasks
         self.create_timer(1.0, self.process_tasks)
@@ -44,11 +44,11 @@ class cobot_control(Node):
         self.get_logger().info("UR16e sorter node initialized!")
 
     def load_sorting_sequence(self):
-        yaml_path = os.path.join(os.path.dirname(__file__), 'sorting_sequence.yaml')
+        yaml_path = os.path.join(os.path.dirname(__file__), "sorting_sequence.yaml")
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
-                return data.get('sorting_sequence', [])
+                return data.get("sorting_sequence", [])
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
             return []
@@ -57,7 +57,7 @@ class cobot_control(Node):
         """Handles incoming object pose from the vision system and queues it."""
         try:
             # convert from camera transform to robot base-link reference
-            transform = self.tf_buffer.lookup_transform('base_link', msg.header.frame_id, rclpy.time.Time())
+            transform = self.tf_buffer.lookup_transform("base_link", msg.header.frame_id, rclpy.time.Time())
             transformed_pose = tf2_ros.do_transform_pose(msg, transform)
 
             # retrieve target bin location (base-link reference)
@@ -90,7 +90,7 @@ class cobot_control(Node):
         # each task execution goes from pick -> neutral -> place
         """ neutral_pose = self.create_pose(
             [
-                {'target_bin_1': {'position': [393.43, -247.56, 1.24], 'orientation': [0.187876, -0.6345103, -0.7318231, 0.1628935]}}
+                {"target_bin_1": {"position": [393.43, -247.56, 1.24], "orientation": [0.187876, -0.6345103, -0.7318231, 0.1628935]}}
             ]
         )
         """
@@ -112,7 +112,7 @@ class cobot_control(Node):
         return success
 
     def print_current_status(self):
-        """queries and prints robot's state"""
+        """queries and prints robot"s state"""
         current_pose = self.move_group.get_current_pose().pose
         print("Current End-Effector Pose:", current_pose)
         
@@ -122,9 +122,9 @@ class cobot_control(Node):
          location based on format from YAML file, eg for current YAML, input would be:
          [
             {
-                'target_bin_1': {
-                    'position': [393.43, -247.56, 1.24],
-                    'orientation': [0.187876, -0.6345103, -0.7318231, 0.1628935]
+                "target_bin_1": {
+                    "position": [393.43, -247.56, 1.24],
+                    "orientation": [0.187876, -0.6345103, -0.7318231, 0.1628935]
                 }
             }
          ]
@@ -138,15 +138,15 @@ class cobot_control(Node):
         
         location_name = list(location[element_idx].keys())[0]
         # Position coordinates
-        pose.pose.position.x = location[location_name]['position'][0]
-        pose.pose.position.y = location[location_name]['position'][1]
-        pose.pose.position.z = location[location_name]['position'][2]
+        pose.pose.position.x = location[location_name]["position"][0]
+        pose.pose.position.y = location[location_name]["position"][1]
+        pose.pose.position.z = location[location_name]["position"][2]
         
         # Orientation quaternion 
-        pose.pose.orientation.x = location[location_name]['orientation'][0]
-        pose.pose.orientation.y = location[location_name]['orientation'][1]
-        pose.pose.orientation.z = location[location_name]['orientation'][2]
-        pose.pose.orientation.w = location[location_name]['orientation'][3]
+        pose.pose.orientation.x = location[location_name]["orientation"][0]
+        pose.pose.orientation.y = location[location_name]["orientation"][1]
+        pose.pose.orientation.z = location[location_name]["orientation"][2]
+        pose.pose.orientation.w = location[location_name]["orientation"][3]
         
         return pose
 
@@ -162,5 +162,5 @@ def main():
     rclpy.try_shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
