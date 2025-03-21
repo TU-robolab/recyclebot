@@ -99,14 +99,22 @@ You will find different kinds of files in this repository.
    git clone https://github.com/TU-robolab/recyclebot.git
    ```
 
-2. configure your local environment variables using the export_env script
+2. download the large files/models with git-lfs  in your repository 
+
+   ```bash
+   cd recyclebot
+   git-lfs pull
+   ```
+3. configure your local environment variables using the export_env script
 
    ```bash
    ./export_env.sh
    ```
 
-3. build your container
+4. build your container
    ```bash
+   docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml build 
+   # if needed you can add --no-cache in case you had older versions there
    docker compose -f docker-compose.base.yml -f docker-compose.dev.yml up -d
    ```
 
