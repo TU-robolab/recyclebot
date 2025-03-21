@@ -22,6 +22,7 @@ from std_srvs.srv import Trigger
 # vision imports
 import cv2
 import torch
+import pyrealsense2 as rs
 
 from ultralytics import YOLO
 from cv_bridge import CvBridge
