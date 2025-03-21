@@ -22,6 +22,7 @@ ros-${ROS_DISTRO}-vision-opencv
 ros-${ROS_DISTRO}-pcl-conversions
 ros-${ROS_DISTRO}-camera-calibration
 ros-${ROS_DISTRO}-image-view
+ros-${ROS_DISTRO}-apriltag-ros
 
 # ros core deps
 ros-${ROS_DISTRO}-navigation2
