@@ -1,1 +1,1 @@
-packages/recycle_bot/pkg_resources/test-merged-trash-data-rb-v1.onnx filter=lfs diff=lfs merge=lfs -text
+packages/recycle_bot/pkg_resources/rb-y11-v3.pt filter=lfs diff=lfs merge=lfs -text
