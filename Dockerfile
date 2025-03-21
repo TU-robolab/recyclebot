@@ -77,6 +77,7 @@ RUN sudo apt-get update \
 # build the ROS2 workspace 
 RUN cd ${ROS2_WS}/src \
     && git clone https://github.com/openvmp/serial.git \
+    && git clone https://github.com/giuschio/ros2_handeye_calibration.git \
     && sudo apt-get update \
     && . /opt/ros/${ROS_DISTRO}/setup.bash \ 
     && cd .. \
