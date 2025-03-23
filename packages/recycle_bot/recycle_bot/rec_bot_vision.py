@@ -134,7 +134,7 @@ class VisionDetector(Node):
             cv_image = self.bridge.imgmsg_to_cv2(self.last_rgbd_image.rgb, self.last_rgbd_image.rgb.encoding)
 
         # display debug images
-        self.show_rgbd(cv_image,depth_cv_image)
+        #self.show_rgbd(cv_image,depth_cv_image)
 
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
         inf_results = self.model(cv_image, conf=0.5)  
