@@ -48,8 +48,10 @@ class VisionDetector(Node):
         
         # Image configuration
         self.bridge = CvBridge()
-        self.last_image = None
+        self.last_colour_image = None
+        self.last_depth_image = None
         self.image_lock = Lock()
+        self.depth_lock = Lock()
         
         # create list to track detected trash (max 128 values ~4.2 secs at 30FPS)
         self.detection_deque = deque(maxlen=128)
@@ -84,6 +86,14 @@ class VisionDetector(Node):
             callback_group=ReentrantCallbackGroup()
         )
 
+        self.image_sub = self.create_subscription(
+            Image,
+            "/camera/camera/depth/image_rect_raw",
+            self.depth_callback,
+            qos_camera_feed, 
+            callback_group=ReentrantCallbackGroup()
+        )
+
         # setup ROS quality of service for detections
         qos_detected_objects = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,  # store recent messages
@@ -106,28 +116,51 @@ class VisionDetector(Node):
     thread-safe image callback, only 1 thread can update 
     last image at a time, with statement ensures lock lifecycle
     is automated (creation and release)
+    image type is sensor_msgs.msg (Image) -> cv image 
     """
     def image_callback(self, msg):
         with self.image_lock:
-            self.last_image = msg
+            self.last_colour_image = msg
+
+    """ 
+    thread-safe depth callback, only 1 thread can update 
+    last image at a time, with statement ensures lock lifecycle
+    is automated (creation and release)
+    image type is sensor_msgs.msg (Image) -> cv image 
+    """
+    def depth_callback(self, msg):
+        # maybe make a depth lock to ensure we have a match
+        with self.depth_lock:
+            self.last_depth_image = msg
 
     """ 
     thread-safe detection callback, runs the model on capture
     and publishes the detections 
     """
     def trigger_callback(self, request, response):
+        cv_image = None
+        depth_cv_image = None
         # keep lock on last image only as long as necessary
         with self.image_lock:
-            if self.last_image is None:
+            if self.last_colour_image is None:
                 response.success = False
                 response.message = "No image available"
                 return response
-            
+
+            with self.depth_lock:
+                if self.last_colour_image is None:
+                    response.success = False
+                    response.message = "No depth image available"
+               
+                depth_cv_image = self.bridge.imgmsg_to_cv2(self.last_depth_image, "passthrough")
+
             # convert ROS image to OpenCV format
-            cv_image = self.bridge.imgmsg_to_cv2(self.last_image, "bgr8")
-        
-        # run inference with YOLO11 (outside of image lock)
-        inf_results = self.model(cv_image, conf=0.5)  # Confidence threshold of 0.5
+            cv_image = self.bridge.imgmsg_to_cv2(self.last_colour_image, "bgr8")
+
+        #print(depth_cv_image) 
+
+        # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
+        inf_results = self.model(cv_image, conf=0.5)  
         
         # process detections
         detections = self.process_yolo_results(inf_results, cv_image)
