@@ -114,8 +114,8 @@ class VisionDetector(Node):
         with self.image_lock:
             self.last_rgbd_image = msg
         
-        # to keep UI responsive
-        cv2.waitKey(1)
+            # to keep UI responsive
+            cv2.waitKey(1)
 
     """ 
     thread-safe detection callback, runs the model on capture
