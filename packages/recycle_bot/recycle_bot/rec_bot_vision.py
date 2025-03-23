@@ -99,9 +99,11 @@ class VisionDetector(Node):
                                                   "object_detections",
                                                    qos_detected_objects
         )
-        # timer for processing detections queue, every 100 ms 
+        # timer for processing detections queue, 10Hz
         self.timer = self.create_timer(0.1, self.process_deque)
         
+        self.ui_timer(0.1, self.ui_keepalive)  # 10Hz
+
         self.get_logger().info("vision detection node initialized")
 
     """ 
@@ -114,8 +116,9 @@ class VisionDetector(Node):
         with self.image_lock:
             self.last_rgbd_image = msg
         
-            # to keep UI responsive
-            cv2.waitKey(1)
+    def ui_keepalive(self):
+        # call waitKey even if no new images
+        cv2.waitKey(1)
 
     """ 
     thread-safe detection callback, runs the model on capture
@@ -168,7 +171,7 @@ class VisionDetector(Node):
         # show both images
         cv2.imshow("RGB Image", rgb_img)
         cv2.imshow("Depth (colormap)", depth_colormap)
-        cv2.waitKey(1)  # refresh OpenCV windows
+        
 
     def process_yolo_results(self, results, img):
         detections = []
