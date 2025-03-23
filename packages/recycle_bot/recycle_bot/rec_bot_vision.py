@@ -102,7 +102,7 @@ class VisionDetector(Node):
         # timer for processing detections queue, 10Hz
         self.timer = self.create_timer(0.1, self.process_deque)
         
-        self.ui_timer(0.1, self.ui_keepalive)  # 10Hz
+        self.ui_timer = self.create_timer(0.1, self.ui_keepalive)  # 10Hz
 
         self.get_logger().info("vision detection node initialized")
 
