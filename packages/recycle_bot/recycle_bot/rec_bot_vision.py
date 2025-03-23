@@ -5,7 +5,7 @@ import time
 import getpass
 
 from collections import deque
-from threading import Lock
+from threading import Lock, Thread
 
 # ROS2 imports
 import rclpy
@@ -135,6 +135,8 @@ class VisionDetector(Node):
 
         # display debug images
         #self.show_rgbd(cv_image,depth_cv_image)
+        # Launch visualization in separate thread
+        Thread(target=self.show_rgbd, args=(cv_image, depth_cv_image)).start()
 
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
         inf_results = self.model(cv_image, conf=0.5)  
@@ -175,7 +177,7 @@ class VisionDetector(Node):
 
         # show both images
         cv2.imshow("RGB + depth (colourmap)", combined_img)
-        cv2.waitKey(0)  # pauses until any key is pressed
+        cv2.waitKey(1)  #delays 1 second
         # close both windows
         cv2.destroyAllWindows()
         
