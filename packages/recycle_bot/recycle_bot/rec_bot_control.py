@@ -34,18 +34,13 @@ class cobot_control(Node):
         # )
 
         # setup ROS quality of service for moves
-        qos_moves_objects = QoSProfile(
-            history=HistoryPolicy.KEEP_LAST,  # store recent messages
-            depth=10,  # buffer up to 10 movements
-            reliability=ReliabilityPolicy.RELIABLE,  # ensure all detections arrive
-            durability=DurabilityPolicy.VOLATILE  # no need to retain past detections
-        )
+        # qos_moves_objects = QoSProfile(
+        #     history=HistoryPolicy.KEEP_LAST,  # store recent messages
+        #     depth=10,  # buffer up to 10 movements
+        #     reliability=ReliabilityPolicy.RELIABLE,  # ensure all detections arrive
+        #     durability=DurabilityPolicy.VOLATILE  # no need to retain past detections
+        # )
         
-        # publish an array of current detections     
-        self.detection_pub = self.create_publisher(Pos, 
-                                                  "object_detections",
-                                                   qos_detected_objects
-        )
         # Load sorting sequence from YAML file
         self.sorting_sequence = self.load_sorting_sequence()
         self.sequence_index = 0
