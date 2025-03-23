@@ -139,7 +139,7 @@ class VisionDetector(Node):
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
         inf_results = self.model(cv_image, conf=0.5)  
         
-        print("at process")
+        print("at trigger process")
         # process detections
         detections = self.process_yolo_results(inf_results, cv_image)
         
@@ -156,6 +156,8 @@ class VisionDetector(Node):
         
         response.success = True
         response.message = f"Added {added_count} potential new detections"
+
+        print("message response for trigger")
         return response            
 
     def show_rgbd(self, rgb_img, depth_img):
@@ -242,7 +244,7 @@ class VisionDetector(Node):
         with self.detection_lock:
 
             print("with detection lock")
-            
+
             while self.detection_deque:
                 # fifo order 
                 det = self.detection_deque.popleft()
