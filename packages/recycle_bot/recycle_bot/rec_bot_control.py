@@ -142,14 +142,6 @@ class cobot_control(Node):
         except Exception as e:
             self.get_logger().error(f"Error in Cartesian motion: {str(e)}")
 
-    def create_waypoint_pose(x, y, z, roll=0.0, pitch=0.0, yaw=0.0):
-        """Create Pose message with Euler angles"""
-        q = quaternion_from_euler(roll, pitch, yaw)
-        return Pose(
-            position=Point(x=x, y=y, z=z),
-            orientation=Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
-        )
-
     def move_to_pose(self, pose: PoseStamped):
         """Plans and executes a Cartesian motion to the given pose."""
 
@@ -198,22 +190,29 @@ class cobot_control(Node):
         
         return pose
 
+def create_waypoint_pose(x, y, z, roll=0.0, pitch=0.0, yaw=0.0):
+    """Create Pose message with Euler angles"""
+    q = quaternion_from_euler(roll, pitch, yaw)
+    return Pose(
+        position=Point(x=x, y=y, z=z),
+        orientation=Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
+    )
+
 def main():
     rclpy.init()
 
     # Create Cartesian waypoints
     waypoints = [
-        create_pose(0.4, 0.2, 0.5),  # Home position
-        create_pose(0.5, 0.2, 0.5),  # X+0.1
-        create_pose(0.5, 0.3, 0.5),  # Y+0.1
-        create_pose(0.5, 0.3, 0.6)   # Z+0.1
+        create_waypoint_pose(0.4, 0.2, 0.5),  # Home position
+        create_waypoint_pose(0.5, 0.2, 0.5),  # X+0.1
+        create_waypoint_pose(0.5, 0.3, 0.5),  # Y+0.1
+        create_waypoint_pose(0.5, 0.3, 0.6)   # Z+0.1
     ]
-
 
     ur_node = cobot_control()
 
     ur_node.move_cartesian(waypoints)
-    
+
     try:
         rclpy.spin(ur_node)
     except KeyboardInterrupt:
