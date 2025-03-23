@@ -20,6 +20,7 @@ from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithP
 from std_srvs.srv import Trigger
 from realsense2_camera_msgs.msg import RGBD
 
+
 # vision imports
 import cv2
 import torch
@@ -133,6 +134,10 @@ class VisionDetector(Node):
             # convert ROS image to OpenCV format
             cv_image = self.bridge.imgmsg_to_cv2(self.last_rgbd_image.rgb, self.last_rgbd_image.rgb.encoding)
 
+            # camera info for conversions
+            camera_info = self.last_rgbd_image.rgb_camera_info
+        
+
         # display debug images
         #self.show_rgbd(cv_image,depth_cv_image)
         # Launch visualization in separate thread
@@ -142,7 +147,7 @@ class VisionDetector(Node):
         inf_results = self.model(cv_image, conf=0.5)  
         
         # process detections
-        detections = self.process_yolo_results(inf_results, cv_image)
+        detections = self.process_yolo_results(inf_results, cv_image, depth_cv_image)
         
         # add unique detections to deque (only alter detections inside the lock)
         with self.detection_lock:
@@ -177,7 +182,7 @@ class VisionDetector(Node):
         # close both windows
         cv2.destroyAllWindows()
         
-    def process_yolo_results(self, results, img):
+    def process_yolo_results(self, results, img, depth_img):
         detections = []
         
         # process YOLO results (first detection result if batched)
@@ -185,11 +190,11 @@ class VisionDetector(Node):
         
         # get bounding boxes and format detections object list with req params
         boxes = result.boxes
-        
+     
         for box in boxes:
             # get box coordinates (in xywh format)
             x, y, w, h = box.xywh[0].cpu().numpy()
-            
+
             # get confidence and class ID
             confidence = float(box.conf.cpu().numpy()[0])
             class_id = int(box.cls.cpu().numpy()[0])
@@ -199,9 +204,9 @@ class VisionDetector(Node):
                 "class_id": class_id,
                 "label": self.class_labels[class_id] if class_id < len(self.class_labels) else f"class_{class_id}",
                 "confidence": confidence,
-                "bbox": (
-                    int(x - w/2),  # x1
-                    int(y - h/2),  # y1
+                "bbox_uv": (
+                    x1,  # x1
+                    y1,  # y1
                     int(w),        # width
                     int(h)         # height
                 ),
@@ -246,10 +251,10 @@ class VisionDetector(Node):
                 det = self.detection_deque.popleft()
                 
                 d = Detection2D()
-                d.bbox.center.position.x = float(det["bbox"][0] + det["bbox"][2]/2)
-                d.bbox.center.position.y = float(det["bbox"][1] + det["bbox"][3]/2)
-                d.bbox.size_x = float(det["bbox"][2])
-                d.bbox.size_y = float(det["bbox"][3])
+                d.bbox.center.position.x = float(det["bbox_uv"][0] + det["bbox_uv"][2]/2)
+                d.bbox.center.position.y = float(det["bbox_uv"][1] + det["bbox_uv"][3]/2)
+                d.bbox.size_x = float(det["bbox_uv"][2])
+                d.bbox.size_y = float(det["bbox_uv"][3])
                 
                 hypothesis = ObjectHypothesisWithPose()
                 hypothesis.hypothesis.class_id = det["label"]

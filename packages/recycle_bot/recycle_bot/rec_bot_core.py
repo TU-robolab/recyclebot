@@ -7,7 +7,7 @@ from std_msgs.msg import String
 
 class RecBotCore(Node):
 
-    def __init__(self):\
+    def __init__(self):
         super().__init__("rec_bot_core")
         self.get_logger().info("Hello world from the Python node rec_bot_core")
 
