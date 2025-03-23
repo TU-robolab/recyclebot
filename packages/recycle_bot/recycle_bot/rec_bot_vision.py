@@ -79,7 +79,7 @@ class VisionDetector(Node):
         )
 
         self.image_sub = self.create_subscription(
-            RGDB,
+            RGBD,
             "/camera/camera/rgbd",
             self.image_callback,
             qos_camera_feed, 
