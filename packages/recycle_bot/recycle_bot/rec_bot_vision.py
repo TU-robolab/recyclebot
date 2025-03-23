@@ -100,7 +100,7 @@ class VisionDetector(Node):
                                                    qos_detected_objects
         )
         # timer for processing detections queue, 10Hz
-        self.timer = self.create_timer(0.1, self.process_deque, callback_group=MutuallyExclusiveCallbackGroup())
+        self.timer = self.create_timer(1, self.process_deque, callback_group=MutuallyExclusiveCallbackGroup())
 
         self.get_logger().info("vision detection node initialized")
 
