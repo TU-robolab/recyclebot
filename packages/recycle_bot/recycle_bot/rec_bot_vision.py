@@ -139,16 +139,20 @@ class VisionDetector(Node):
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
         inf_results = self.model(cv_image, conf=0.5)  
         
+        print("at process")
         # process detections
         detections = self.process_yolo_results(inf_results, cv_image)
         
+        print("at process")
         # add unique detections to deque (only alter detections inside the lock)
         with self.detection_lock:
             added_count = 0
+            print("at detection lock")
             for det in detections:
                 if not self.is_duplicate(det):
                     self.detection_deque.append(det)
                     added_count += 1
+
         
         response.success = True
         response.message = f"Added {added_count} potential new detections"
@@ -226,7 +230,9 @@ class VisionDetector(Node):
 
     def process_deque(self):
         # skip if empty
+        print("at beginning of process")
         if not self.detection_deque:
+            print("at process deque")
             return
             
         detection_array = Detection2DArray()
