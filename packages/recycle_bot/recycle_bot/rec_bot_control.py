@@ -17,6 +17,7 @@ from image_geometry import PinholeCameraModel
 from moveit.planning import MoveItPy, PlanningComponent
 from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
 from moveit_msgs.msg import Constraints, OrientationConstraint
+from moveit_configs_utils import MoveItConfigsBuilder
 from std_msgs.msg import Bool
 from realsense2_camera_msgs.msg import RGBD
 
@@ -32,8 +33,9 @@ class cobot_control(Node):
         self.executing_task = False
 
         # MoveIt2 Interface
-        self.moveit= MoveItPy(node_name="ur_manipulator")
-        self.arm = PlanningComponent("ur_manipulator", self.moveit)
+        moveit_config = MoveItConfigsBuilder("ur16e", package_name="ur_moveit_config").to_moveit_configs()
+        self.moveit= MoveItPy(node_name="ur_manipulator", config_dict=moveit_config)
+        self.arm = PlanningComponent("arm_manipulator", self.moveit)
 
         # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
