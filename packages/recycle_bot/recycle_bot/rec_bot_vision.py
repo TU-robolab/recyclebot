@@ -179,7 +179,7 @@ class VisionDetector(Node):
         cv2.imshow("RGB + depth (colourmap)", combined_img)
         cv2.waitKey(30)  #delays  second
         # close both windows
-        cv2.destroyAllWindows()
+        #cv2.destroyAllWindows()
         
     def process_yolo_results(self, results, img):
         detections = []
