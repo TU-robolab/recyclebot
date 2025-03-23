@@ -161,16 +161,16 @@ class VisionDetector(Node):
 
         # apply colormap for better visibility
         depth_colormap = cv2.applyColorMap(depth_display, cv2.COLORMAP_JET)
+        depth_colormap = cv2.resize(depth_colormap, (rgb_img.shape[1], rgb_img.shape[0]))
+
+        combined_img = np.hstack((rgb_img, depth_colormap))  # horizontal stack
 
         # show both images
-        cv2.imshow("RGB Image", rgb_img)
-        cv2.imshow("Depth (colormap)", depth_colormap)
+        cv2.imshow("RGB + depth (colourmap)", combined_img)
         cv2.waitKey(0)  # pauses until any key is pressed
         # close both windows
-        cv2.destroyWindow("RGB Image")
-        cv2.destroyWindow("Depth (colormap)")
+        cv2.destroyAllWindows()
         
-
     def process_yolo_results(self, results, img):
         detections = []
         
