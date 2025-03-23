@@ -232,13 +232,17 @@ class VisionDetector(Node):
         # skip if empty
         print("at beginning of process")
         if not self.detection_deque:
-            print("at process deque")
+            print("at empty process deque")
             return
             
+        print ("at non empty process deque")    
         detection_array = Detection2DArray()
         detection_array.header.stamp = self.get_clock().now().to_msg()
         
         with self.detection_lock:
+
+            print("with detection lock")
+            
             while self.detection_deque:
                 # fifo order 
                 det = self.detection_deque.popleft()
