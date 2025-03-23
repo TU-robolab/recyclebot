@@ -177,7 +177,7 @@ class VisionDetector(Node):
 
         # show both images
         cv2.imshow("RGB + depth (colourmap)", combined_img)
-        cv2.waitKey(0)  #delays 1 second
+        cv2.waitKey(30)  #delays  second
         # close both windows
         cv2.destroyAllWindows()
         
