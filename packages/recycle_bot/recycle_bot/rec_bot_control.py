@@ -67,7 +67,7 @@ class cobot_control(Node):
         self.get_logger().info("UR16e sorter node initialized!")
 
     def robot_description_callback(self, msg):
-            self.robot_description = msg.data
+        self.robot_description = msg.data
 
     def load_sorting_sequence(self):
         yaml_path = os.path.join(os.path.dirname(__file__), "sorting_sequence.yaml")
