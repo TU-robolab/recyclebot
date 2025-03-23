@@ -25,14 +25,27 @@ class cobot_control(Node):
     def __init__(self):
         super().__init__("cobot_control")
         
-        self.robot_description = None
-        self.create_subscription(
-            String,
-            "/robot_description",
-            self.robot_description_callback,
-            10
-        )
+        # self.robot_description = None
+        # self.create_subscription(
+        #     String,
+        #     "/robot_description",
+        #     self.robot_description_callback,
+        #     10
+        # )
 
+        # setup ROS quality of service for moves
+        qos_moves_objects = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,  # store recent messages
+            depth=10,  # buffer up to 10 movements
+            reliability=ReliabilityPolicy.RELIABLE,  # ensure all detections arrive
+            durability=DurabilityPolicy.VOLATILE  # no need to retain past detections
+        )
+        
+        # publish an array of current detections     
+        self.detection_pub = self.create_publisher(Pos, 
+                                                  "object_detections",
+                                                   qos_detected_objects
+        )
         # Load sorting sequence from YAML file
         self.sorting_sequence = self.load_sorting_sequence()
         self.sequence_index = 0
@@ -42,12 +55,15 @@ class cobot_control(Node):
 
         # MoveIt2 Interface
         # wait for robot description to be available
-        while self.robot_description is None:
-            self.get_logger().info("Waiting for robot description...")
-            rclpy.spin_once(self, timeout_sec=1.0)
+        # while self.robot_description is None:
+        #     self.get_logger().info("Waiting for robot description...")
+        #     rclpy.spin_once(self, timeout_sec=1.0)
 
         moveit_config = MoveItConfigsBuilder("ur16e", package_name="ur_moveit_config")
-        moveit_config.robot_description(self.robot_description)
+        tmp_yaml_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "moveit_params.yaml" )
+
+        #moveit_config.robot_description(self.robot_description)
+        moveit_config.moveit_cpp(tmp_yaml_path)
         moveit_config.to_moveit_configs()
 
         self.moveit= MoveItPy(node_name="ur_manipulator", config_dict=moveit_config)
