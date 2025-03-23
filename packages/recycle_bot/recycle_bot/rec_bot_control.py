@@ -18,13 +18,21 @@ from moveit.planning import MoveItPy, PlanningComponent
 from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
 from moveit_msgs.msg import Constraints, OrientationConstraint
 from moveit_configs_utils import MoveItConfigsBuilder
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from realsense2_camera_msgs.msg import RGBD
 
 class cobot_control(Node):
     def __init__(self):
         super().__init__("cobot_control")
         
+        self.robot_description = None
+        self.create_subscription(
+            String,
+            "/robot_description",
+            self.robot_description_callback,
+            10
+        )
+
         # Load sorting sequence from YAML file
         self.sorting_sequence = self.load_sorting_sequence()
         self.sequence_index = 0
@@ -33,9 +41,17 @@ class cobot_control(Node):
         self.executing_task = False
 
         # MoveIt2 Interface
-        moveit_config = MoveItConfigsBuilder("ur16e", package_name="ur_moveit_config").to_moveit_configs()
+        # wait for robot description to be available
+        while self.robot_description is None:
+            self.get_logger().info("Waiting for robot description...")
+            rclpy.spin_once(self, timeout_sec=1.0)
+
+        moveit_config = MoveItConfigsBuilder("ur16e", package_name="ur_moveit_config")
+        moveit_config.robot_description(self.robot_description)
+        moveit_config.to_moveit_configs()
+
         self.moveit= MoveItPy(node_name="ur_manipulator", config_dict=moveit_config)
-        self.arm = PlanningComponent("arm_manipulator", self.moveit)
+        self.arm = PlanningComponent("ur_manipulator", self.moveit)
 
         # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
@@ -49,6 +65,9 @@ class cobot_control(Node):
         self.create_timer(1.0, self.process_tasks)
 
         self.get_logger().info("UR16e sorter node initialized!")
+
+    def robot_description_callback(self, msg):
+            self.robot_description = msg.data
 
     def load_sorting_sequence(self):
         yaml_path = os.path.join(os.path.dirname(__file__), "sorting_sequence.yaml")
