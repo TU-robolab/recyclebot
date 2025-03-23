@@ -100,7 +100,7 @@ class VisionDetector(Node):
                                                    qos_detected_objects
         )
         # timer for processing detections queue, 10Hz
-        self.timer = self.create_timer(1, self.process_deque, callback_group=MutuallyExclusiveCallbackGroup())
+        self.timer = self.create_timer(0.1, self.process_deque, callback_group=MutuallyExclusiveCallbackGroup())
 
         self.get_logger().info("vision detection node initialized")
 
@@ -141,15 +141,12 @@ class VisionDetector(Node):
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
         inf_results = self.model(cv_image, conf=0.5)  
         
-        print("at trigger process")
         # process detections
         detections = self.process_yolo_results(inf_results, cv_image)
         
-        print("at process")
         # add unique detections to deque (only alter detections inside the lock)
         with self.detection_lock:
             added_count = 0
-            print("at detection lock")
             for det in detections:
                 if not self.is_duplicate(det):
                     self.detection_deque.append(det)
@@ -159,7 +156,6 @@ class VisionDetector(Node):
         response.success = True
         response.message = f"Added {added_count} potential new detections"
 
-        print("message response for trigger")
         return response            
 
     def show_rgbd(self, rgb_img, depth_img):
@@ -177,9 +173,9 @@ class VisionDetector(Node):
 
         # show both images
         cv2.imshow("RGB + depth (colourmap)", combined_img)
-        cv2.waitKey(30)  #delays  second
+        cv2.waitKey(0) # delays for any key press
         # close both windows
-        #cv2.destroyAllWindows()
+        cv2.destroyAllWindows()
         
     def process_yolo_results(self, results, img):
         detections = []
@@ -236,19 +232,15 @@ class VisionDetector(Node):
 
     def process_deque(self):
         # skip if empty
-        print("at beginning of process")
         if not self.detection_deque:
-            print("at empty process deque")
+         #   print("empty detection deque")
             return
             
-        print ("at non empty process deque")    
+        #print("processing detection queue")
         detection_array = Detection2DArray()
         detection_array.header.stamp = self.get_clock().now().to_msg()
         
         with self.detection_lock:
-
-            print("with detection lock")
-
             while self.detection_deque:
                 # fifo order 
                 det = self.detection_deque.popleft()
