@@ -12,7 +12,7 @@ import rclpy
 import tf2_ros
 
 from rclpy.node import Node
-from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from sensor_msgs.msg import Image
@@ -63,7 +63,7 @@ class VisionDetector(Node):
         # create ROS2 interfaces to triger capture of goals
         self.srv = self.create_service(Trigger, "capture_detections", 
                                        self.trigger_callback,
-                                       callback_group=ReentrantCallbackGroup()
+                                       callback_group= MutuallyExclusiveCallbackGroup()
         )
         
         """
@@ -100,7 +100,7 @@ class VisionDetector(Node):
                                                    qos_detected_objects
         )
         # timer for processing detections queue, 10Hz
-        self.timer = self.create_timer(0.1, self.process_deque)
+        self.timer = self.create_timer(0.1, self.process_deque, callback_group=MutuallyExclusiveCallbackGroup())
 
         self.get_logger().info("vision detection node initialized")
 
