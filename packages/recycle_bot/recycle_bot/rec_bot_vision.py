@@ -101,8 +101,6 @@ class VisionDetector(Node):
         )
         # timer for processing detections queue, 10Hz
         self.timer = self.create_timer(0.1, self.process_deque)
-        
-        self.ui_timer = self.create_timer(0.1, self.ui_keepalive)  # 10Hz
 
         self.get_logger().info("vision detection node initialized")
 
@@ -116,10 +114,6 @@ class VisionDetector(Node):
         with self.image_lock:
             self.last_rgbd_image = msg
         
-    def ui_keepalive(self):
-        # call waitKey even if no new images
-        cv2.waitKey(1)
-
     """ 
     thread-safe detection callback, runs the model on capture
     and publishes the detections 
@@ -139,8 +133,8 @@ class VisionDetector(Node):
             # convert ROS image to OpenCV format
             cv_image = self.bridge.imgmsg_to_cv2(self.last_rgbd_image.rgb, self.last_rgbd_image.rgb.encoding)
 
-            # display debug images
-            self.show_rgbd(cv_image,depth_cv_image)
+        # display debug images
+        self.show_rgbd(cv_image,depth_cv_image)
 
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
         inf_results = self.model(cv_image, conf=0.5)  
@@ -171,6 +165,10 @@ class VisionDetector(Node):
         # show both images
         cv2.imshow("RGB Image", rgb_img)
         cv2.imshow("Depth (colormap)", depth_colormap)
+        cv2.waitKey(0)  # pauses until any key is pressed
+        # close both windows
+        cv2.destroyWindow("RGB Image")
+        cv2.destroyWindow("Depth (colormap)")
         
 
     def process_yolo_results(self, results, img):
