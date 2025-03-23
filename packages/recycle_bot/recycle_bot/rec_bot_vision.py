@@ -169,8 +169,8 @@ class VisionDetector(Node):
         depth_colormap = cv2.applyColorMap(depth_display, cv2.COLORMAP_JET)
         depth_colormap = cv2.resize(depth_colormap, (rgb_img.shape[1], rgb_img.shape[0]))
 
-        depth_colormap = cv2.resize(depth_colormap, (rgb_img.shape[1]/2, rgb_img.shape[0]/2))
-        rgb_img = cv2.resize(rgb_img, (rgb_img.shape[1]/2, rgb_img.shape[0]/2))
+        depth_colormap = cv2.resize(depth_colormap, (rgb_img.shape[1]// 2, rgb_img.shape[0]//2))
+        rgb_img = cv2.resize(rgb_img, (rgb_img.shape[1]//2, rgb_img.shape[0]//2))
         combined_img = np.hstack((rgb_img, depth_colormap))  # horizontal stack
 
         # show both images
