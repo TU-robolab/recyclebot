@@ -32,7 +32,8 @@ class cobot_control(Node):
         self.executing_task = False
 
         # MoveIt2 Interface
-        self.moveit= MoveItPy(node_name="moveit_py_node")
+        self.moveit= MoveItPy(node_name="ur_manipulator")
+        self.arm = PlanningComponent("manipulator", self.moveit)
         
         # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
