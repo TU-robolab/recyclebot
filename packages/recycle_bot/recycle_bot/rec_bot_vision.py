@@ -18,11 +18,12 @@ from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPo
 from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
 from std_srvs.srv import Trigger
+from realsense2_camera_msgs.msg import RGBD
 
 # vision imports
 import cv2
 import torch
-#import pyrealsense2 as rs
+import numpy as np
 
 from ultralytics import YOLO
 from cv_bridge import CvBridge
@@ -46,13 +47,12 @@ class VisionDetector(Node):
         # used labels
         self.class_labels = ["bottle_pet","box_pp","bucket","canister","cup_pp-ps","flower_pot","lid_pp-ps","non-food_bottle","other","watering_can"]
         
-        # Image configuration
+        # image configuration
         self.bridge = CvBridge()
-        self.last_colour_image = None
+        self.last_rgbd_image = None
         self.last_depth_image = None
         self.image_lock = Lock()
-        self.depth_lock = Lock()
-        
+                
         # create list to track detected trash (max 128 values ~4.2 secs at 30FPS)
         self.detection_deque = deque(maxlen=128)
         self.detection_lock = Lock()
@@ -79,17 +79,9 @@ class VisionDetector(Node):
         )
 
         self.image_sub = self.create_subscription(
-            Image,
-            "/camera/camera/color/image_raw",
+            RGDB,
+            "/camera/camera/rgbd",
             self.image_callback,
-            qos_camera_feed, 
-            callback_group=ReentrantCallbackGroup()
-        )
-
-        self.image_sub = self.create_subscription(
-            Image,
-            "/camera/camera/depth/image_rect_raw",
-            self.depth_callback,
             qos_camera_feed, 
             callback_group=ReentrantCallbackGroup()
         )
@@ -116,22 +108,11 @@ class VisionDetector(Node):
     thread-safe image callback, only 1 thread can update 
     last image at a time, with statement ensures lock lifecycle
     is automated (creation and release)
-    image type is sensor_msgs.msg (Image) -> cv image 
+    image type is realsense2_msgs.msg (RGBD) -> cv image etc. 
     """
     def image_callback(self, msg):
         with self.image_lock:
-            self.last_colour_image = msg
-
-    """ 
-    thread-safe depth callback, only 1 thread can update 
-    last image at a time, with statement ensures lock lifecycle
-    is automated (creation and release)
-    image type is sensor_msgs.msg (Image) -> cv image 
-    """
-    def depth_callback(self, msg):
-        # maybe make a depth lock to ensure we have a match
-        with self.depth_lock:
-            self.last_depth_image = msg
+            self.last_rgbd_image = msg
 
     """ 
     thread-safe detection callback, runs the model on capture
@@ -142,22 +123,18 @@ class VisionDetector(Node):
         depth_cv_image = None
         # keep lock on last image only as long as necessary
         with self.image_lock:
-            if self.last_colour_image is None:
+            if self.last_rgbd_image is None:
                 response.success = False
                 response.message = "No image available"
                 return response
-
-            with self.depth_lock:
-                if self.last_colour_image is None:
-                    response.success = False
-                    response.message = "No depth image available"
-               
-                depth_cv_image = self.bridge.imgmsg_to_cv2(self.last_depth_image, "passthrough")
+            
+            depth_cv_image = self.bridge.imgmsg_to_cv2(self.last_rgbd_image.depth, "passthrough")
 
             # convert ROS image to OpenCV format
-            cv_image = self.bridge.imgmsg_to_cv2(self.last_colour_image, "bgr8")
+            cv_image = self.bridge.imgmsg_to_cv2(self.last_rgbd_image.rgb, self.last_rgbd_image.rgb.encoding)
 
-        #print(depth_cv_image) 
+        # display debug images
+        self.show_rgbd(cv_image,depth_cv_image)
 
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
         inf_results = self.model(cv_image, conf=0.5)  
@@ -176,6 +153,19 @@ class VisionDetector(Node):
         response.success = True
         response.message = f"Added {added_count} potential new detections"
         return response            
+
+    def show_rgbd(self, rgb_img, depth_img):
+        # normalize depth for visualization
+        depth_display = cv2.normalize(depth_img, None, 0, 255, cv2.NORM_MINMAX)
+        depth_display = depth_display.astype(np.uint8)
+
+        # apply colormap for better visibility
+        depth_colormap = cv2.applyColorMap(depth_display, cv2.COLORMAP_JET)
+
+        # show both images
+        cv2.imshow("RGB Image", rgb_img)
+        cv2.imshow("Depth (colormap)", depth_colormap)
+        cv2.waitKey(1)  # refresh OpenCV windows
 
     def process_yolo_results(self, results, img):
         detections = []
