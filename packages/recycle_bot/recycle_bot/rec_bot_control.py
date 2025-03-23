@@ -12,9 +12,13 @@ import tf2_ros
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from geometry_msgs.msg import PoseStamped
+from tf_transformations import quaternion_from_euler
+from image_geometry import PinholeCameraModel
+from moveit.planning import MoveItPy, PlanningComponent
+from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
+from moveit_msgs.msg import Constraints, OrientationConstraint
 from std_msgs.msg import Bool
-from moveit_commander import MoveGroupCommander
+from realsense2_camera_msgs.msg import RGBD
 
 class cobot_control(Node):
     def __init__(self):
@@ -28,7 +32,7 @@ class cobot_control(Node):
         self.executing_task = False
 
         # MoveIt2 Interface
-        self.move_group = MoveGroupCommander("manipulator")
+        self.moveit= MoveItPy(node_name="moveit_py_node")
         
         # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
@@ -103,8 +107,52 @@ class cobot_control(Node):
                 self.get_logger().info("Sorting task completed.")
         self.executing_task = False
 
+    def move_cartesian(self, waypoints):
+        """Move end effector through Cartesian waypoints"""
+        try:
+            # Set start state to current state
+            self.arm.set_start_state_to_current_state()
+            
+            # Create Cartesian constraints
+            constraints = Constraints()
+            ocm = OrientationConstraint()
+            ocm.orientation = waypoints[0].orientation
+            ocm.link_name = "tool0"
+            ocm.absolute_x_axis_tolerance = 0.1
+            ocm.absolute_y_axis_tolerance = 0.1
+            ocm.absolute_z_axis_tolerance = 0.1
+            ocm.weight = 1.0
+            constraints.orientation_constraints.append(ocm)
+            
+            # Plan Cartesian path
+            plan_result = self.arm.plan(
+                goal_constraints=[constraints],
+                cartesian=True,
+                waypoints=waypoints,
+                max_step=0.01,
+                jump_threshold=0.0
+            )
+            
+            if plan_result:
+                self.get_logger().info("Executing Cartesian path")
+                self.arm.execute()
+            else:
+                self.get_logger().error("Cartesian planning failed")
+
+        except Exception as e:
+            self.get_logger().error(f"Error in Cartesian motion: {str(e)}")
+
+    def create_waypoint_pose(x, y, z, roll=0.0, pitch=0.0, yaw=0.0):
+        """Create Pose message with Euler angles"""
+        q = quaternion_from_euler(roll, pitch, yaw)
+        return Pose(
+            position=Point(x=x, y=y, z=z),
+            orientation=Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
+        )
+
     def move_to_pose(self, pose: PoseStamped):
         """Plans and executes a Cartesian motion to the given pose."""
+
         self.move_group.set_pose_target(pose.pose)
         success = self.move_group.go(wait=True)
         self.move_group.stop()
@@ -152,7 +200,20 @@ class cobot_control(Node):
 
 def main():
     rclpy.init()
+
+    # Create Cartesian waypoints
+    waypoints = [
+        create_pose(0.4, 0.2, 0.5),  # Home position
+        create_pose(0.5, 0.2, 0.5),  # X+0.1
+        create_pose(0.5, 0.3, 0.5),  # Y+0.1
+        create_pose(0.5, 0.3, 0.6)   # Z+0.1
+    ]
+
+
     ur_node = cobot_control()
+
+    ur_node.move_cartesian(waypoints)
+    
     try:
         rclpy.spin(ur_node)
     except KeyboardInterrupt:
