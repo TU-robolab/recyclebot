@@ -62,8 +62,8 @@ class cobot_control(Node):
         # moveit_config.moveit_cpp(tmp_yaml_path)
         # moveit_config.to_moveit_configs()
 
-        self.moveit= MoveItPy(node_name="ur_moveit")
-        self.arm = PlanningComponent("ur_manipulator", self.moveit)
+        self.moveit= MoveItPy(node_name="ur16e_moveit_py")
+        self.arm = PlanningComponent("ur_arm", self.moveit)
 
         # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
