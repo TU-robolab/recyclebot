@@ -192,7 +192,7 @@ class VisionDetector(Node):
         boxes = result.boxes
      
         for box in boxes:
-            # get box coordinates (in xywh format)
+            # get box coordinates (in xywh format) (center of bbox)
             x, y, w, h = box.xywh[0].cpu().numpy()
 
             # get confidence and class ID
@@ -205,8 +205,8 @@ class VisionDetector(Node):
                 "label": self.class_labels[class_id] if class_id < len(self.class_labels) else f"class_{class_id}",
                 "confidence": confidence,
                 "bbox_uv": (
-                    x1,  # x1
-                    y1,  # y1
+                    x ,  # center_x
+                    y,  #  center_y
                     int(w),        # width
                     int(h)         # height
                 ),
@@ -251,8 +251,8 @@ class VisionDetector(Node):
                 det = self.detection_deque.popleft()
                 
                 d = Detection2D()
-                d.bbox.center.position.x = float(det["bbox_uv"][0] + det["bbox_uv"][2]/2)
-                d.bbox.center.position.y = float(det["bbox_uv"][1] + det["bbox_uv"][3]/2)
+                d.bbox.center.position.x = float(det["bbox_uv"][0])
+                d.bbox.center.position.y = float(det["bbox_uv"][1])
                 d.bbox.size_x = float(det["bbox_uv"][2])
                 d.bbox.size_y = float(det["bbox_uv"][3])
                 

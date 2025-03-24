@@ -9,6 +9,7 @@ import rclpy
 import tf2_ros
 
 
+
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -19,7 +20,7 @@ from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
 from moveit_msgs.msg import Constraints, OrientationConstraint
 from moveit_configs_utils import MoveItConfigsBuilder
 from std_msgs.msg import Bool, String
-from realsense2_camera_msgs.msg import RGBD
+
 
 class cobot_control(Node):
     def __init__(self):
@@ -54,14 +55,14 @@ class cobot_control(Node):
         #     self.get_logger().info("Waiting for robot description...")
         #     rclpy.spin_once(self, timeout_sec=1.0)
 
-        moveit_config = MoveItConfigsBuilder("ur16e", package_name="ur_moveit_config")
-        tmp_yaml_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "moveit_params.yaml" )
+        # moveit_config = MoveItConfigsBuilder("ur16e", package_name="ur_moveit_config")
+        # tmp_yaml_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "moveit_params.yaml" )
 
-        #moveit_config.robot_description(self.robot_description)
-        moveit_config.moveit_cpp(tmp_yaml_path)
-        moveit_config.to_moveit_configs()
+        # #moveit_config.robot_description(self.robot_description)
+        # moveit_config.moveit_cpp(tmp_yaml_path)
+        # moveit_config.to_moveit_configs()
 
-        self.moveit= MoveItPy(node_name="ur_manipulator", config_dict=moveit_config)
+        self.moveit= MoveItPy(node_name="ur_moveit")
         self.arm = PlanningComponent("ur_manipulator", self.moveit)
 
         # TF2 transform Listener
@@ -112,11 +113,11 @@ class cobot_control(Node):
             self.get_logger().error("No sorting sequence available!")
             return None
         
-        target_pose = self.sorting_sequence[self.sequence_index]
+        target_pose_obj = self.sorting_sequence[self.sequence_index]
         self.sequence_index = (self.sequence_index + 1) % len(self.sorting_sequence)
         
-        # TODO convert from return YAML value into posetamped datatype
-        return target_pose
+        # convert from return YAML value into posetamped datatype
+        return self.create_pose(target_pose_obj)
 
     def process_tasks(self):
         """Processes pending sorting tasks if the robot is idle."""
@@ -126,9 +127,7 @@ class cobot_control(Node):
         self.executing_task = True
         # each task execution goes from pick -> neutral -> place
         """ neutral_pose = self.create_pose(
-            [
-                {"target_bin_1": {"position": [393.43, -247.56, 1.24], "orientation": [0.187876, -0.6345103, -0.7318231, 0.1628935]}}
-            ]
+
         )
         """
         pick_pose, place_pose = self.task_queue.popleft() # FIFO order
@@ -169,20 +168,24 @@ class cobot_control(Node):
             if plan_result:
                 self.get_logger().info("Executing Cartesian path")
                 self.arm.execute()
+                return True
             else:
                 self.get_logger().error("Cartesian planning failed")
-
+                return False
         except Exception as e:
             self.get_logger().error(f"Error in Cartesian motion: {str(e)}")
+            return False
 
     def move_to_pose(self, pose: PoseStamped):
         """Plans and executes a Cartesian motion to the given pose."""
+        
+        # create Cartesian waypoints
+        waypoints = [
+            pose.pose
+        ]
 
-        self.move_group.set_pose_target(pose.pose)
-        success = self.move_group.go(wait=True)
-        self.move_group.stop()
-        self.move_group.clear_pose_targets()
-        return success
+        result = self.move_cartesian(waypoints)
+        return(result)
 
     def print_current_status(self):
         """queries and prints robot"s state"""
@@ -205,21 +208,21 @@ class cobot_control(Node):
 
         pose = PoseStamped()
         
-        # Header configuration
+        # header configuration
         pose.header.stamp = rclpy.Time.now()
         pose.header.frame_id = "base_link"
         
         location_name = list(location[element_idx].keys())[0]
-        # Position coordinates
-        pose.pose.position.x = location[location_name]["position"][0]
-        pose.pose.position.y = location[location_name]["position"][1]
-        pose.pose.position.z = location[location_name]["position"][2]
+        # position coordinates
+        pose.pose.position.x = location[element_idx][location_name]["position"][0]
+        pose.pose.position.y = location[element_idx][location_name]["position"][1]
+        pose.pose.position.z = location[element_idx][location_name]["position"][2]
         
-        # Orientation quaternion 
-        pose.pose.orientation.x = location[location_name]["orientation"][0]
-        pose.pose.orientation.y = location[location_name]["orientation"][1]
-        pose.pose.orientation.z = location[location_name]["orientation"][2]
-        pose.pose.orientation.w = location[location_name]["orientation"][3]
+        # orientation quaternion 
+        pose.pose.orientation.x = location[element_idx][location_name]["orientation"][0]
+        pose.pose.orientation.y = location[element_idx][location_name]["orientation"][1]
+        pose.pose.orientation.z = location[element_idx][location_name]["orientation"][2]
+        pose.pose.orientation.w = location[element_idx][location_name]["orientation"][3]
         
         return pose
 
