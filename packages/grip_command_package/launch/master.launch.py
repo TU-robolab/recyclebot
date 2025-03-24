@@ -57,16 +57,27 @@ def generate_launch_description():
                         {'serial_flow_control': True}
                     ]
                 ),
+
+                Node(
+                    package='grip_command_package',
+                    executable='gripper_node',
+                    name='gripper_node',
+                    output='screen',
+                    parameters=[
+                        {'debug': LaunchConfiguration('debug')},
+                    ]
+                ),  
+
+                #ros2 run tf2_ros static_transform_publisher 0.289, -0.294, 0.624 0.001, 1.000, 0.000, 0.001  base_link camera_link
+                Node(
+                    package='tf2_ros',
+                    executable='static_transform_publisher',
+                    name='static_transform_publisher',
+                    output='screen',
+                    arguments=['0.289', '-0.294', '0.624', '0.001', '1.000', '0.000', '0.001', 'base_link', 'camera_link']
+                )
+
+
             ]
         ),
-
-        Node(
-            package='grip_command_package',
-            executable='gripper_node_v4',
-            name='gripper_node_v4',
-            output='screen',
-            parameters=[
-                {'debug': LaunchConfiguration('debug')},
-            ]
-        ),  
     ])
