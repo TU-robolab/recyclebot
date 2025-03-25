@@ -1,0 +1,10 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: recycle_bot
+    relative_path: urdf/ur16e.urdf
+  srdf:
+    relative_path: config/ur16e.srdf
+  package_settings:
+    author_name: Jakob Gros
+    author_email: jakob.gros@hs-aalen.de
+    generated_timestamp: 1742894214
