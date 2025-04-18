@@ -200,7 +200,8 @@ ____
         - this allows you to run/develop projects inside the container environment directly in VS Code
 
 ------
-vnc setup cv@cv-NUC8i3BEH:~/recyclebot$ x0vncserver -localhost no -passwordfile ~/.vnc/passwd -display $DISPLAY
+
+#vnc setup cv@cv-NUC8i3BEH:~/recyclebot$ x0vncserver -localhost no -passwordfile ~/.vnc/passwd -display $DISPLAY
 
 
 ___ 
