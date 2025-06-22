@@ -1,6 +1,8 @@
 # recycleBot
 
+Pick and Place for trash sorting. 
 
+## Devenv
 For recyclebot, the  devenv workflow  uses Docker for ROS. This ensures that code runs in an isolated environment on the computer at hand, ensuring portability and version consistency between devices.
 
 - [recycleBot](#recyclebot)
@@ -16,9 +18,9 @@ For recyclebot, the  devenv workflow  uses Docker for ROS. This ensures that cod
 
 _______
 
-## Setting up the recyclebot environment
+### Setting up the recyclebot environment
 
-### 1. **Prepare a Docker Image**
+#### 1. **Prepare a Docker Image**
 
 - We create an image in two steps:
   - **base** - **ROS & basic packages are installed** (ROS2 jazzy - supported until 2029).
@@ -33,7 +35,7 @@ You will find different kinds of files in this repository.
   - Mounts local source code  to the container's ROS workspace directory.
 - `apt-**-packages` - contains list of packages installed in each phase of the docker image build
 
-### Prerequisites
+#### Prerequisites
 
 *  Ubuntu linux (preferably 24.04.1 LTS) - use `hostnamectl` cmd to check the current version
 
@@ -90,7 +92,7 @@ You will find different kinds of files in this repository.
         xhost +si:localuser:$USER
       ```
 
-### Run basic devcontainer setup with docker compose
+#### Run basic devcontainer setup with docker compose
 
 1. clone the repository into your computer home: 
 
@@ -141,7 +143,7 @@ You will find different kinds of files in this repository.
 
 ------
 
-### **Common issues**
+#### **Common issues**
 
 **Resetting the Build Cache due to build issues**:
 
@@ -182,11 +184,11 @@ You will find different kinds of files in this repository.
 
 ____
 
-## Design of Container Structure
+### Design of Container Structure
 
 * there are two main types of containers: **development containers** and **deployment containers**:
 
-### **Deployment vs. Development Containers**
+#### **Deployment vs. Development Containers**
 
 - **Deployment (prod) Containers** :
   - Everything (ROS, your configurations, workspace, etc.) is set up in the `Dockerfile`.
