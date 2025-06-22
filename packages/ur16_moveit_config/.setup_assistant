@@ -1,0 +1,9 @@
+moveit_setup_assistant_config:
+  urdf:
+    relative_path: config/ur16e.urdf
+  srdf:
+    relative_path: config/ur16e.srdf
+  package_settings:
+    author_name: Elvis Borges
+    author_email: todo@todo.com
+    generated_timestamp: 1750629190
