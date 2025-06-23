@@ -1,4 +1,4 @@
-# ompl_flat.yaml  – only the keys MoveIt needs
+/**: # ompl_flat.yaml  – only the keys MoveIt needs
 ros__parameters:
   planning_pipelines: ['ompl']
 
