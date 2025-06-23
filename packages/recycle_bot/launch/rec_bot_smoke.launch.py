@@ -19,7 +19,7 @@ def generate_launch_description():
                 # robot + kinematics
                 os.path.join(ur_pkg_share, "config", "kinematics.yaml"),
                 # planning-pipeline config
-                os.path.join(ur_pkg_share, "config", "moveit_cpp.yaml"),
+                os.path.join(ur_pkg_share, "config", "ompl_planning.yaml"),
             ],
         ),
     ])
