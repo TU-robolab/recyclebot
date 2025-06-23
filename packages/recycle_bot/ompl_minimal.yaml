@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
-    planning_pipelines: ['ompl']
+    planning_pipelines: ompl
 
     ompl.planning_plugin: ompl_interface/OMPLPlanner
     ompl.request_adapters: >-
