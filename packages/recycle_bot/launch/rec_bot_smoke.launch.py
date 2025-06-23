@@ -17,7 +17,7 @@ def generate_launch_description():
             output="screen",
             parameters=[
                 # robot + kinematics
-                os.path.join(ur_pkg_share, "config", "kinematics.yaml"),
+                #os.path.join(ur_pkg_share, "config", "kinematics.yaml"),
                 # planning-pipeline config
                 os.path.join(get_package_share_directory("recycle_bot"), "config", "ompl_minimal.yaml"),
             ],
