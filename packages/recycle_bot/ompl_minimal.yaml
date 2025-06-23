@@ -1,6 +1,12 @@
-/**: # ompl_flat.yaml  – only the keys MoveIt needs
+/**:
   ros__parameters:
     planning_pipelines: ['ompl']
 
-    ompl:
-      planning_plugin: ompl_interface/OMPLPlanner
+    ompl.planning_plugin: ompl_interface/OMPLPlanner
+    ompl.request_adapters: >-
+      default_planner_request_adapters/AddTimeParameterization
+      default_planner_request_adapters/FixWorkspaceBounds
+      default_planner_request_adapters/FixStartStateBounds
+      default_planner_request_adapters/FixStartStateCollision
+      default_planner_request_adapters/FixStartStatePathConstraints
+    ompl.start_state_max_bounds_error: 0.1
