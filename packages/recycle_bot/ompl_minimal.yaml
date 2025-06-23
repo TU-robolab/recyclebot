@@ -1,8 +1,11 @@
 /**:
-  moveit_cpp:
-    ros__parameters:
+  ros__parameters:
+    moveit_cpp:
+
+      # ── (1) Which pipeline to use ──────────────────────────────
       planning_pipelines: ompl
 
+      # ── (2) Tell MoveItCpp where the OMPL plugin lives ─────────
       ompl.planning_plugin: ompl_interface/OMPLPlanner
       ompl.request_adapters: >-
         default_planner_request_adapters/AddTimeParameterization
