@@ -12,7 +12,7 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package="recycle_bot",
-            executable="rec_bot_smoke.py",
+            executable="rec_bot_smoke",
             name="smoke",
             output="screen",
             parameters=[
