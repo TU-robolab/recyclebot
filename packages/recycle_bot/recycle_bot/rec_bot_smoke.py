@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
-from moveit_py.robot import Robot
-from moveit_py.move_group_interface import MoveGroupInterface
+from moveit.robot import Robot
+from moveit.move_group_interface import MoveGroupInterface
 
 def main():
     rclpy.init()
