@@ -1,0 +1,6 @@
+# ompl_flat.yaml  – only the keys MoveIt needs
+planning_pipelines: ['ompl']
+
+ompl:
+  planning_plugin: ompl_interface/OMPLPlanner
+  
