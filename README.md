@@ -1,6 +1,6 @@
 # recycleBot
 
-
+new_details for smoke
 For recyclebot, the  devenv workflow  uses Docker for ROS. This ensures that code runs in an isolated environment on the computer at hand, ensuring portability and version consistency between devices.
 
 - [recycleBot](#recyclebot)
