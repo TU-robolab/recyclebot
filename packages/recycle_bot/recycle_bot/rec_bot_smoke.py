@@ -7,7 +7,7 @@ rclpy.init()
 moveit = MoveItPy(node_name="ur16e_move_client")
 
 # obtain a PlanningComponent for the manipulator group
-arm = moveit.get_planning_component("ur_manipulator")
+arm = moveit.get_planning_component("ur_arm")
 
 # plan to a joint targets
 goal = [0.0, -1.4, 1.4, -1.4, -1.57, 0.0]
