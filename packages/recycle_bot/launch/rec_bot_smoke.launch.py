@@ -35,30 +35,30 @@ def generate_launch_description():
         parameters=[moveit_config.to_dict()],
     )
 
-    rviz_config_file = os.path.join(
-        get_package_share_directory("ur16e_moveit_config"),
-        "config",
-        "moveit.rviz",
-    )
+    # rviz_config_file = os.path.join(
+    #     get_package_share_directory("ur16e_moveit_config"),
+    #     "config",
+    #     "moveit.rviz",
+    # )
 
-    rviz_node = Node(
-        package="rviz2",
-        executable="rviz2",
-        output="log",
-        arguments=["-d", rviz_config_file],
-        parameters=[
-            moveit_config.robot_description,
-            moveit_config.robot_description_semantic,
-        ],
-    )
+    # rviz_node = Node(
+    #     package="rviz2",
+    #     executable="rviz2",
+    #     output="log",
+    #     arguments=["-d", rviz_config_file],
+    #     parameters=[
+    #         moveit_config.robot_description,
+    #         moveit_config.robot_description_semantic,
+    #     ],
+    # )
 
-    static_tf = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="static_transform_publisher",
-        output="log",
-        arguments=["--frame-id", "world", "--child-frame-id", "panda_link0"],
-    )
+    # static_tf = Node(
+    #     package="tf2_ros",
+    #     executable="static_transform_publisher",
+    #     name="static_transform_publisher",
+    #     output="log",
+    #     arguments=["--frame-id", "world", "--child-frame-id", "panda_link0"],
+    # )
 
     robot_state_publisher = Node(
         package="robot_state_publisher",
@@ -101,9 +101,9 @@ def generate_launch_description():
             moveit_exec_file,
             moveit_py_node,
             robot_state_publisher,
-            ros2_control_node,
-            rviz_node,
-            static_tf,
+            # ros2_control_node,
+            # rviz_node,
+            # static_tf,
         ]
         + load_controllers
     )
