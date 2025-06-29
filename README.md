@@ -1,8 +1,12 @@
 # recycleBot
 
+<<<<<<< HEAD
 Pick and Place for trash sorting. 
 
 ## Devenv
+=======
+new_details for smoke
+>>>>>>> f051e637b05baef68a6a9960ce801d8bd6a770a8
 For recyclebot, the  devenv workflow  uses Docker for ROS. This ensures that code runs in an isolated environment on the computer at hand, ensuring portability and version consistency between devices.
 
 - [recycleBot](#recyclebot)
@@ -202,7 +206,8 @@ ____
         - this allows you to run/develop projects inside the container environment directly in VS Code
 
 ------
-vnc setup cv@cv-NUC8i3BEH:~/recyclebot$ x0vncserver -localhost no -passwordfile ~/.vnc/passwd -display $DISPLAY
+
+#vnc setup cv@cv-NUC8i3BEH:~/recyclebot$ x0vncserver -localhost no -passwordfile ~/.vnc/passwd -display $DISPLAY
 
 
 ___ 
