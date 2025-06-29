@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
-import rclpy
 from moveit.planning import MoveItPy
+from geometry_msgs.msg import PoseStamped
 
 rclpy.init()
 moveit = MoveItPy(node_name="ur16e_move_client")
@@ -9,17 +9,21 @@ moveit = MoveItPy(node_name="ur16e_move_client")
 # obtain a PlanningComponent for the manipulator group
 arm = moveit.get_planning_component("ur_arm")
 
-# plan to a joint targets
-goal = {
-    "shoulder_pan_joint": 0.0,
-    "shoulder_lift_joint": -1.4,
-    "elbow_joint": 1.4,
-    "wrist_1_joint": -1.4,
-    "wrist_2_joint": -1.57,
-    "wrist_3_joint": 0.0,
-}
+# ------------------------------------------------------------------
+# Plan to a Cartesian pose target for the tool frame ("tool0")
+# ------------------------------------------------------------------
+pose_goal = PoseStamped()
+pose_goal.header.frame_id = "base"          # reference frame
+pose_goal.pose.position.x = 0.4
+pose_goal.pose.position.y = 0.0
+pose_goal.pose.position.z = 0.2
+pose_goal.pose.orientation.w = 1.0          # facing forward
+# todo set quaternion x/y/z for orientation
 
-plan_result = arm.plan(goal)           # ⬅️  was plan_to_joint_positions()
-   # execute the returned plan
+# use current state as the start and the pose_goal as the target
+arm.set_start_state_to_current_state()
+arm.set_goal_pose(pose_goal, "tool0")       # tool0 = UR16e TCP link
+
+plan_result = arm.plan()
 if plan_result:
-    arm.execute(plan_result.trajectory)   
+    arm.execute(plan_result.trajectory)
