@@ -23,7 +23,7 @@ def generate_launch_description():
 
     moveit_exec_file = DeclareLaunchArgument(
         "moveit_exec_file",
-        default_value="rec_bot_smoke.py",
+        default_value="rec_bot_smoke",
         description="Python API smoke file name",
     )
 
