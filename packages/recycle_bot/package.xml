@@ -24,6 +24,8 @@
 
   <!-- UR16e Robot Driver -->
   <depend>ur_robot_driver</depend>
+  <depend>ur_moveit_config</depend>
+  
 
   <!-- ROS2 Controller Interfaces -->
   <depend>controller_manager</depend>
