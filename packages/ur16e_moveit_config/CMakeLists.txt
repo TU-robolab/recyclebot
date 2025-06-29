@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(ur16_moveit_config)
+project(ur16e_moveit_config)
 
 find_package(ament_cmake REQUIRED)
 
