@@ -26,4 +26,4 @@ arm.set_goal_state(pose_stamped_msg=pose_goal, pose_link="tool0")       # tool0 
 
 plan_result = arm.plan()
 if plan_result:
-    arm.execute(plan_result.trajectory)
+    moveit.execute(plan_result.trajectory)
