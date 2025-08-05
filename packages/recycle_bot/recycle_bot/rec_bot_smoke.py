@@ -14,7 +14,6 @@ planning_state_mon = moveit.get_planning_scene_monitor()
 with planning_state_mon.read_only() as scene:
     pose = scene.current_state.get_global_link_transform("tool0")
     ps = PoseStamped()
-    ps.header.stamp    = rclpy.time.Time().to_msg()
     ps.header.frame_id = scene.planning_scene.world.frame_id
     ps.pose.position.x, ps.pose.position.y, ps.pose.position.z = pose.translation
     ps.pose.orientation.x, ps.pose.orientation.y, \
