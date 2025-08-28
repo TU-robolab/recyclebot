@@ -44,18 +44,18 @@ def main():
         pose_goal.pose.orientation.z = 0.606 
         
         # set quaternion x/y/z for orientation
-        q = pose_goal.pose.orientation
-        norm = math.sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w)
+        # q = pose_goal.pose.orientation
+        # norm = math.sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w)
         
-        if norm <= 0.0:
-            log.error("Invalid quaternion (norm=0), aborting.")
-            return
+        # if norm <= 0.0:
+        #     log.error("Invalid quaternion (norm=0), aborting.")
+        #     return
             
-        q.x /= norm
-        q.y /= norm
-        q.z /= norm
-        q.w /= norm 
-        pose_goal.pose.orientation = q
+        # q.x /= norm
+        # q.y /= norm
+        # q.z /= norm
+        # q.w /= norm 
+        # pose_goal.pose.orientation = q
         
         # use current state as the start and the pose_goal as the target, start plan
         arm.set_start_state_to_current_state()
