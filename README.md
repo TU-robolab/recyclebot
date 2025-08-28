@@ -1,12 +1,9 @@
 # recycleBot
-
-<<<<<<< HEAD
 Pick and Place for trash sorting. 
 
 ## Devenv
-=======
-new_details for smoke
->>>>>>> f051e637b05baef68a6a9960ce801d8bd6a770a8
+
+###TODO - make smoke tutorial
 For recyclebot, the  devenv workflow  uses Docker for ROS. This ensures that code runs in an isolated environment on the computer at hand, ensuring portability and version consistency between devices.
 
 - [recycleBot](#recyclebot)
