@@ -28,6 +28,9 @@ ompl:
   planner_configs:
     PRMstarkConfigDefault:
       type: geometric::PRMstar
+    RRTConnectkConfigDefault:
+      type: geometric::RRTConnect
+      
   # Define planner(s) for each move_group
   ur_arm:
     planner_configs:
