@@ -28,10 +28,16 @@ ompl:
   planner_configs:
     PRMstarkConfigDefault:
       type: geometric::PRMstar
+
+    RRTConnectkConfigDefault:
+      type: geometric::RRTConnect
+      range: 0.1
+      
   # Define planner(s) for each move_group
-  panda_arm:
+  ur_arm:
     planner_configs:
       - PRMstarkConfigDefault
+      - RRTConnectkConfigDefault
   # Add additional planning pipeline config here
 plan_request_params:
   planning_attempts: 1
