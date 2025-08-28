@@ -32,6 +32,7 @@ ompl:
   ur_arm:
     planner_configs:
       - PRMstarkConfigDefault
+      - RRTConnectkConfigDefault
   # Add additional planning pipeline config here
 plan_request_params:
   planning_attempts: 1
