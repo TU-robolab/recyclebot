@@ -62,11 +62,6 @@ def main():
         arm.set_goal_state(pose_stamped_msg=pose_goal, pose_link="tool0")       # tool0 = UR16e TCP link
         plan_result = arm.plan()
 
-        # error boundary checking
-        if not plan_result or not getattr(plan_result, "success", False):
-            status = getattr(plan_result, "status", "unknown")
-            log.error(f"planning failed: {status}")
-            return
 
         log.info("planning trajectory successful")
         trajectory = plan_result.trajectory
