@@ -62,18 +62,16 @@ def main():
         arm.set_goal_state(pose_stamped_msg=pose_goal, pose_link="tool0")       # tool0 = UR16e TCP link
         plan_result = arm.plan()
 
-
+        print(plan_result)
         log.info("planning trajectory successful")
         trajectory = plan_result.trajectory
         
         # per plan speed scaling with TOTG (https://moveit.picknik.ai/main/doc/api/python_api/_autosummary/moveit.core.robot_trajectory.html)
-        trajectory_retimed = trajectory.apply_totg_time_parameterization(
-            velocity_scaling_factor=0.2,      
-            acceleration_scaling_factor=0.2   
-        ) 
-        
-        if not trajectory_retimed:
-            log.warn("time parameterization failed, executing raw plan")
+        # trajectory_retimed = trajectory.apply_totg_time_parameterization(
+        #     velocity_scaling_factor=0.2,      
+        #     acceleration_scaling_factor=0.2   
+        # ) 
+
 
         # execute the trajectory with scaled joint planner
         moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"])
