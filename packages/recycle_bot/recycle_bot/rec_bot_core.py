@@ -3,6 +3,7 @@ from threading import Lock
 
 # ros imports
 import rclpy
+import tf2_ros
 from rclpy.node import Node
 
 from std_msgs.msg import String
@@ -13,7 +14,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from cv_bridge import CvBridge
 from image_geometry import PinholeCameraModel
-from geometry_msgs.msg import  PoseStamped, Quaternion
+from geometry_msgs.msg import PoseStamped, Quaternion, TransformStamped
 from tf_transformations import quaternion_from_euler
 
 import numpy as np
@@ -67,6 +68,8 @@ class RecBotCore(Node):
             "/vision/detected_object",
             qos_detected_objects
         )
+
+        self.publish_camera_static_transform()
 
     """ 
     thread-safe image callback, only 1 thread can update 
@@ -129,6 +132,21 @@ class RecBotCore(Node):
         pose.pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
 
         self.detected_object_pub.publish(pose)
+
+    def publish_camera_static_transform(self):
+        static_br = tf2_ros.StaticTransformBroadcaster(self)
+        transform = TransformStamped()
+        transform.header.stamp = self.get_clock().now().to_msg()
+        transform.header.frame_id = "base"
+        transform.child_frame_id = "camera_link" # change to published by system if needed
+        transform.transform.translation.x = -0.38384216583910713
+        transform.transform.translation.y = 0.2863018787024152
+        transform.transform.translation.z = 0.6239699702309053
+        transform.transform.rotation.x = -0.9989747131951828
+        transform.transform.rotation.y = 0.04527164772325851
+        transform.transform.rotation.z = -1.2163534954626416e-05
+        transform.transform.rotation.w = 1.2691403055540589e-05
+        static_br.sendTransform(transform)
 
                                
         
