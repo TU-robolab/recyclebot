@@ -2,7 +2,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -39,25 +40,32 @@ def generate_launch_description():
         parameters=[moveit_config.to_dict()],
     )
 
-    realsense_node = Node(
-        package="realsense2_camera",
-        executable="rs_launch.py",
-        namespace="camera",
-        parameters=[{"pointcloud.enable": True}],
+    realsense_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory("realsense2_camera"),
+                "launch",
+                "rs_launch.py",
+            )
+        ),
+        launch_arguments={"pointcloud.enable": "true"}.items(),
     )
 
-    grip_command_launch = Node(
-        package="grip_command_package",
-        executable="master.launch.py",
-        output="both",
+    grip_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory("grip_command_package"),
+                "launch",
+                "master.launch.py",
+            )
+        )
     )
 
     return LaunchDescription(
         [
             moveit_exec_file,
             moveit_py_node,
-            realsense_node,
-            grip_command_launch,
+            realsense_launch,
+            grip_launch,
         ]
     )
-
