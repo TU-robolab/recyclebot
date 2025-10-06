@@ -6,7 +6,10 @@ CV based pick-and-place system for trash sorting using ROS2 Jazzy inside a conta
 ## Overview
 **recycleBot** provides a portable ROS2 workspace configured for simulation, vision, and hardware control (designed with UR robots, a realsense camera, and a gripper which interfaces through a serial interface).  
 
-All development happens inside Docker, ensuring version-stable builds and easy deployment across machines.
+All development happens inside Docker, ensuring:
+- identical builds across machines
+- version-stable dependencies, and  
+- quick transition from development to deployment
 
 ### TOC 
 - [recycleBot](#recyclebot)
@@ -21,9 +24,15 @@ All development happens inside Docker, ensuring version-stable builds and easy d
 <small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
 ---
 
-## 🧰 Environment Setup
+## 1 - Environment Setup
 
-### 1 - Requirements
+### Requirements
+- **Ubuntu 24.04 LTS** (or compatible)  
+- **Docker Engine ≥ 24** and **docker-compose plugin**  
+- **git-lfs** for large files  
+- (optional) **Real-time kernel** for UR control
+
+### Host Setup 
 - **Ubuntu 24.04 LTS**  
   ```bash
   hostnamectl
@@ -71,6 +80,28 @@ All development happens inside Docker, ensuring version-stable builds and easy d
       ```
 ---
 
+## 2 - Quick Start
+1. Enable Docker container
+```bash
+	git clone … && cd recyclebot
+	git lfs pull
+	cp .env.sample .env && ./export_env.sh
+	docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml build
+	docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml up -d
+```
+
+2. Open the dev Container
+```bash
+  docker exec -it recyclebot-dev-1 bash
+	source /ros_entrypoint.sh
+```
+4. Source and build ROS workspace
+```bash
+colcon build --cmake-clean-first
+source install/setup.bash
+```   
+
+---
 ### Setting up the recyclebot environment
 
 #### 1. **Prepare a Docker Image**
