@@ -1,18 +1,14 @@
-# recycleBot
-CV based Pick-and-place system for trash sorting using ROS2 Jazzy inside a container environment. 
+# RecycleBot
+CV based pick-and-place system for trash sorting using ROS2 Jazzy inside a containerized environment. 
 
 ---
 
-## 📘 Overview
-**recycleBot** provides a portable ROS2 workspace configured for simulation, vision, and hardware control (designed with UR robots, a realsense camera, and a gripper which interfaces through a serial BUS).  
+## Overview
+**recycleBot** provides a portable ROS2 workspace configured for simulation, vision, and hardware control (designed with UR robots, a realsense camera, and a gripper which interfaces through a serial interface).  
 
 All development happens inside Docker, ensuring version-stable builds and easy deployment across machines.
 
----
-## Devenv
-
-For recyclebot, the  devenv workflow  uses Docker for ROS. This ensures that code runs in an isolated environment on the computer at hand, ensuring portability and version consistency between devices.
-
+### TOC 
 - [recycleBot](#recyclebot)
   - [Setting up the recyclebot environment](#setting-up-the-recyclebot-environment)
     - [1. **Prepare a Docker Image**](#1-prepare-a-docker-image)
@@ -23,8 +19,57 @@ For recyclebot, the  devenv workflow  uses Docker for ROS. This ensures that cod
     - [**Deployment vs. Development Containers**](#deployment-vs-development-containers)
 
 <small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
+---
 
-_______
+## 🧰 Environment Setup
+
+### 1 - Requirements
+- **Ubuntu 24.04 LTS**  
+  ```bash
+  hostnamectl
+  sudo apt update && sudo apt full-upgrade
+  sudo do-release-upgrade
+  # finalize by rebooting:
+  sudo reboot
+  ```
+-  **Real time kernel on Ubuntu (needed for UR control)**
+  ```bash
+  # attach account to canonical to enable pro ubuntu mode
+  sudo pro attach
+  # update your dependencies
+  sudo apt update && sudo apt install ubuntu-advantage-tools
+  # enable real time kernel mode 
+  sudo pro enable realtime-kernel
+
+  # reboot the system
+  reboot
+  ``` 
+- **Docker**
+   - install using the updated [docker installation page](https://docs.docker.com/engine/install/ubuntu/#prerequisites) WoW
+   - ensure docker is given access priviledges:
+      1. add the `docker` group (if it doesn't already exist):
+        ```
+         sudo groupadd docker
+        ```
+      2. add the connected user "$USER" to the `docker` group. (change username  if you do not want to use your current user):
+    
+        ```
+         sudo gpasswd -a $USER docker
+        ```
+    
+      3. run  `newgrp docker` or log out/in to activate the changes to groups.
+    
+      4.  use the following to check if you can run Docker without `sudo`.
+    
+        ```
+         docker run hello-world
+        ```
+    
+      5.  run this in your host system terminal to allow Docker to Use Wayland in your host system (in case your ubuntu uses wayland instead of X11 for GUI forwarding to container)
+      ```
+        xhost +si:localuser:$USER
+      ```
+---
 
 ### Setting up the recyclebot environment
 
@@ -45,60 +90,7 @@ You will find different kinds of files in this repository.
 
 #### Prerequisites
 
-*  Ubuntu linux (preferably 24.04.1 LTS) - use `hostnamectl` cmd to check the current version
 
-  * ```bash
-    # if not current version, upgrade with:
-    sudo apt full-upgrade
-    sudo apt install update-manager-core
-    sudo do-release-upgrade
-    
-    # finalize by rebooting:
-    sudo reboot
-    ```
-
-*  Install the real time kernel on your Ubuntu (needed for UR control)
-  * ```bash
-    # attach account to canonical to enable pro ubuntu mode
-    sudo pro attach
-    # update your dependencies
-    sudo apt update && sudo apt install ubuntu-advantage-tools
-    # enable real time kernel mode 
-    sudo pro enable realtime-kernel
-
-    # reboot the system
-    reboot
-    ``` 
-
-
-* Docker -  install using the updated [docker installation page](https://docs.docker.com/engine/install/ubuntu/#prerequisites) WoW
-
-  * ensure docker is given access priviledges:
-
-    - add the `docker` group (if it doesn't already exist):
-    
-      ```
-       sudo groupadd docker
-      ```
-    
-    - add the connected user "$USER" to the `docker` group. (change username  if you do not want to use your current user):
-    
-      ```
-       sudo gpasswd -a $USER docker
-      ```
-    
-    - run  `newgrp docker` or log out/in to activate the changes to groups.
-    
-    - use the following to check if you can run Docker without `sudo`.
-    
-      ```
-       docker run hello-world
-      ```
-    
-    - run this in your host system terminal to allow Docker to Use Wayland in your host system (in case your ubuntu uses wayland instead of X11 for GUI forwarding to container)
-      ```
-        xhost +si:localuser:$USER
-      ```
 
 #### Run basic devcontainer setup with docker compose
 
