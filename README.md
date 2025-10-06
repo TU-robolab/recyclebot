@@ -1,9 +1,16 @@
 # recycleBot
-Pick and Place for trash sorting. 
+CV based Pick-and-place system for trash sorting using ROS2 Jazzy inside a container environment. 
 
+---
+
+## 📘 Overview
+**recycleBot** provides a portable ROS2 workspace configured for simulation, vision, and hardware control (designed with UR robots, a realsense camera, and a gripper which interfaces through a serial BUS).  
+
+All development happens inside Docker, ensuring version-stable builds and easy deployment across machines.
+
+---
 ## Devenv
 
-###TODO - make smoke tutorial
 For recyclebot, the  devenv workflow  uses Docker for ROS. This ensures that code runs in an isolated environment on the computer at hand, ensuring portability and version consistency between devices.
 
 - [recycleBot](#recyclebot)
