@@ -12,16 +12,39 @@ All development happens inside Docker, ensuring:
 - quick transition from development to deployment
 
 ### TOC 
-- [recycleBot](#recyclebot)
-  - [Setting up the recyclebot environment](#setting-up-the-recyclebot-environment)
-    - [1. **Prepare a Docker Image**](#1-prepare-a-docker-image)
-    - [Prerequisites](#prerequisites)
-    - [Run basic devcontainer setup with docker compose](#run-basic-devcontainer-setup-with-docker-compose)
-    - [**Common issues**](#common-issues)
-  - [Design of Container Structure](#design-of-container-structure)
-    - [**Deployment vs. Development Containers**](#deployment-vs-development-containers)
+- [RecycleBot](#recyclebot)
+  * [Overview](#overview)
+    + [TOC](#toc)
+  * [<small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>](#-small--i--a-href--http---ecotrust-canadagithubio-markdown-toc---table-of-contents-generated-with-markdown-toc--a---i---small-)
+  * [1 - Environment Setup](#1---environment-setup)
+    + [Requirements](#requirements)
+    + [Host Setup](#host-setup)
+  * [2 - Quick Start](#2---quick-start)
+  * [3 - Subsystems](#3---subsystems)
+    + [Robot (UR)](#robot--ur-)
+    + [Camera (realsense)](#camera--realsense-)
+    + [Gripper (Robotiq E-Pick)](#gripper--robotiq-e-pick-)
+    + [4 - Troubleshooting/Common Issues](#4---troubleshooting-common-issues)
+      - [Docker socket/permissions](#docker-socket-permissions)
+      - [reset build cache due to build issue](#reset-build-cache-due-to-build-issue)
+      - [Wayland GUI access](#wayland-gui-access)
+      - [Maintenance (SAFE)](#maintenance--safe-)
+      - [Maintenance (DESTRUCTIVE)](#maintenance--destructive-)
+  * [5 - Design Notes](#5---design-notes)
+    + [**Deployment vs. Development Containers**](#--deployment-vs-development-containers--)
+    + [Package Overview](#package-overview)
+      - [Gripper](#gripper)
+        * [1. `grip_interface`](#1--grip-interface-)
+        * [2. `grip_command_package`](#2--grip-command-package-)
+        * [3. `serial`](#3--serial-)
+  * [6 - Appendix](#6---appendix)
+    + [Gripper WoW](#gripper-wow)
+    + [VNC setup](#vnc-setup)
+    + [Convert between euler quaternions](#convert-between-euler-quaternions)
+    + [Typical WoW](#typical-wow)
 
 <small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
+
 ---
 
 ## 1 - Environment Setup
