@@ -42,7 +42,7 @@ All development happens inside Docker, ensuring:
     + [VNC setup](#vnc-setup)
     + [Convert between euler quaternions](#convert-between-euler-quaternions)
     + [Typical WoW](#typical-wow)
-
+  * [7 - License](#7---license)
 <small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
 
 ---
