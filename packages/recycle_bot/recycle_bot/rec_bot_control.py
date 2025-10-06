@@ -208,7 +208,7 @@ class cobot_control(Node):
         
     def create_pose(self, location , element_idx=0):
         """ 
-         element_index tells you whcih element you would like
+         element_index tells you which element you would like
          location based on format from YAML file, eg for current YAML, input would be:
          [
             {
@@ -287,22 +287,13 @@ class cobot_control(Node):
             self.get_logger().error(f"{exc}")
             return None
 
-def create_waypoint_pose(
-    x,
-    y,
-    z,
-    roll=None,
-    pitch=None,
-    yaw=None,
-    quaternion=None,
-):
+def create_waypoint_pose(x,y,z,roll=None,pitch=None,yaw=None,quaternion=None):
     """Create Pose message with either Euler angles or quaternion orientation."""
-
     if quaternion is not None and any(value is not None for value in (roll, pitch, yaw)):
         raise ValueError("Provide either Euler angles or a quaternion, not both")
-
+    
     pose = Pose(position=Point(x=x, y=y, z=z))
-
+    
     if quaternion is not None:
         qx, qy, qz, qw = quaternion
         norm = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
@@ -320,7 +311,6 @@ def create_waypoint_pose(
         yaw = 0.0 if yaw is None else yaw
         qx, qy, qz, qw = quaternion_from_euler(roll, pitch, yaw)
         pose.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
-
     return pose
 
 def main():
@@ -329,26 +319,18 @@ def main():
     ur_node = cobot_control()
 
     pose = create_waypoint_pose(
-        x=-0.38384216583910713,
-        y=0.2863018787024152,
-        z=0.6239699702309053,
-        quaternion=(
-            -0.9989747131951828,
-            0.04527164772325851,
-            -1.2163534954626416e-05,
-            1.2691403055540589e-05,
-        ),
+        x=0.116,
+        y=-0.468,
+        z=0.874,
+        quaternion=(0.330, -0.646, 0.606, 0.324),
     )
 
     target_pose = PoseStamped()
     target_pose.header.frame_id = "base"
+    target_pose.header.stamp = ur_node.get_clock().now().to_msg()
     target_pose.pose = pose
     target_pose = ur_node.normalize_pose_stamped(target_pose)
-
-    if target_pose is None:
-        ur_node.get_logger().error("Target pose normalization failed, aborting")
-        return
-
+    
     if ur_node.move_to_pose(target_pose):
         ur_node.get_logger().info("Target pose executed")
 
