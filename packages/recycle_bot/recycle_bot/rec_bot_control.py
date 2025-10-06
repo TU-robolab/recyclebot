@@ -1,6 +1,7 @@
 # System Imports
 import yaml
 import os
+import math
 
 from collections import deque
 
@@ -15,7 +16,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from tf_transformations import quaternion_from_euler
 from image_geometry import PinholeCameraModel
-from moveit.planning import MoveItPy, PlanningComponent
+from moveit.planning import MoveItPy
 from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
 from moveit_msgs.msg import Constraints, OrientationConstraint
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -62,8 +63,10 @@ class cobot_control(Node):
         # moveit_config.moveit_cpp(tmp_yaml_path)
         # moveit_config.to_moveit_configs()
 
-        self.moveit= MoveItPy(node_name="ur_moveit")
-        self.arm = PlanningComponent("ur_manipulator", self.moveit)
+        self.moveit = MoveItPy(node_name="ur_moveit")
+        self.arm = self.moveit.get_planning_component("ur_arm")
+        self.velocity_scaling = 0.2
+        self.acceleration_scaling = 0.2
 
         # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
@@ -144,48 +147,59 @@ class cobot_control(Node):
         try:
             # Set start state to current state
             self.arm.set_start_state_to_current_state()
-            
+            normalized_waypoints = [self.normalize_pose_orientation(p) for p in waypoints]
+
             # Create Cartesian constraints
             constraints = Constraints()
             ocm = OrientationConstraint()
-            ocm.orientation = waypoints[0].orientation
+            ocm.orientation = normalized_waypoints[0].orientation
             ocm.link_name = "tool0"
             ocm.absolute_x_axis_tolerance = 0.1
             ocm.absolute_y_axis_tolerance = 0.1
             ocm.absolute_z_axis_tolerance = 0.1
             ocm.weight = 1.0
             constraints.orientation_constraints.append(ocm)
-            
+
             # Plan Cartesian path
             plan_result = self.arm.plan(
                 goal_constraints=[constraints],
                 cartesian=True,
-                waypoints=waypoints,
+                waypoints=normalized_waypoints,
                 max_step=0.01,
                 jump_threshold=0.0
             )
-            
-            if plan_result:
-                self.get_logger().info("Executing Cartesian path")
-                self.arm.execute()
-                return True
-            else:
-                self.get_logger().error("Cartesian planning failed")
+
+            if not plan_result or not getattr(plan_result, "success", False):
+                status = getattr(plan_result, "status", "unknown")
+                self.get_logger().error(f"Cartesian planning failed: {status}")
                 return False
+
+            self.get_logger().info("Executing Cartesian path")
+            self.execute_trajectory(plan_result.trajectory)
+            return True
         except Exception as e:
             self.get_logger().error(f"Error in Cartesian motion: {str(e)}")
             return False
 
     def move_to_pose(self, pose: PoseStamped):
         """Plans and executes a Cartesian motion to the given pose."""
-        
-        # create Cartesian waypoints
-        waypoints = [
-            pose.pose
-        ]
+        pose_to_plan = self.normalize_pose_stamped(pose)
 
-        result = self.move_cartesian(waypoints)
-        return(result)
+        if pose_to_plan is None:
+            return False
+
+        self.arm.set_start_state_to_current_state()
+        self.arm.set_goal_state(pose_stamped_msg=pose_to_plan, pose_link="tool0")
+        plan_result = self.arm.plan()
+
+        if not plan_result or not getattr(plan_result, "success", False):
+            status = getattr(plan_result, "status", "unknown")
+            self.get_logger().error(f"Planning failed: {status}")
+            return False
+
+        self.get_logger().info("Executing planned pose")
+        self.execute_trajectory(plan_result.trajectory)
+        return True
 
     def print_current_status(self):
         """queries and prints robot"s state"""
@@ -225,6 +239,52 @@ class cobot_control(Node):
         pose.pose.orientation.w = location[element_idx][location_name]["orientation"][3]
         
         return pose
+
+    def execute_trajectory(self, trajectory):
+        """Apply TOTG time parameterization and execute trajectory using scaled controller."""
+        trajectory_retimed = trajectory.apply_totg_time_parameterization(
+            velocity_scaling_factor=self.velocity_scaling,
+            acceleration_scaling_factor=self.acceleration_scaling
+        )
+
+        if not trajectory_retimed:
+            self.get_logger().warn("Time parameterization failed, executing raw trajectory")
+
+        self.moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"])
+
+    def normalize_pose_orientation(self, pose):
+        """Return a Pose with normalized quaternion orientation."""
+        orientation = pose.orientation
+        norm = math.sqrt(
+            orientation.x * orientation.x
+            + orientation.y * orientation.y
+            + orientation.z * orientation.z
+            + orientation.w * orientation.w
+        )
+
+        if norm <= 0.0:
+            raise ValueError("Invalid quaternion (norm=0)")
+
+        pose.orientation.x = orientation.x / norm
+        pose.orientation.y = orientation.y / norm
+        pose.orientation.z = orientation.z / norm
+        pose.orientation.w = orientation.w / norm
+        return pose
+
+    def normalize_pose_stamped(self, pose_stamped: PoseStamped):
+        """Return a PoseStamped with normalized orientation, logging if invalid."""
+        normalized_pose = PoseStamped()
+        normalized_pose.header.frame_id = pose_stamped.header.frame_id or "base_link"
+        normalized_pose.header.stamp = self.get_clock().now().to_msg()
+        normalized_pose.pose.position = pose_stamped.pose.position
+        normalized_pose.pose.orientation = pose_stamped.pose.orientation
+
+        try:
+            normalized_pose.pose = self.normalize_pose_orientation(normalized_pose.pose)
+            return normalized_pose
+        except ValueError as exc:
+            self.get_logger().error(f"{exc}")
+            return None
 
 def create_waypoint_pose(x, y, z, roll=0.0, pitch=0.0, yaw=0.0):
     """Create Pose message with Euler angles"""
