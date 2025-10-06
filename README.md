@@ -1,5 +1,5 @@
 # RecycleBot
-CV based pick-and-place system for trash sorting using ROS2 Jazzy inside a containerized environment. 
+CV based pick-and-place system for trash sorting using ROS2 Jazzy inside a containerized environment, developed and maintained by @Ryudas **Triku Studio**.  
 
 ---
 
