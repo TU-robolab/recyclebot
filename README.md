@@ -1,5 +1,5 @@
 # RecycleBot
-CV based pick-and-place system for trash sorting using ROS2 Jazzy inside a containerized environment, developed and maintained by @Ryudas **Triku Studio**.  
+CV based pick-and-place system for trash sorting using ROS2 Jazzy inside a containerized environment, developed and maintained by Elvis Borges & **Triku Studio**.  
 
 ---
 
@@ -359,5 +359,10 @@ ros2 topic echo /object_detection/status
      ![image-20250119211917016](resources/image-20250119211917016.png)
 
 
+## 7 - License 
+This repository is distributed under the MIT License unless otherwise stated.
 
+---
+Maintained by Triku Studio
+© 2025 Triku Studio — All Rights Reserved.
 
