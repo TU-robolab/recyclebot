@@ -276,6 +276,7 @@ class cobot_control(Node):
         normalized_pose = PoseStamped()
         normalized_pose.header.frame_id = pose_stamped.header.frame_id or "base_link"
         normalized_pose.header.stamp = self.get_clock().now().to_msg()
+
         normalized_pose.pose.position = pose_stamped.pose.position
         normalized_pose.pose.orientation = pose_stamped.pose.orientation
 
@@ -297,17 +298,21 @@ def create_waypoint_pose(x, y, z, roll=0.0, pitch=0.0, yaw=0.0):
 def main():
     rclpy.init()
 
-    # Create Cartesian waypoints
-    waypoints = [
-        create_waypoint_pose(0.4, 0.2, 0.5),  # Home position
-        create_waypoint_pose(0.5, 0.2, 0.5),  # X+0.1
-        create_waypoint_pose(0.5, 0.3, 0.5),  # Y+0.1
-        create_waypoint_pose(0.5, 0.3, 0.6)   # Z+0.1
-    ]
-
     ur_node = cobot_control()
 
-    ur_node.move_cartesian(waypoints)
+    target_pose = PoseStamped()
+    target_pose.header.frame_id = "base"
+    target_pose.header.stamp = ur_node.get_clock().now().to_msg()
+    target_pose.pose.position.x = -0.38384216583910713
+    target_pose.pose.position.y = 0.2863018787024152
+    target_pose.pose.position.z = 0.6239699702309053
+    target_pose.pose.orientation.x = -0.9989747131951828
+    target_pose.pose.orientation.y = 0.04527164772325851
+    target_pose.pose.orientation.z = -1.2163534954626416e-05
+    target_pose.pose.orientation.w = 1.2691403055540589e-05
+
+    if ur_node.move_to_pose(target_pose):
+        ur_node.get_logger().info("Target pose executed")
 
     try:
         rclpy.spin(ur_node)
