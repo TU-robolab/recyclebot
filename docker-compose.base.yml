@@ -17,6 +17,7 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all  # Grants all NVIDIA driver capabilities to the container
       - NVIDIA_VISIBLE_DEVICES=all      # Makes all NVIDIA devices visible to the container
       - ROS_DOMAIN_ID=42                # override default domain ID for ros nodes
+      - XAUTHORITY=/home/ur16e/.Xauthority
       #- __NV_PRIME_RENDER_OFFLOAD=1 # Enables NVIDIA PRIME render offload
       #- __GLX_VENDOR_LIBRARY_NAME=nvidia # Specifies the GLX vendor library to use (NVIDIA)
     command: bash
