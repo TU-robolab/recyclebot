@@ -148,7 +148,8 @@ class VisionDetector(Node):
         
         # process detections
         detections = self.process_yolo_results(inf_results, cv_image, depth_cv_image)
-        
+
+        print(f"NN output raw detections: {detections}")
         # add unique detections to deque (only alter detections inside the lock)
         with self.detection_lock:
             added_count = 0
