@@ -146,7 +146,7 @@ class VisionDetector(Node):
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
         inf_results = self.model(cv_image, conf=0.5)  
         print(f"NN output raw inference output: {inf_results}")
-        print(f"NN output raw inference boxes: {inf_results.boxes}")
+        print(f"NN output raw inference boxes: {inf_results[0].boxes}")
        
         
         # process detections
