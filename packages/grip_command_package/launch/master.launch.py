@@ -16,26 +16,26 @@ def generate_launch_description():
         DeclareLaunchArgument("sim_mode", default_value="false"),
         
         #ur robot driver
-        IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([
-            FindPackageShare("ur_robot_driver"), "/launch/ur16e.launch.py"
-        ]),
-        launch_arguments={
-            "robot_ip": LaunchConfiguration("robot_ip"),
-            "ur_type": "ur16e",
-            "launch_rviz": LaunchConfiguration("sim_mode"),
-            "use_tool_communication" : "true",
-            "use_mock_hardware" : LaunchConfiguration("sim_mode"),
-            "mock_sensor_commands" : LaunchConfiguration("sim_mode"),
-            "tool_voltage" : "24",
-            "tool_parity" : "0",
-            "tool_baud_rate" :  "115200",
-            "tool_stop_bits" : "1",
-            "tool_rx_idle_chars" : "1.5",
-            "tool_tx_idle_chars" : "3.5",
-            "tool_device_name" : "/tmp/ttyUR",
-        }.items(),
-        ),
+       # IncludeLaunchDescription(
+       # PythonLaunchDescriptionSource([
+       #     FindPackageShare("ur_robot_driver"), "/launch/ur16e.launch.py"
+       # ]),
+       # launch_arguments={
+       #     "robot_ip": LaunchConfiguration("robot_ip"),
+       #     "ur_type": "ur16e",
+       #     "launch_rviz": LaunchConfiguration("sim_mode"),
+       #     "use_tool_communication" : "true",
+       #     "use_mock_hardware" : LaunchConfiguration("sim_mode"),
+       #     "mock_sensor_commands" : LaunchConfiguration("sim_mode"),
+       #     "tool_voltage" : "24",
+       #     "tool_parity" : "0",
+       #     "tool_baud_rate" :  "115200",
+       #     "tool_stop_bits" : "1",
+       #     "tool_rx_idle_chars" : "1.5",
+       #     "tool_tx_idle_chars" : "3.5",
+       #     "tool_device_name" : "/tmp/ttyUR",
+       # }.items(),
+       # ),
 
         #serial interface
         TimerAction(

@@ -37,7 +37,7 @@ class VisionDetector(Node):
         
 
         # initialize yolo model  (model in pkg_resources location)
-        tmp_model_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "rb-y11-v3.pt" )
+        tmp_model_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "rb-lab-data-hannover-messe-v3-171025.pt" )
         self.model = YOLO(tmp_model_path)
 
         # set hardware device for inference
