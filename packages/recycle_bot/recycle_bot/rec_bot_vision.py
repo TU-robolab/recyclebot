@@ -224,8 +224,8 @@ class VisionDetector(Node):
     def is_duplicate(self, new_det):
         for existing_det in self.detection_deque:
             # Calculate IoU for duplicate detection check
-            box_a = new_det["bbox"]
-            box_b = existing_det["bbox"]
+            box_a = new_det["bbox_uv"]
+            box_b = existing_det["bbox_uv"]
             
             x_a = max(box_a[0], box_b[0])
             y_a = max(box_a[1], box_b[1])
