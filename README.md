@@ -124,7 +124,8 @@ git lfs pull
 
 # configure your local environment variables using the export_env script
 ./export_env.sh
-
+# this by default enables docker compose bake to speed up build. if unstable run docker compose build command  (Header 3 - Docker Build & Launch") with scape sequence : 
+# COMPOSE_BAKE=false docker compose build 
 # allow Docker X11 display access
 xhost +si:localuser:root
 xhost +local:ur16e
@@ -136,6 +137,7 @@ xhost +local:root
 ### 3 - Docker Build & Launch
 
 ```bash
+
 docker compose --env-file .env   -f docker-compose.base.yml -f docker-compose.dev.yml build
 # Optional clean build
 # docker compose ... build --no-cache
