@@ -50,42 +50,42 @@ usermod -l ${USER_NAME} ${OLD_USER_NAME}; \
 usermod -d /home/${USER_NAME} -m ${USER_NAME}; \
 else \
 useradd -s /bin/bash --uid ${USER_ID} --gid ${GROUP_ID} -m ${USER_NAME}; \
-fi \
-&& apt-get update \
-&& apt-get install -y sudo \
-&& echo ${USER_NAME} ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/${USER_NAME} \
-&& chmod 0440 /etc/sudoers.d/${USER_NAME}
+fi 
+#fi\
+# && apt-get update \
+# && apt-get install -y sudo \
+# && echo ${USER_NAME} ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/${USER_NAME} \
+# && chmod 0440 /etc/sudoers.d/${USER_NAME}
 
 # add user to video group to allow access to video sources
 RUN usermod --append --groups video ${USER_NAME}
 
-# setup user for rest of container
-USER ${USER_NAME}
-
 # create a custom ros2 overlay workspace for development
 ENV ROS2_WS=/home/${USER_NAME}/ros2_ws
-RUN mkdir -p ${ROS2_WS}/src && sudo chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}
-
+RUN mkdir -p ${ROS2_WS}/src && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}
 
 # install apt dev packages
 COPY apt-dev-packages /tmp/apt-dev-packages
-RUN sudo apt-get update \
-    && sudo apt-get install -y $(cut -d# -f1 </tmp/apt-dev-packages | envsubst) \
-    && sudo apt-get clean \
-    && sudo rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
+RUN apt-get update \
+    && apt-get install -y $(cut -d# -f1 </tmp/apt-dev-packages | envsubst) \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
 
 # build the ROS2 workspace 
 RUN cd ${ROS2_WS}/src \
     && git clone https://github.com/openvmp/serial.git \
     && git clone https://github.com/giuschio/ros2_handeye_calibration.git \
-    && sudo apt-get update \
-    && . /opt/ros/${ROS_DISTRO}/setup.bash \ 
+    && apt-get update \
+    && . /opt/ros/${ROS_DISTRO}/setup.bash \
     && cd .. \
     && rosdep update && rosdep install --from-paths src --ignore-src -r -y --rosdistro ${ROS_DISTRO} \
-    && sudo apt-get clean \
-    && sudo rm -rf /var/lib/apt/lists/* \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
     && colcon build --symlink-install 
 # colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# setup user for rest of container (switch to non-root for runtime)
+USER ${USER_NAME}
 
 # we only use pip install for packages that are not available in apt environment
 COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
@@ -97,12 +97,12 @@ COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
 # install python dependencies inside the virtual environment
 RUN cd ${ROS2_WS}/src \
     && python3 -m pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
-    && sudo rm -rf /tmp/requirements.txt
+    && rm -rf /tmp/requirements.txt
 
 # source ROS workspace automatically when new terminal is opened
-RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" | sudo tee -a /home/${USER_NAME}/.bashrc \
-    && echo ". ${ROS2_WS}/install/setup.bash" | sudo tee -a /home/${USER_NAME}/.bashrc \
-    && echo "alias ros='ros2'" | sudo tee -a /home/${USER_NAME}/.bashrc
+RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${USER_NAME}/.bashrc \
+    && echo ". ${ROS2_WS}/install/setup.bash" >> /home/${USER_NAME}/.bashrc \
+    && echo "alias ros='ros2'" >> /home/${USER_NAME}/.bashrc
 
 # set working directory for the container    
 WORKDIR ${ROS2_WS}
