@@ -1,6 +1,6 @@
-ARG ROS_DISTRO=jazzy
-FROM osrf/ros:${ROS_DISTRO}-desktop-full AS ros2_base
-ENV ROS_DISTRO=${ROS_DISTRO}
+
+FROM osrf/ros:jazzy-desktop-full-noble AS ros2_base
+
 
 # disable terminal interaction for apt
 ENV DEBIAN_FRONTEND=noninteractive
@@ -17,8 +17,10 @@ ENV LANG en_GB.UTF-8
 # install apt base packages
 COPY apt-base-packages /tmp/apt-base-packages
 RUN apt-get update && \
-apt-get install -y $(cut -d# -f1 </tmp/apt-base-packages | envsubst) \
-&& rm -rf /var/lib/apt/lists/* /tmp/apt-base-packages
+    apt-get install -y $(cut -d# -f1 </tmp/apt-base-packages | envsubst) \
+    && apt-get -y autoremove --purge \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/apt-base-packages
 
 ## development stage
 ARG ROS_DISTRO=jazzy
@@ -68,6 +70,7 @@ RUN mkdir -p ${ROS2_WS}/src && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}
 COPY apt-dev-packages /tmp/apt-dev-packages
 RUN apt-get update \
     && apt-get install -y $(cut -d# -f1 </tmp/apt-dev-packages | envsubst) \
+    && apt-get -y autoremove --purge \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
 
