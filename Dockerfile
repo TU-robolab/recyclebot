@@ -100,7 +100,7 @@ COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
 # install python dependencies inside the virtual environment
 RUN cd ${ROS2_WS}/src \
     && python3 -m pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
-    && rm -rf /tmp/requirements.txt
+    && rm -rf /tmp/requirements.txt || true
 
 # source ROS workspace automatically when new terminal is opened
 RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${USER_NAME}/.bashrc \
