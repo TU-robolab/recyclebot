@@ -138,10 +138,10 @@ class VisionDetector(Node):
             camera_info = self.last_rgbd_image.rgb_camera_info
         
 
-        # display debug images
+        # display debug images (disabled for headless testing)
         #self.show_rgbd(cv_image,depth_cv_image)
-        # Launch visualization in separate thread
-        Thread(target=self.show_rgbd, args=(cv_image, depth_cv_image)).start()
+        # Launch visualization in separate thread (disabled - no display available)
+        #Thread(target=self.show_rgbd, args=(cv_image, depth_cv_image)).start()
 
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
         inf_results = self.model(cv_image, conf=0.5)  
