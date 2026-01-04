@@ -43,9 +43,8 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw # gui
       - /tmp/.docker.xauth:/tmp/.docker.xauth:rw # xauthority permission file
       - /run/user/${USER_ID}:/run/user/${USER_ID} # wayland compability for GUI
-      - /home/${USER_NAME}/.ssh:/home/${USER_NAME}/.ssh:ro # git credentials
       - /dev:/dev # access to generic devices to container
-      - $HOME/.Xauthority:/home/ur16e/.Xauthority
+      - ${HOME}/.Xauthority:/home/${USER_NAME}/.Xauthority
       #- /home/${USER_NAME}/data:/home/${USER_NAME}/data:rw
       #- /dev/bus/usb:/dev/bus/usb # for usb access, depends where its located
       # - /dev/ttyUR:/dev/ttyUR # for gripper
