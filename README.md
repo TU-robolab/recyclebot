@@ -242,7 +242,11 @@ $ srw-rw---- 1 root docker ...
 ```
 docker volume rm build_cache
 ```
-
+* for build problems involving dpkg, this is due to shortcomings in the package resolution in ROS. Some packages conflict with others, so dpkg refuses to overwrite files owned by another package.  To avoid this, you must not use expansion wildcards -* in the "*-packages" files. Always install an explicit, minimal set of the packages that you know will not conflict with another, e.g. : instead of `ros-${ROS_DISTRO}-moveit-*`, use 
+```
+ros-${ROS_DISTRO}-moveit
+ros-${ROS_DISTRO}-moveit-py
+```
 ---
 
 #### Wayland GUI access
