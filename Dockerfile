@@ -1,7 +1,6 @@
 
 FROM osrf/ros:jazzy-desktop-full-noble AS ros2_base
 
-
 # disable terminal interaction for apt
 ENV DEBIAN_FRONTEND=noninteractive
 
