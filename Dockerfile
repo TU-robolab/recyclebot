@@ -74,7 +74,7 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
 
-# build the ROS2 workspace 
+# build the ROS2 workspace
 RUN cd ${ROS2_WS}/src \
     && git clone https://github.com/openvmp/serial.git \
     && git clone https://github.com/giuschio/ros2_handeye_calibration.git \
@@ -84,14 +84,17 @@ RUN cd ${ROS2_WS}/src \
     && rosdep update && rosdep install --from-paths src --ignore-src -r -y --rosdistro ${ROS_DISTRO} \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    && colcon build --symlink-install 
+    && colcon build --symlink-install \
+    && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS} 
 # colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 # setup user for rest of container (switch to non-root for runtime)
 USER ${USER_NAME}
 
 # we only use pip install for packages that are not available in apt environment
-COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
+COPY --chown=${USER_NAME}:${USER_NAME} \
+     ./packages/recycle_bot/requirements.txt \
+     /tmp/requirements.txt
 # [NOT USED AS IT CONFLICTS WITH COLCON BUILD]create a virtual python environment inside Docker
 # RUN python3 -m venv ${ROS2_WS}/venv \
 #     && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}/venv
@@ -100,7 +103,7 @@ COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
 # install python dependencies inside the virtual environment
 RUN cd ${ROS2_WS}/src \
     && python3 -m pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
-    && rm -rf /tmp/requirements.txt
+    && rm -f /tmp/requirements.txt
 
 # source ROS workspace automatically when new terminal is opened
 RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${USER_NAME}/.bashrc \
