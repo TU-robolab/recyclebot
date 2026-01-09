@@ -1,0 +1,14 @@
+# docker-compose.mac.yml
+# Docker Compose configuration for running RecycleBot on macOS with test suite
+services:
+  mac: # name of this service for macOS
+    image: ros2_mac # the image will have this name once built
+    extends:
+      file: docker-compose.dev.yml # extend the dev service
+      service: dev
+    platform: linux/amd64  # Required for macOS with Rosetta emulation
+    volumes:
+      - ${HOME}/.ssh:/home/${USER_NAME}/.ssh:ro   # mac-friendly SSH mount
+      - ./packages:/home/${USER_NAME}/ros2_ws/src:rw # ROS2 packages
+      - ./test_suite:/home/${USER_NAME}/ros2_ws/src/test_suite:rw # Test suite with fake publishers
+    command: bash -c "while true; do sleep 3600; done"
