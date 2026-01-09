@@ -15,7 +15,7 @@ Automated end-to-end integration tests for RecycleBot vision detection system wi
 - [Performance Metrics](#performance-metrics)
 - [Troubleshooting](#troubleshooting)
 - [Package Structure](#package-structure)
-- [CI/CD Integration](#cicd-integration)
+- [Automation & CI/CD](#automation--cicd)
 
 ---
 
@@ -645,68 +645,102 @@ source install/setup.bash
 
 ---
 
-## CI/CD Integration
+## Automation & CI/CD
 
-The tests are designed to be integrated into CI/CD pipelines:
+### GitHub Actions (Automatic)
 
-### Example CI Script
+Tests automatically run on GitHub when:
+
+**Triggers:**
+- Push to `main` or `dev/**` branches
+- Pull requests to `main` or `dev/**`
+- Changes to vision-related files:
+  - `packages/recycle_bot/recycle_bot/rec_bot_vision.py`
+  - `packages/recycle_bot/**/*.py`
+  - `test_suite/` files
+  - Docker configs
+
+**Workflow:** `.github/workflows/vision-tests.yml`
+
+**Steps:**
+1. Checkout code → Build Docker → Start container
+2. Build ROS2 workspace
+3. Run vision tests
+4. Upload test report artifact
+5. Display results in PR summary
+
+**View Results:**
+- Check "Actions" tab in GitHub
+- View summary in PR checks
+- Download test report artifact
+
+**Manual Trigger:**
+- Actions → Vision Tests → Run workflow
+
+### Pre-commit Hooks (Local)
+
+Run tests automatically before pushing changes.
+
+**Setup:**
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Install hooks
+cd /path/to/recyclebot
+pre-commit install --hook-type pre-commit --hook-type pre-push
+```
+
+**What Runs:**
+
+*On Commit:*
+- Trailing whitespace removal
+- YAML syntax validation
+- Python syntax check (AST)
+- Large file detection (>100MB)
+- Merge conflict detection
+
+*On Push (vision files):*
+- Vision workflow tests (when modifying vision node or tests)
+
+**Manual Run:**
+```bash
+# All hooks
+pre-commit run --all-files
+
+# Vision tests only
+pre-commit run vision-tests --all-files
+
+# Skip hooks (not recommended)
+git push --no-verify
+```
+
+**Update Hooks:**
+```bash
+pre-commit autoupdate
+```
+
+### Integration Example
+
+Complete CI workflow for vision changes:
 
 ```bash
-#!/bin/bash
-# Run vision tests in CI pipeline
+# 1. Make changes
+vim packages/recycle_bot/recycle_bot/rec_bot_vision.py
 
-# Start Docker container
-docker-compose -f docker-compose.mac.yml up -d
-
-# Wait for container to be healthy
-timeout 60 bash -c 'until docker exec recyclebot-mac-1 test -f /tmp/ready; do sleep 1; done'
-
-# Run tests
+# 2. Test locally
 docker exec recyclebot-mac-1 /ros_entrypoint.sh bash -c \
   "cd ~/ros2_ws/src/test_suite && bash scripts/run_vision_test.sh"
 
-# Capture exit code
-EXIT_CODE=$?
+# 3. Commit (pre-commit hooks run)
+git add packages/recycle_bot/recycle_bot/rec_bot_vision.py
+git commit -m "feat(vision): improve detection"
 
-# Copy report file
-docker cp recyclebot-mac-1:/tmp/vision_workflow_test_report.txt ./artifacts/
+# 4. Push (vision tests run via pre-push hook)
+git push origin feat/improve-detection
 
-# Cleanup
-docker-compose -f docker-compose.mac.yml down
-
-exit $EXIT_CODE
-```
-
-### GitHub Actions Example
-
-```yaml
-name: Vision Tests
-
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Build Docker container
-        run: docker-compose -f docker-compose.yml build
-
-      - name: Start container
-        run: docker-compose -f docker-compose.yml up -d
-
-      - name: Run vision tests
-        run: |
-          docker exec recyclebot-dev-1 /ros_entrypoint.sh bash -c \
-            "cd ~/ros2_ws/src/test_suite && bash scripts/run_vision_test.sh"
-
-      - name: Upload test report
-        uses: actions/upload-artifact@v2
-        if: always()
-        with:
-          name: test-report
-          path: /tmp/vision_workflow_test_report.txt
+# 5. Create PR (GitHub Actions run automatically)
+# View results in PR checks and download report artifact
 ```
 
 ---
