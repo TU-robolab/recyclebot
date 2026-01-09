@@ -86,24 +86,46 @@ RUN cd ${ROS2_WS}/src \
     && rm -rf /var/lib/apt/lists/* \
     && colcon build --symlink-install \
     && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS} 
-# colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
+    # colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# keep using system python that ROS uses
+ENV PYTHONNOUSERSITE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# copy requirements as root
+COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
+
+# setup CPU+CUDA (121) with specific library determinism for torch     
+ARG TORCH_CUDA=cu126
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+         --index-url https://download.pytorch.org/whl/${TORCH_CUDA} \
+         torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 \
+    && python3 -m pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
+    && rm -f /tmp/requirements.txt
+
+# sanity check for pip packages, build fails if broken
+RUN python3 -m pip check
+# # setup user for rest of container (switch to non-root for runtime)
+# USER ${USER_NAME}
+# # we only use pip install for packages that are not available in apt environment
+# COPY --chown=${USER_NAME}:${USER_NAME} \
+#      ./packages/recycle_bot/requirements.txt \
+#      /tmp/requirements.txt
+# # [NOT USED AS IT CONFLICTS WITH COLCON BUILD]create a virtual python environment inside Docker
+# # RUN python3 -m venv ${ROS2_WS}/venv \
+# #     && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}/venv
+# # ENV PATH="${ROS2_WS}/venv/bin:${PATH}"
+
+# # install python dependencies inside the virtual environment
+# RUN cd ${ROS2_WS}/src \
+#     && python3 -m pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
+#     && rm -f /tmp/requirements.txt
+
 
 # setup user for rest of container (switch to non-root for runtime)
 USER ${USER_NAME}
-
-# we only use pip install for packages that are not available in apt environment
-COPY --chown=${USER_NAME}:${USER_NAME} \
-     ./packages/recycle_bot/requirements.txt \
-     /tmp/requirements.txt
-# [NOT USED AS IT CONFLICTS WITH COLCON BUILD]create a virtual python environment inside Docker
-# RUN python3 -m venv ${ROS2_WS}/venv \
-#     && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}/venv
-# ENV PATH="${ROS2_WS}/venv/bin:${PATH}"
-
-# install python dependencies inside the virtual environment
-RUN cd ${ROS2_WS}/src \
-    && python3 -m pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
-    && rm -f /tmp/requirements.txt
 
 # source ROS workspace automatically when new terminal is opened
 RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${USER_NAME}/.bashrc \
