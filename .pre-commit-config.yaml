@@ -1,0 +1,33 @@
+# Pre-commit hooks for RecycleBot
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  - repo: local
+    hooks:
+      # Vision tests - run when vision-related files change
+      - id: vision-tests
+        name: Vision Workflow Tests
+        entry: bash -c 'docker exec recyclebot-mac-1 /ros_entrypoint.sh bash -c "cd ~/ros2_ws/src/test_suite && bash scripts/run_vision_test.sh" || docker exec recyclebot-dev-1 /ros_entrypoint.sh bash -c "cd ~/ros2_ws/src/test_suite && bash scripts/run_vision_test.sh"'
+        language: system
+        files: ^(packages/recycle_bot/recycle_bot/rec_bot_vision\.py|test_suite/(test|scripts)/.*)$
+        pass_filenames: false
+        stages: [push]
+        verbose: true
+
+  # Basic validation hooks (no formatting)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        stages: [commit]
+      - id: check-yaml
+        stages: [commit]
+      - id: check-ast
+        stages: [commit]
+        types: [python]
+      - id: check-added-large-files
+        args: ['--maxkb=102400']  # 100MB limit (allows YOLO models)
+        stages: [commit]
+      - id: check-merge-conflict
+        stages: [commit]
