@@ -42,6 +42,13 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# Clean up old visualization files to avoid accumulation
+echo "Cleaning up old visualization files..."
+rm -f /tmp/rgbd_frame_*.png
+OUTPUT_DIR="$(dirname "$0")/../test_output"
+rm -rf "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR"
+
 # Cleanup function
 cleanup() {
     echo ""
@@ -81,6 +88,45 @@ if [ $TEST_RESULT -eq 0 ]; then
     echo -e "${GREEN}✓ All tests passed!${NC}"
 else
     echo -e "${RED}✗ Tests failed!${NC}"
+fi
+
+# Copy visualization images to test_suite output directory (accessible from host)
+echo ""
+echo "4. Copying visualization images..."
+
+if [ -f "/tmp/rgbd_frame_0_combined.png" ]; then
+    cp /tmp/rgbd_frame_0_combined.png "$OUTPUT_DIR/rgbd_combined.png"
+    cp /tmp/rgbd_frame_0_rgb.png "$OUTPUT_DIR/rgbd_rgb.png" 2>/dev/null || true
+    cp /tmp/rgbd_frame_0_depth.png "$OUTPUT_DIR/rgbd_depth.png" 2>/dev/null || true
+
+    echo "Visualizations saved to: $OUTPUT_DIR/"
+    echo "  - rgbd_combined.png (RGB + Depth side-by-side)"
+    echo "  - rgbd_rgb.png (RGB only)"
+    echo "  - rgbd_depth.png (Depth with legend)"
+
+    # Try to open the combined image (works on host, ignored in Docker)
+    # This will work if running directly on host, or when mounted volume is accessible
+    COMBINED_IMG="$OUTPUT_DIR/rgbd_combined.png"
+
+    # Detect platform and open image
+    if command -v open &> /dev/null; then
+        # macOS
+        echo ""
+        echo "Opening visualization (macOS)..."
+        open "$COMBINED_IMG" 2>/dev/null || echo "Note: Run 'open test_suite/test_output/rgbd_combined.png' from host to view"
+    elif command -v xdg-open &> /dev/null; then
+        # Linux with X11
+        echo ""
+        echo "Opening visualization (Linux)..."
+        xdg-open "$COMBINED_IMG" 2>/dev/null || echo "Note: Run 'xdg-open test_suite/test_output/rgbd_combined.png' from host to view"
+    else
+        echo ""
+        echo "To view the visualization:"
+        echo "  From host: open test_suite/test_output/rgbd_combined.png"
+        echo "  Or check: $COMBINED_IMG"
+    fi
+else
+    echo "No visualization images found in /tmp/"
 fi
 
 exit $TEST_RESULT
