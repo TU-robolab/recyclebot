@@ -694,6 +694,7 @@ pre-commit install --hook-type pre-commit --hook-type pre-push
 **What Runs:**
 
 *On Commit:*
+- Docker Compose validation (when modifying docker-compose*.yml or export_env.sh)
 - Trailing whitespace removal
 - YAML syntax validation
 - Python syntax check (AST)
@@ -720,27 +721,79 @@ git push --no-verify
 pre-commit autoupdate
 ```
 
+### Testing Stages Summary
+
+| Stage | When | What Runs | Time | Can Skip |
+|-------|------|-----------|------|----------|
+| **On Commit** | `git commit` | Docker config validation, syntax checks | <1s | `--no-verify` |
+| **On Push** | `git push` | Vision workflow tests (if vision files changed) | ~15s | `--no-verify` |
+| **GitHub Actions** | Push/PR to GitHub | Complete CI pipeline with Docker build | ~15min | ❌ No |
+
+### Complete Testing Flow
+
+**1. On Commit (Local)**
+```bash
+git commit -m "fix: update docker config"
+
+# Runs automatically:
+✓ Docker Compose Validation (if docker-compose*.yml changed)
+✓ Trailing whitespace removal
+✓ YAML syntax validation
+✓ Python syntax check
+✓ Large file detection
+✓ Merge conflict detection
+```
+
+**2. On Push (Local)**
+```bash
+git push origin feat/improve-detection
+
+# Runs automatically if vision files changed:
+✓ Vision Workflow Tests (~15s)
+  - Service availability
+  - Detection triggering
+  - Topic publishing
+  - Detection format validation
+  → Quick summary with results
+```
+
+**3. On GitHub (Remote)**
+```bash
+# Triggers automatically on push/PR
+✓ Checkout code
+✓ Set up environment (export_env.sh)
+✓ Build Docker container (~10 min)
+✓ Build ROS2 workspace (~2 min)
+✓ Run vision tests (~30 sec)
+✓ Upload test report artifact
+✓ Display results in PR summary
+```
+
 ### Integration Example
 
-Complete CI workflow for vision changes:
+Complete workflow for vision changes:
 
 ```bash
 # 1. Make changes
 vim packages/recycle_bot/recycle_bot/rec_bot_vision.py
 
-# 2. Test locally
+# 2. Test locally (optional but recommended)
 docker exec recyclebot-mac-1 /ros_entrypoint.sh bash -c \
   "cd ~/ros2_ws/src/test_suite && bash scripts/run_vision_test.sh"
 
-# 3. Commit (pre-commit hooks run)
+# 3. Commit (syntax checks + docker validation run)
 git add packages/recycle_bot/recycle_bot/rec_bot_vision.py
 git commit -m "feat(vision): improve detection"
+# ✓ All pre-commit checks passed
 
-# 4. Push (vision tests run via pre-push hook)
+# 4. Push (vision tests run automatically)
 git push origin feat/improve-detection
+# ✓ Vision Workflow Tests.........Passed (15.28s)
+#   - 2 objects detected
 
-# 5. Create PR (GitHub Actions run automatically)
-# View results in PR checks and download report artifact
+# 5. GitHub Actions run automatically
+# → View results in PR checks
+# → Download test report artifact
 ```
 
 ---
