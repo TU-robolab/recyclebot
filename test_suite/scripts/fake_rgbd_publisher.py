@@ -33,8 +33,8 @@ class FakeRGBDPublisher(Node):
             qos_camera_feed
         )
 
-        # Create timer to publish at 5 Hz (slower than real camera for testing)
-        self.timer = self.create_timer(0.2, self.publish_fake_rgbd)
+        # Create timer to publish at 30 Hz (matching RealSense D415 settings)
+        self.timer = self.create_timer(1.0/30.0, self.publish_fake_rgbd)
 
         self.bridge = CvBridge()
         self.frame_count = 0
@@ -64,32 +64,103 @@ class FakeRGBDPublisher(Node):
         return img
 
     def create_fake_depth(self):
-        """Create a fake depth image"""
-        # Create a 1280x720 depth image
+        """
+        Create a fake depth image matching RealSense D415 characteristics.
+
+        D415 specs:
+        - Range: 0.3m to ~3m
+        - Format: Z16 (16-bit unsigned integer depth values)
+        - Resolution: 1280x720 @ 30fps
+
+        DEPTH SCALE:
+        - RealSense cameras use a depth_scale factor (typically 0.001 for D415)
+        - Raw Z16 value * depth_scale = depth in meters
+        - With depth_scale=0.001: raw value 1000 = 1.0 meter
+        - This publisher stores values directly in MILLIMETERS (depth_scale=1.0)
+        - So raw value 1000 = 1000mm = 1.0 meter
+        - To match real D415 with depth_scale=0.001, divide values by 1000
+
+        The depth values correspond to the objects in the RGB image so that
+        detected objects will have realistic depth information.
+        """
         width, height = 1280, 720
 
-        # Create gradient depth (closer at top, farther at bottom)
-        depth = np.zeros((height, width), dtype=np.uint16)
-        for i in range(height):
-            depth[i, :] = int(500 + (i / height) * 2000)  # Range from 500mm to 2500mm
+        # Initialize with background depth (1500mm = 1.5m)
+        depth = np.full((height, width), 1500, dtype=np.uint16)
+
+        # Add depth values for the objects matching the RGB image positions
+        # Objects closer to camera have lower depth values (in millimeters)
+
+        # Red rectangle (200, 200, 350, 500) - at 800mm (closest object)
+        depth[200:500, 200:350] = 800
+
+        # Green rectangle (500, 150, 650, 400) - at 1000mm
+        depth[150:400, 500:650] = 1000
+
+        # Blue rectangle (800, 250, 950, 550) - at 1200mm
+        depth[250:550, 800:950] = 1200
+
+        # Cyan circle at (400, 600) radius 60 - at 700mm (very close)
+        # Use circle equation: (x - cx)² + (y - cy)² <= r²
+        y, x = np.ogrid[:height, :width]  # Create coordinate grids
+        mask_cyan = (x - 400)**2 + (y - 600)**2 <= 60**2
+        depth[mask_cyan] = 700
+
+        # Magenta circle at (900, 600) radius 50 - at 900mm
+        mask_magenta = (x - 900)**2 + (y - 600)**2 <= 50**2
+        depth[mask_magenta] = 900
+
+        # Add realistic noise to simulate sensor noise (±2mm standard deviation)
+        # Real depth cameras have measurement uncertainty
+        noise = np.random.normal(0, 2, (height, width)).astype(np.int16)
+        depth = np.clip(depth.astype(np.int32) + noise, 300, 3000).astype(np.uint16)
+
+        # Add some invalid depth regions (0 value) to simulate areas where depth cannot be measured
+        # This happens at edges, reflective surfaces, or areas too close/far
+        invalid_mask = np.random.random((height, width)) < 0.02  # 2% invalid pixels
+        depth[invalid_mask] = 0
 
         return depth
 
     def create_camera_info(self):
-        """Create fake camera info"""
+        """
+        Create fake camera info matching RealSense D415 specifications.
+
+        NOTE: These are approximate values based on typical D415 calibration.
+        To get YOUR camera's actual intrinsics, run:
+            ros2 topic echo /camera/color/camera_info
+        when the real camera is running and copy the K matrix values.
+        """
         camera_info = CameraInfo()
         camera_info.width = 1280
         camera_info.height = 720
 
-        # Typical RealSense D435 intrinsics (approximate)
-        fx = 900.0
-        fy = 900.0
-        cx = 640.0
-        cy = 360.0
+        # RealSense D415 intrinsics for 1280x720 (approximate)
+        # D415 has ~65° horizontal FOV (narrower than D435's ~87°)
+        # Intrinsic parameters:
+        fx = 920.0  # Focal length in x (pixels)
+        fy = 920.0  # Focal length in y (pixels)
+        cx = 640.0  # Principal point x (image center x)
+        cy = 360.0  # Principal point y (image center y)
 
+        # K matrix (3x3 camera intrinsic matrix, row-major)
+        # [fx  0  cx]
+        # [ 0 fy  cy]
+        # [ 0  0   1]
         camera_info.k = [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]
+
+        # D vector (distortion coefficients): [k1, k2, t1, t2, k3]
+        # Using zero distortion for simplified fake data
         camera_info.d = [0.0, 0.0, 0.0, 0.0, 0.0]
+
+        # R matrix (3x3 rectification matrix, row-major)
+        # Identity matrix since we're not doing stereo rectification
         camera_info.r = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+
+        # P matrix (3x4 projection matrix, row-major)
+        # [fx' 0  cx' Tx]
+        # [ 0 fy' cy' Ty]
+        # [ 0  0   1   0]
         camera_info.p = [fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0]
 
         camera_info.distortion_model = "plumb_bob"
@@ -107,15 +178,15 @@ class FakeRGBDPublisher(Node):
         rgbd_msg.header.stamp = current_time
         rgbd_msg.header.frame_id = "camera_color_optical_frame"
 
-        # Create fake RGB image
+        # Create fake RGB image (matching D415 RGB8 format)
         rgb_img = self.create_fake_image()
-        rgb_msg = self.bridge.cv2_to_imgmsg(rgb_img, encoding="bgr8")
+        rgb_msg = self.bridge.cv2_to_imgmsg(rgb_img, encoding="bgr8")  # OpenCV uses BGR
         rgb_msg.header = rgbd_msg.header
         rgbd_msg.rgb = rgb_msg
 
-        # Create fake depth image
+        # Create fake depth image (matching D415 Z16 format - 16-bit depth in mm)
         depth_img = self.create_fake_depth()
-        depth_msg = self.bridge.cv2_to_imgmsg(depth_img, encoding="passthrough")
+        depth_msg = self.bridge.cv2_to_imgmsg(depth_img, encoding="16UC1")  # 16-bit unsigned, 1 channel
         depth_msg.header = rgbd_msg.header
         rgbd_msg.depth = depth_msg
 
