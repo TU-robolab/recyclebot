@@ -68,6 +68,8 @@ Fake RGBD Camera → Vision Detector Node → Object Detections
 2. ✓ **Detection Triggering** - Service calls successfully trigger detections
 3. ✓ **Topic Publishing** - Detections published to `/object_detections` topic
 4. ✓ **Detection Format** - Output has valid structure, bounding boxes, and confidence scores
+5. ✓ **RGBD Data Available** - RGBD frames publishing with correct resolution and encoding
+6. ✓ **Depth Channel Validation** - Depth data matches D415 specs and quality standards
 
 ### Key Features
 
@@ -76,14 +78,23 @@ Fake RGBD Camera → Vision Detector Node → Object Detections
 - **No hardware required** - uses fake RGBD publisher for testing
 - **Multiple output formats** - console output and saved report file
 - **Performance tracking** - Response times, latencies, and object counts
+- **Frame visualization** - RGB, depth heatmap, and side-by-side comparison
+- **Depth validation** - Statistics, range checks, and quality metrics
+- **Visual feedback** - Depth colormap with legend (red=close, blue=far)
 
 ### Test Components
 
 **Fake RGBD Publisher** (`scripts/fake_rgbd_publisher.py`)
-- Simulates RealSense camera output
-- Publishes synthetic RGBD images at 5Hz
+- Simulates RealSense D415 camera output
+- Publishes synthetic RGBD images at 30Hz (matching D415 specs)
 - Topic: `/camera/camera/rgbd`
-- Uses sample images from `recycle_bot/samples/`
+- RGB: 1280x720 @ bgr8 encoding
+- Depth: 1280x720 @ 16UC1 encoding (Z16 format)
+- Realistic depth values (300-3000mm range)
+- Object-aligned depth for RGB shapes
+- Sensor noise simulation (±2mm std dev)
+- Invalid pixels (2%) for realistic sensor behavior
+- Depth scale: 1.0 (values in millimeters)
 
 **Vision Detector Node** (from `recycle_bot` package)
 - YOLO-based object detection
@@ -95,6 +106,9 @@ Fake RGBD Camera → Vision Detector Node → Object Detections
 - pytest-based integration tests
 - ROS2 node for subscribing and service calls
 - Automated report generation with metrics
+- Frame visualization with depth colormap and legend
+- Depth channel validation and statistics
+- Outputs saved to `test_output/` directory
 
 ---
 
@@ -103,15 +117,23 @@ Fake RGBD Camera → Vision Detector Node → Object Detections
 ### Test Flow
 
 ```
-1. Start fake RGBD publisher (background)
+1. Clean up old visualization files
    ↓
-2. Start vision detector node (background)
+2. Start fake RGBD publisher (background)
+   ↓
+3. Start vision detector node (background)
    ↓ (wait 10s for YOLO model to load)
-3. Run pytest test suite (4 tests)
+4. Run pytest test suite (6 tests)
    ↓
-4. Generate detailed report
+5. Save frame visualizations (RGB, Depth, Combined)
    ↓
-5. Cleanup (terminate nodes)
+6. Generate detailed report
+   ↓
+7. Copy visualizations to test_output/
+   ↓
+8. Open combined visualization (if supported)
+   ↓
+9. Cleanup (terminate nodes)
 ```
 
 ### Pipeline Overview
@@ -384,6 +406,67 @@ A text report is automatically saved to `/tmp/vision_workflow_test_report.txt` i
 - All bounding boxes have positive dimensions
 - All confidence scores are valid
 - All required fields are non-null
+
+---
+
+### Test 5: RGBD Data Available
+
+**Purpose:** Verify RGBD frames are being published from the fake camera
+
+**What it checks:**
+- RGBD messages arrive on `/camera/camera/rgbd` topic
+- RGB and depth images are present and non-null
+- Camera info messages are populated
+- Image dimensions match expected resolution (1280x720)
+- Encodings are correct (bgr8 for RGB, 16UC1 for depth)
+
+**Measured metrics:**
+- Number of frames received
+- Image resolution
+- Image encodings
+
+**Success criteria:**
+- At least one RGBD frame received within 5 seconds
+- RGB width/height = 1280x720
+- Depth width/height = 1280x720
+- RGB encoding = "bgr8"
+- Depth encoding = "16UC1"
+
+---
+
+### Test 6: Depth Channel Validation
+
+**Purpose:** Validate depth channel has valid data matching D415 specifications
+
+**What it checks:**
+- Depth image format is 16-bit unsigned integer
+- Depth image is single channel (grayscale)
+- Depth values are within D415 working range (300-3000mm)
+- Invalid pixels (0 values) are within reasonable threshold (<10%)
+- Depth statistics are realistic
+
+**Measured metrics:**
+- Depth range (min/max in millimeters)
+- Mean depth
+- Standard deviation
+- Valid pixel count and percentage
+- Invalid pixel count and percentage
+
+**Success criteria:**
+- Depth dtype = uint16
+- Depth shape = (720, 1280) - single channel
+- Minimum depth >= 300mm
+- Maximum depth <= 3000mm
+- At least some valid depth pixels exist
+- Invalid pixel percentage < 10%
+
+**Frame Visualization:**
+After tests complete, visualizations are automatically saved:
+- `test_output/rgbd_rgb.png` - RGB image
+- `test_output/rgbd_depth.png` - Depth heatmap with color scale legend
+- `test_output/rgbd_combined.png` - Side-by-side RGB and depth
+
+Depth colormap: Red/warm colors = closer objects, Blue/cool colors = farther objects
 
 ---
 
