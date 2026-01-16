@@ -45,12 +45,9 @@ jobs:
 
       - name: Set up environment variables
         run: |
-          # Create .env file
-          cat > .env << EOF
-          USER=$USER
-          UID=$(id -u)
-          GID=$(id -g)
-          EOF
+          # Use existing export_env.sh script
+          bash export_env.sh
+          cat .env
 
       - name: Build Docker container
         run: |
