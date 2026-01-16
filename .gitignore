@@ -3,3 +3,6 @@
 .vscode
 .DS_Store
 ./packages/serial/
+
+# Test suite generated visualization files
+test_suite/test_output/
