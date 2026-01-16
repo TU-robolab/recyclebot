@@ -32,10 +32,15 @@ import unittest
 import time
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from std_srvs.srv import Trigger
 from vision_msgs.msg import Detection2DArray
+from realsense2_camera_msgs.msg import RGBD
 from datetime import datetime
 import os
+import numpy as np
+from cv_bridge import CvBridge
+import cv2
 
 
 class TestVisionWorkflow(unittest.TestCase):
@@ -47,7 +52,10 @@ class TestVisionWorkflow(unittest.TestCase):
         'tests': [],
         'detections': [],
         'service_response_times': [],
-        'detection_latencies': []
+        'detection_latencies': [],
+        'rgbd_frames': [],
+        'depth_stats': {},
+        'frame_visualizations': []
     }
 
     @classmethod
@@ -65,6 +73,13 @@ class TestVisionWorkflow(unittest.TestCase):
     def tearDownClass(cls):
         """Shutdown ROS2 and generate report"""
         cls.report_data['test_end_time'] = datetime.now()
+
+        # Save frame visualizations before generating report
+        print("\n" + "="*80)
+        print("SAVING FRAME VISUALIZATIONS")
+        print("="*80)
+        cls.save_frame_visualizations()
+
         cls.generate_report()
         rclpy.shutdown()
 
@@ -72,6 +87,8 @@ class TestVisionWorkflow(unittest.TestCase):
         """Set up test node"""
         self.node = rclpy.create_node('test_vision_workflow')
         self.detections_received = []
+        self.rgbd_frames = []
+        self.bridge = CvBridge()
 
         # Create subscription to detection topic
         self.detection_sub = self.node.create_subscription(
@@ -79,6 +96,21 @@ class TestVisionWorkflow(unittest.TestCase):
             '/object_detections',
             self.detection_callback,
             10
+        )
+
+        # Create subscription to RGBD camera topic for depth tests
+        # Use BEST_EFFORT QoS to match the fake camera publisher
+        qos_camera_feed = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE
+        )
+        self.rgbd_sub = self.node.create_subscription(
+            RGBD,
+            '/camera/camera/rgbd',
+            self.rgbd_callback,
+            qos_camera_feed
         )
 
         # Create service client for triggering detections
@@ -95,6 +127,10 @@ class TestVisionWorkflow(unittest.TestCase):
         """Store received detections"""
         self.detections_received.append((msg, time.time()))
 
+    def rgbd_callback(self, msg):
+        """Store received RGBD frames with timestamp"""
+        self.rgbd_frames.append((msg, time.time()))
+
     def wait_for_service(self, timeout_sec=10.0):
         """Wait for the capture_detections service to be available"""
         start_time = time.time()
@@ -103,6 +139,163 @@ class TestVisionWorkflow(unittest.TestCase):
                 return False
             rclpy.spin_once(self.node, timeout_sec=0.1)
         return True
+
+    @classmethod
+    def save_frame_visualizations(cls, frames=1):
+        """
+        Save RGB and depth frame visualizations to files
+
+        Args:
+            frames: Can be:
+                - int: Number of frames to save from the start (default: 1)
+                - -1: Save all frames
+                - list: List of specific frame indices to save, e.g., [0, 2, 5]
+                - str: Range string like "1:3" to save frames 1 through 3 (inclusive)
+        """
+        if not cls.report_data['rgbd_frames']:
+            return
+
+        try:
+            bridge = CvBridge()
+            output_dir = '/tmp'
+            total_frames = len(cls.report_data['rgbd_frames'])
+
+            # Determine which frame indices to save
+            if isinstance(frames, str):
+                # Handle range string like "1:3"
+                if ':' in frames:
+                    start, end = frames.split(':')
+                    start = int(start) if start else 0
+                    end = int(end) if end else total_frames
+                    frame_indices = list(range(start, min(end + 1, total_frames)))
+                else:
+                    frame_indices = [int(frames)]
+            elif isinstance(frames, list):
+                # Use provided list of indices
+                frame_indices = [idx for idx in frames if 0 <= idx < total_frames]
+            elif frames == -1:
+                # Save all frames
+                frame_indices = list(range(total_frames))
+            else:
+                # Save first N frames
+                frame_indices = list(range(min(frames, total_frames)))
+
+            print(f"Saving {len(frame_indices)} frame(s) out of {total_frames} available: {frame_indices}")
+
+            for idx in frame_indices:
+                rgbd_msg = cls.report_data['rgbd_frames'][idx]
+
+                # Convert RGB image
+                rgb_image = bridge.imgmsg_to_cv2(rgbd_msg.rgb, desired_encoding="bgr8")
+
+                # Convert depth image
+                depth_image = bridge.imgmsg_to_cv2(rgbd_msg.depth, desired_encoding="passthrough")
+
+                # Save RGB image
+                rgb_path = f"{output_dir}/rgbd_frame_{idx}_rgb.png"
+                cv2.imwrite(rgb_path, rgb_image)
+
+                # Create colorized depth visualization
+                # Normalize depth to 0-255 for visualization (ignoring invalid pixels)
+                # INVERT so close=255 (red/warm) and far=0 (blue/cool)
+                valid_mask = depth_image > 0
+                depth_normalized = np.zeros_like(depth_image, dtype=np.uint8)
+
+                if np.any(valid_mask):
+                    valid_depth = depth_image[valid_mask]
+                    depth_min, depth_max = np.min(valid_depth), np.max(valid_depth)
+
+                    # Normalize and INVERT: close objects → 255 (red), far objects → 0 (blue)
+                    depth_normalized[valid_mask] = (
+                        255 - ((depth_image[valid_mask] - depth_min) / (depth_max - depth_min) * 255)
+                    ).astype(np.uint8)
+
+                # Apply colormap (TURBO: red=255=close, blue=0=far)
+                depth_colorized = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_TURBO)
+
+                # Mark invalid pixels as black
+                depth_colorized[~valid_mask] = [0, 0, 0]
+
+                # Add depth scale legend to the depth image
+                # Create a vertical color bar on the right side
+                legend_width = 80
+                legend_height = 300
+                legend_x = depth_colorized.shape[1] - legend_width - 20
+                legend_y = 50
+
+                # Create gradient bar (inverted: top=0=far=blue, bottom=255=close=red)
+                gradient = np.linspace(0, 255, legend_height, dtype=np.uint8)
+                gradient_3d = np.tile(gradient[:, np.newaxis], (1, 30))
+                gradient_colored = cv2.applyColorMap(gradient_3d, cv2.COLORMAP_TURBO)
+
+                # Draw white background for legend
+                cv2.rectangle(depth_colorized,
+                             (legend_x - 10, legend_y - 10),
+                             (legend_x + 70, legend_y + legend_height + 40),
+                             (255, 255, 255), -1)
+                cv2.rectangle(depth_colorized,
+                             (legend_x - 10, legend_y - 10),
+                             (legend_x + 70, legend_y + legend_height + 40),
+                             (0, 0, 0), 2)
+
+                # Place gradient on depth image
+                depth_colorized[legend_y:legend_y+legend_height, legend_x:legend_x+30] = gradient_colored
+
+                # Add depth labels
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.4
+                thickness = 1
+
+                # Max depth at top (far objects = blue/cool = 0 in gradient after inversion)
+                cv2.putText(depth_colorized, f'{depth_max}mm',
+                           (legend_x + 35, legend_y + 5),
+                           font, font_scale, (0, 0, 0), thickness)
+                cv2.putText(depth_colorized, '(far)',
+                           (legend_x + 35, legend_y + 20),
+                           font, font_scale - 0.1, (0, 0, 0), thickness)
+
+                # Min depth at bottom (close objects = red/warm = 255 in gradient after inversion)
+                cv2.putText(depth_colorized, f'{depth_min}mm',
+                           (legend_x + 35, legend_y + legend_height - 5),
+                           font, font_scale, (0, 0, 0), thickness)
+                cv2.putText(depth_colorized, '(close)',
+                           (legend_x + 35, legend_y + legend_height + 10),
+                           font, font_scale - 0.1, (0, 0, 0), thickness)
+
+                # Add title
+                cv2.putText(depth_colorized, 'Depth',
+                           (legend_x - 5, legend_y - 20),
+                           font, font_scale + 0.1, (0, 0, 0), thickness + 1)
+
+                # Save colorized depth
+                depth_path = f"{output_dir}/rgbd_frame_{idx}_depth.png"
+                cv2.imwrite(depth_path, depth_colorized)
+
+                # Create side-by-side comparison
+                w = rgb_image.shape[1]  # Get width for label positioning
+                combined = np.hstack([rgb_image, depth_colorized])
+
+                # Add labels
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                cv2.putText(combined, 'RGB', (10, 30), font, 1, (255, 255, 255), 2)
+                cv2.putText(combined, 'Depth (colorized)', (w + 10, 30), font, 1, (255, 255, 255), 2)
+
+                combined_path = f"{output_dir}/rgbd_frame_{idx}_combined.png"
+                cv2.imwrite(combined_path, combined)
+
+                cls.report_data['frame_visualizations'].append({
+                    'rgb': rgb_path,
+                    'depth': depth_path,
+                    'combined': combined_path
+                })
+
+                print(f"\nFrame {idx} visualizations saved:")
+                print(f"  RGB: {rgb_path}")
+                print(f"  Depth: {depth_path}")
+                print(f"  Combined: {combined_path}")
+
+        except Exception as e:
+            print(f"Warning: Could not save frame visualizations: {e}")
 
     @classmethod
     def generate_report(cls):
@@ -148,8 +341,27 @@ class TestVisionWorkflow(unittest.TestCase):
             print(f"    - {len(confidences)} {class_id} ({conf_str})")
         print()
 
+        # Depth Statistics
+        if cls.report_data['depth_stats']:
+            stats = cls.report_data['depth_stats']
+            print(f"\nDEPTH CHANNEL STATISTICS:")
+            print(f"  Depth Range: {stats['min_mm']}mm - {stats['max_mm']}mm")
+            print(f"  Mean Depth: {stats['mean_mm']:.1f}mm")
+            print(f"  Std Deviation: {stats['std_mm']:.1f}mm")
+            print(f"  Valid Pixels: {stats['valid_pixels']:,} ({100-stats['invalid_percentage']:.1f}%)")
+            print(f"  Invalid Pixels: {stats['invalid_pixels']:,} ({stats['invalid_percentage']:.1f}%)")
+
+        # Frame Visualizations
+        if cls.report_data['frame_visualizations']:
+            print(f"\nFRAME VISUALIZATIONS:")
+            for idx, viz in enumerate(cls.report_data['frame_visualizations']):
+                print(f"  Frame {idx}:")
+                print(f"    RGB: {viz['rgb']}")
+                print(f"    Depth (colorized): {viz['depth']}")
+                print(f"    Combined: {viz['combined']}")
+
         # Time information
-        print(f"Test completed at: {cls.report_data['test_end_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"\nTest completed at: {cls.report_data['test_end_time'].strftime('%Y-%m-%d %H:%M:%S')}")
 
         # Service response times
         if cls.report_data['service_response_times']:
@@ -225,6 +437,31 @@ class TestVisionWorkflow(unittest.TestCase):
                     conf_str = ", ".join([f"{c:.2%}" for c in confidences])
                     f.write(f"    - {len(confidences)} {class_id} ({conf_str})\n")
                 f.write("\n")
+
+                # Depth statistics
+                if cls.report_data['depth_stats']:
+                    stats = cls.report_data['depth_stats']
+                    f.write("-"*80 + "\n")
+                    f.write("DEPTH CHANNEL STATISTICS\n")
+                    f.write("-"*80 + "\n")
+                    f.write(f"  Depth Range: {stats['min_mm']}mm - {stats['max_mm']}mm\n")
+                    f.write(f"  Mean Depth: {stats['mean_mm']:.1f}mm\n")
+                    f.write(f"  Std Deviation: {stats['std_mm']:.1f}mm\n")
+                    f.write(f"  Valid Pixels: {stats['valid_pixels']:,} ({100-stats['invalid_percentage']:.1f}%)\n")
+                    f.write(f"  Invalid Pixels: {stats['invalid_pixels']:,} ({stats['invalid_percentage']:.1f}%)\n")
+                    f.write("\n")
+
+                # Frame visualizations
+                if cls.report_data['frame_visualizations']:
+                    f.write("-"*80 + "\n")
+                    f.write("FRAME VISUALIZATIONS\n")
+                    f.write("-"*80 + "\n")
+                    for idx, viz in enumerate(cls.report_data['frame_visualizations']):
+                        f.write(f"Frame {idx}:\n")
+                        f.write(f"  RGB: {viz['rgb']}\n")
+                        f.write(f"  Depth (colorized): {viz['depth']}\n")
+                        f.write(f"  Combined: {viz['combined']}\n")
+                    f.write("\n")
 
                 if cls.report_data['detections']:
                     f.write("DETECTIONS:\n")
@@ -430,6 +667,125 @@ class TestVisionWorkflow(unittest.TestCase):
             print(f"         Object {idx}: {obj['class_id']} ({obj['confidence']:.2%})")
             print(f"           BBox: ({obj['bbox_center_x']:.1f}, {obj['bbox_center_y']:.1f}) "
                   f"{obj['bbox_width']:.1f}x{obj['bbox_height']:.1f}px")
+
+    def test_05_rgbd_data_available(self):
+        """Test that RGBD frames are being published from the fake camera"""
+        # Clear any previous frames
+        self.rgbd_frames.clear()
+
+        # Wait for RGBD frames to arrive
+        timeout = 5.0
+        start_time = time.time()
+        while len(self.rgbd_frames) == 0:
+            rclpy.spin_once(self.node, timeout_sec=0.1)
+            if time.time() - start_time > timeout:
+                self.fail("No RGBD frames received after 5 seconds")
+
+        # Get the first RGBD frame
+        rgbd_msg, frame_time = self.rgbd_frames[0]
+
+        # Verify the message structure
+        test_passed = True
+        try:
+            self.assertIsNotNone(rgbd_msg.rgb, "RGB image is None")
+            self.assertIsNotNone(rgbd_msg.depth, "Depth image is None")
+            self.assertIsNotNone(rgbd_msg.rgb_camera_info, "RGB camera info is None")
+            self.assertIsNotNone(rgbd_msg.depth_camera_info, "Depth camera info is None")
+
+            # Check image dimensions
+            self.assertEqual(rgbd_msg.rgb.width, 1280, "RGB width should be 1280")
+            self.assertEqual(rgbd_msg.rgb.height, 720, "RGB height should be 720")
+            self.assertEqual(rgbd_msg.depth.width, 1280, "Depth width should be 1280")
+            self.assertEqual(rgbd_msg.depth.height, 720, "Depth height should be 720")
+
+            # Check encodings
+            self.assertEqual(rgbd_msg.rgb.encoding, "bgr8", "RGB encoding should be bgr8")
+            self.assertEqual(rgbd_msg.depth.encoding, "16UC1", "Depth encoding should be 16UC1")
+
+        except AssertionError as e:
+            test_passed = False
+            raise e
+
+        self.report_data['tests'].append({
+            'name': 'RGBD Data Available',
+            'passed': test_passed,
+            'details': f"RGBD frames publishing at 1280x720, RGB: {rgbd_msg.rgb.encoding}, Depth: {rgbd_msg.depth.encoding}"
+        })
+
+        print(f"\n[Test 5] RGBD data available: {len(self.rgbd_frames)} frame(s) received")
+        print(f"         Resolution: {rgbd_msg.rgb.width}x{rgbd_msg.rgb.height}")
+        print(f"         RGB encoding: {rgbd_msg.rgb.encoding}, Depth encoding: {rgbd_msg.depth.encoding}")
+
+        # Store frame for later visualization
+        self.report_data['rgbd_frames'].append(rgbd_msg)
+
+    def test_06_depth_channel_validation(self):
+        """Test that depth channel has valid data matching D415 specifications"""
+        # Get an RGBD frame (reuse from previous test if available)
+        if len(self.rgbd_frames) == 0:
+            self.rgbd_frames.clear()
+            timeout = 5.0
+            start_time = time.time()
+            while len(self.rgbd_frames) == 0:
+                rclpy.spin_once(self.node, timeout_sec=0.1)
+                if time.time() - start_time > timeout:
+                    self.fail("No RGBD frames received")
+
+        rgbd_msg, _frame_time = self.rgbd_frames[0]
+
+        # Convert depth image to numpy array
+        depth_image = self.bridge.imgmsg_to_cv2(rgbd_msg.depth, desired_encoding="passthrough")
+
+        # Verify it's 16-bit unsigned
+        self.assertEqual(depth_image.dtype, np.uint16, "Depth should be uint16")
+        self.assertEqual(len(depth_image.shape), 2, "Depth should be single channel")
+
+        # Calculate depth statistics
+        valid_depth = depth_image[depth_image > 0]  # Exclude invalid pixels (0 values)
+        invalid_pixels = np.sum(depth_image == 0)
+        total_pixels = depth_image.shape[0] * depth_image.shape[1]
+        invalid_percentage = (invalid_pixels / total_pixels) * 100
+
+        depth_min = np.min(valid_depth) if len(valid_depth) > 0 else 0
+        depth_max = np.max(valid_depth) if len(valid_depth) > 0 else 0
+        depth_mean = np.mean(valid_depth) if len(valid_depth) > 0 else 0
+        depth_std = np.std(valid_depth) if len(valid_depth) > 0 else 0
+
+        # Store statistics for report
+        self.report_data['depth_stats'] = {
+            'min_mm': int(depth_min),
+            'max_mm': int(depth_max),
+            'mean_mm': float(depth_mean),
+            'std_mm': float(depth_std),
+            'invalid_pixels': int(invalid_pixels),
+            'invalid_percentage': float(invalid_percentage),
+            'total_pixels': int(total_pixels),
+            'valid_pixels': int(len(valid_depth))
+        }
+
+        # Verify depth is within D415 working range (300mm to 3000mm)
+        test_passed = True
+        try:
+            self.assertGreater(depth_min, 0, "Minimum depth should be > 0")
+            self.assertGreaterEqual(depth_min, 300, "Minimum depth should be >= 300mm (D415 min range)")
+            self.assertLessEqual(depth_max, 3000, "Maximum depth should be <= 3000mm (D415 max range)")
+            self.assertGreater(len(valid_depth), 0, "Should have some valid depth pixels")
+            self.assertLess(invalid_percentage, 10, "Invalid pixels should be < 10%")
+        except AssertionError as e:
+            test_passed = False
+            raise e
+
+        self.report_data['tests'].append({
+            'name': 'Depth Channel Validation',
+            'passed': test_passed,
+            'details': f"Depth range: {depth_min}-{depth_max}mm, mean: {depth_mean:.1f}mm, invalid: {invalid_percentage:.1f}%"
+        })
+
+        print(f"\n[Test 6] Depth channel validated:")
+        print(f"         Range: {depth_min}mm - {depth_max}mm (D415 spec: 300-3000mm)")
+        print(f"         Mean: {depth_mean:.1f}mm, Std Dev: {depth_std:.1f}mm")
+        print(f"         Valid pixels: {len(valid_depth):,} ({100-invalid_percentage:.1f}%)")
+        print(f"         Invalid pixels: {invalid_pixels:,} ({invalid_percentage:.1f}%)")
 
 
 def main():
