@@ -43,7 +43,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw # gui
       - /tmp/.docker.xauth:/tmp/.docker.xauth:rw # xauthority permission file
       - /run/user/${USER_ID}:/run/user/${USER_ID} # wayland compability for GUI
-      # - /home/${USER_NAME}/.ssh:/home/${USER_NAME}/.ssh:ro # git credentials
+      - /home/${USER_NAME}/.ssh:/home/${USER_NAME}/.ssh:ro # git credentials
       - /dev:/dev # access to generic devices to container
       - $HOME/.Xauthority:/home/${USER_NAME}/.Xauthority
       #- /home/${USER_NAME}/data:/home/${USER_NAME}/data:rw
@@ -51,6 +51,7 @@ services:
       # - /dev/ttyUR:/dev/ttyUR # for gripper
       #- ../workspaces:/home/${USER_NAME}/workspaces
       - ./packages:/home/${USER_NAME}/ros2_ws/src:rw # add bind mount for packages developed for recyclebot to the workspace
+      - ./test_suite:/home/${USER_NAME}/ros2_ws/src:rw # add bind mount for testsuite developed for recyclebot to the workspace
     device_cgroup_rules:
       - 'c 81:* rmw'  # allow access to video IO
       - 'c 189:* rmw' # allow access to USB devices

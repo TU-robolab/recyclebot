@@ -12,7 +12,6 @@ RUN apt-get update -y && apt-get -y install --no-install-recommends locales gett
 && rm -rf /var/lib/apt/lists/*
 RUN locale-gen en_GB.UTF-8; update-locale LC_ALL=en_GB.UTF-8 LANG=en_GB.UTF-8
 ENV LANG en_GB.UTF-8
-
 # install apt base packages
 COPY apt-base-packages /tmp/apt-base-packages
 RUN apt-get update && \
@@ -141,3 +140,4 @@ ENTRYPOINT ["/ros_entrypoint.sh"]
 
 CMD ["bash"]
 
+q
