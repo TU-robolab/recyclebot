@@ -16,7 +16,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallb
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from sensor_msgs.msg import Image
-from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
+from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
 from std_srvs.srv import Trigger
 from realsense2_camera_msgs.msg import RGBD
 
@@ -100,8 +100,8 @@ class VisionDetector(Node):
             durability=DurabilityPolicy.VOLATILE  # no need to retain past detections
         )
         
-        # publish an array of current detections     
-        self.detection_pub = self.create_publisher(Detection2DArray, 
+        # publish an array of current 3D detections (with depth)
+        self.detection_pub = self.create_publisher(Detection3DArray,
                                                   "object_detections",
                                                    qos_detected_objects
         )
@@ -329,31 +329,34 @@ class VisionDetector(Node):
     def process_deque(self):
         # skip if empty
         if not self.detection_deque:
-         #   print("empty detection deque")
             return
-            
-        #print("processing detection queue")
-        detection_array = Detection2DArray()
+
+        detection_array = Detection3DArray()
         detection_array.header.stamp = self.get_clock().now().to_msg()
-        
+
         with self.detection_lock:
             while self.detection_deque:
-                # fifo order 
+                # fifo order
                 det = self.detection_deque.popleft()
-                
-                d = Detection2D()
+
+                d = Detection3D()
+                # bbox.center.position:
+                #   x, y = pixel coordinates of bbox center
+                #   z = average valid depth in meters (0 if no valid depth)
                 d.bbox.center.position.x = float(det["bbox_uv"][0])
                 d.bbox.center.position.y = float(det["bbox_uv"][1])
-                d.bbox.size_x = float(det["bbox_uv"][2])
-                d.bbox.size_y = float(det["bbox_uv"][3])
-                
+                d.bbox.center.position.z = float(det["depth_m"])
+                d.bbox.size.x = float(det["bbox_uv"][2])
+                d.bbox.size.y = float(det["bbox_uv"][3])
+                d.bbox.size.z = 0.0  # not used
+
                 hypothesis = ObjectHypothesisWithPose()
                 hypothesis.hypothesis.class_id = det["label"]
                 hypothesis.hypothesis.score = det["confidence"]
                 d.results.append(hypothesis)
-                
+
                 detection_array.detections.append(d)
-        
+
         self.detection_pub.publish(detection_array)
 
 def main(args=None):
