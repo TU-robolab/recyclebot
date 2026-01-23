@@ -168,12 +168,26 @@ class VisionDetector(Node):
         return response            
 
     def show_rgbd(self, rgb_img, depth_img):
-        # normalize depth for visualization
-        depth_display = cv2.normalize(depth_img, None, 0, 255, cv2.NORM_MINMAX)
-        depth_display = depth_display.astype(np.uint8)
+        # create colorized depth visualization
+        # INVERT so close=255 (red/warm) and far=0 (blue/cool)
+        valid_mask = depth_img > 0
+        depth_normalized = np.zeros_like(depth_img, dtype=np.uint8)
 
-        # apply colormap for better visibility
-        depth_colormap = cv2.applyColorMap(depth_display, cv2.COLORMAP_JET)
+        if np.any(valid_mask):
+            valid_depth = depth_img[valid_mask]
+            depth_min, depth_max = np.min(valid_depth), np.max(valid_depth)
+
+            # normalize and INVERT: close objects → 255 (red), far objects → 0 (blue)
+            depth_normalized[valid_mask] = (
+                255 - ((depth_img[valid_mask] - depth_min) / (depth_max - depth_min) * 255)
+            ).astype(np.uint8)
+
+        # apply colormap (TURBO: red=255=close, blue=0=far)
+        depth_colormap = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_TURBO)
+
+        # mark invalid pixels as black
+        depth_colormap[~valid_mask] = [0, 0, 0]
+
         depth_colormap = cv2.resize(depth_colormap, (rgb_img.shape[1], rgb_img.shape[0]))
 
         depth_colormap = cv2.resize(depth_colormap, (rgb_img.shape[1]// 2, rgb_img.shape[0]//2))
