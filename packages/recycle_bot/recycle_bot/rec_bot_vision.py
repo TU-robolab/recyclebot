@@ -48,11 +48,10 @@ class VisionDetector(Node):
         # used labels
         self.class_labels = ["bottle_pet","box_pp","bucket","canister","cup_pp-ps","flower_pot","lid_pp-ps","non-food_bottle","other","watering_can"]
         
-        # image configuration
+        # RGBD data (protected by rgbd_lock)
         self.bridge = CvBridge()
+        self.rgbd_lock = Lock()  # protects: last_rgbd_image
         self.last_rgbd_image = None
-        self.last_depth_image = None
-        self.image_lock = Lock()
                 
         # create list to track detected trash (max 128 values ~4.2 secs at 30FPS)
         self.detection_deque = deque(maxlen=128)
@@ -117,7 +116,7 @@ class VisionDetector(Node):
     image type is realsense2_msgs.msg (RGBD) -> cv image etc. 
     """
     def image_callback(self, msg):
-        with self.image_lock:
+        with self.rgbd_lock:
             self.last_rgbd_image = msg
         
     """ 
@@ -128,7 +127,7 @@ class VisionDetector(Node):
         cv_image = None
         depth_cv_image = None
         # keep lock on last image only as long as necessary
-        with self.image_lock:
+        with self.rgbd_lock:
             if self.last_rgbd_image is None:
                 response.success = False
                 response.message = "No image available"
