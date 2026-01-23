@@ -59,7 +59,12 @@ class VisionDetector(Node):
         self.detection_lock = Lock()
 
         # threshold to weed out duplicate detections
-        self.similarity_threshold = 0.7  
+        self.similarity_threshold = 0.7
+
+        # depth scale: converts raw depth values to meters
+        # D415 default: 0.001 (raw values in mm, so mm * 0.001 = meters)
+        # TODO: consider extracting from /camera/camera/depth/camera_info or parameter server
+        self.depth_scale = 0.001  
         
         # create ROS2 interfaces to triger capture of goals
         self.srv = self.create_service(Trigger, "capture_detections", 
@@ -202,37 +207,63 @@ class VisionDetector(Node):
         
     def process_yolo_results(self, results, img, depth_img):
         detections = []
-        
+
         # process YOLO results (first detection result if batched)
         result = results[0]
-        
+
+        # image dimensions for bounds checking
+        img_h, img_w = depth_img.shape[:2]
+
         # get bounding boxes and format detections object list with req params
         boxes = result.boxes
-     
+
         for box in boxes:
             # get box coordinates (in xywh format) (center of bbox)
-            x, y, w, h = box.xywh[0].cpu().numpy()
+            cx, cy, w, h = box.xywh[0].cpu().numpy()
 
             # get confidence and class ID
             confidence = float(box.conf.cpu().numpy()[0])
             class_id = int(box.cls.cpu().numpy()[0])
-            
+
+            # compute bounding box corners for depth extraction
+            #
+            #   (x1, y1) ────────────┐
+            #      │                 │
+            #      │    depth_bbox   │
+            #      │                 │
+            #      └──────────── (x2, y2)
+            #
+            x1 = int(max(0, cx - w / 2))
+            y1 = int(max(0, cy - h / 2))
+            x2 = int(min(img_w, cx + w / 2))
+            y2 = int(min(img_h, cy + h / 2))
+
+            # extract depth region and compute average depth in meters
+            depth_bbox = depth_img[y1:y2, x1:x2]
+            valid_depth = depth_bbox[depth_bbox > 0]  # exclude invalid pixels (0 = no reading)
+
+            if len(valid_depth) > 0:
+                avg_depth_m = float(np.mean(valid_depth)) * self.depth_scale
+            else:
+                avg_depth_m = 0.0  # no valid depth readings
+
             # convert to correct format for our pipeline
             detection = {
                 "class_id": class_id,
                 "label": self.class_labels[class_id] if class_id < len(self.class_labels) else f"class_{class_id}",
                 "confidence": confidence,
                 "bbox_uv": (
-                    x ,  # center_x
-                    y,  #  center_y
+                    cx,            # center_x
+                    cy,            # center_y
                     int(w),        # width
                     int(h)         # height
                 ),
+                "depth_m": avg_depth_m,  # average depth in meters
                 "timestamp": time.time()
             }
-            
+
             detections.append(detection)
-        
+
         return detections
    
     def is_duplicate(self, new_det):
