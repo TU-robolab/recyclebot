@@ -25,12 +25,12 @@ class RecBotCore(Node):
         super().__init__("rec_bot_core")
         self.get_logger().info("Hello world from the Python node rec_bot_core")
 
-        # image configuration
+        # RGBD data (protected by rgbd_lock)
         self.bridge = CvBridge()
-        self.image_lock = Lock()
+        self.rgbd_lock = Lock()  # protects: last_depth_image, last_camera_info, last_depth_info
         self.last_depth_image = None
         self.last_camera_info = None
-        self.last_depth_info  = None
+        self.last_depth_info = None
 
         # setup ROS quality of service for camera frames
         qos_camera_feed = QoSProfile(
@@ -78,7 +78,7 @@ class RecBotCore(Node):
     image type is realsense2_msgs.msg (RGBD) -> cv image etc. 
     """
     def image_callback(self, msg):
-        with self.image_lock:
+        with self.rgbd_lock:
             self.last_depth_image = msg.depth
             self.last_camera_info = msg.rgb_camera_info
             self.last_depth_info  = msg.depth_camera_info
@@ -102,7 +102,7 @@ class RecBotCore(Node):
             return
 
         # keep lock on camera info only as long as necessary
-        with self.image_lock:
+        with self.rgbd_lock:
             if self.last_camera_info is None:
                 self.get_logger().info("No camera info available")
                 return
