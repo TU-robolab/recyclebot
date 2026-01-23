@@ -268,19 +268,61 @@ class VisionDetector(Node):
    
     def is_duplicate(self, new_det):
         for existing_det in self.detection_deque:
-            # Calculate IoU for duplicate detection check
+            # calculate IoU for duplicate detection check
+            # bbox_uv format: (center_x, center_y, width, height)
             box_a = new_det["bbox_uv"]
             box_b = existing_det["bbox_uv"]
-            
-            x_a = max(box_a[0], box_b[0])
-            y_a = max(box_a[1], box_b[1])
-            x_b = min(box_a[0]+box_a[2], box_b[0]+box_b[2])
-            y_b = min(box_a[1]+box_a[3], box_b[1]+box_b[3])
-            
-            inter_area = max(0, x_b - x_a) * max(0, y_b - y_a)
-            union_area = (box_a[2]*box_a[3] + box_b[2]*box_b[3] - inter_area)
-            
-            if inter_area / union_area > self.similarity_threshold:
+
+            # convert from center format to corner format
+            #
+            #            w
+            #    ┌───────────────┐
+            #    │   (cx, cy)    │
+            #  h │       ·       │
+            #    │               │
+            #    └───────────────┘
+            #
+            #  becomes:
+            #
+            #   (x1, y1) ────────┐
+            #      │             │
+            #      │             │
+            #      └──────── (x2, y2)
+            #
+            a_x1 = box_a[0] - box_a[2] / 2
+            a_y1 = box_a[1] - box_a[3] / 2
+            a_x2 = box_a[0] + box_a[2] / 2
+            a_y2 = box_a[1] + box_a[3] / 2
+
+            b_x1 = box_b[0] - box_b[2] / 2
+            b_y1 = box_b[1] - box_b[3] / 2
+            b_x2 = box_b[0] + box_b[2] / 2
+            b_y2 = box_b[1] + box_b[3] / 2
+
+            # calculate intersection
+            #
+            #   box_a (───)          box_b (━━━)
+            #
+            #    ┌─────────────┐
+            #    │         ┏━━━┿━━━━━━━┓
+            #    │         ┃///│///////┃
+            #    │         ┃///│///////┃
+            #    └─────────┃───┘///////┃
+            #              ┃///////////┃
+            #              ┗━━━━━━━━━━━┛
+            #
+            #   intersection = ///
+            #   IoU = intersection / union
+            #
+            inter_x1 = max(a_x1, b_x1)
+            inter_y1 = max(a_y1, b_y1)
+            inter_x2 = min(a_x2, b_x2)
+            inter_y2 = min(a_y2, b_y2)
+
+            inter_area = max(0, inter_x2 - inter_x1) * max(0, inter_y2 - inter_y1)
+            union_area = (box_a[2] * box_a[3] + box_b[2] * box_b[3] - inter_area)
+
+            if union_area > 0 and inter_area / union_area > self.similarity_threshold:
                 return True
         return False
 
