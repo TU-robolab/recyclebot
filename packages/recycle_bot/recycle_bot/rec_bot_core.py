@@ -8,7 +8,7 @@ from rclpy.node import Node
 
 from std_msgs.msg import String
 from realsense2_camera_msgs.msg import RGBD
-from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
+from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
@@ -57,7 +57,7 @@ class RecBotCore(Node):
         )
 
         self.subscription = self.create_subscription(
-            Detection2DArray,
+            Detection3DArray,
             'object_detections',
             self.detection_callback,
             10  # or another qos
@@ -83,36 +83,55 @@ class RecBotCore(Node):
             self.last_camera_info = msg.rgb_camera_info
             self.last_depth_info  = msg.depth_camera_info
         
-    def detection_callback(self, msg: Detection2DArray):
+    def detection_callback(self, msg: Detection3DArray):
         for detection in msg.detections:
             self.process_detection(detection)
-    
-    def process_detection(self, detection):
-        u = int(detection.bbox.center.x)
-        v = int(detection.bbox.center.y)
-        self.get_logger().info(f"Detection center: ({u:.2f}, {v:.2f})")
 
-        # keep lock on last image only as long as necessary
+    def process_detection(self, detection: Detection3D):
+        # bbox.center.position:
+        #   x, y = pixel coordinates of bbox center
+        #   z = average valid depth in meters (0 if no valid depth)
+        u = int(detection.bbox.center.position.x)
+        v = int(detection.bbox.center.position.y)
+        z = detection.bbox.center.position.z  # avg depth in meters from vision node
+
+        self.get_logger().info(f"Detection center: (u={u}, v={v}), depth={z:.3f}m")
+
+        if z == 0.0:
+            self.get_logger().warn("No valid depth for detection, skipping")
+            return
+
+        # keep lock on camera info only as long as necessary
         with self.image_lock:
+            if self.last_camera_info is None:
+                self.get_logger().info("No camera info available")
+                return
             if self.last_depth_image is None:
-                self.get_logger().info("No image available")
-                return 
-            
-            depth_cv_image = self.bridge.imgmsg_to_cv2(self.last_depth_image, "passthrough")
+                self.get_logger().info("No depth image available for frame_id")
+                return
 
-            # camera info for conversions
             camera_info = self.last_camera_info
+            frame_id = self.last_depth_image.header.frame_id
 
-        z = depth_cv_image[v, v]
-
-        self.get_logger().info(f"point  candidate (u,v,z): ({u:.2f}, {v:.2f}, {z:.2f})")
-
+        self.get_logger().info(f"point candidate (u, v, z): ({u}, {v}, {z:.3f}m)")
 
         # get correct model to process the camera from pixel space into world
         camera_model = PinholeCameraModel()
-        camera_model.fromCameraInfo(camera_info) 
+        camera_model.fromCameraInfo(camera_info)
 
-        # project to 3D (camera space)
+        # project pixel to 3D point in camera space
+        #
+        #        camera
+        #           ·
+        #          /|\
+        #         / | \
+        #        /  |  \   ray = unit vector from camera through pixel (u, v)
+        #       /   |z  \
+        #      /    |    \
+        #     /     ↓     \
+        #    ·------·------·  image plane at depth z
+        #          (x, y, z)
+        #
         ray = camera_model.projectPixelTo3dRay((u, v))  # unit vector
         x = ray[0] * z
         y = ray[1] * z
@@ -121,7 +140,7 @@ class RecBotCore(Node):
         # create PoseStamped
         pose = PoseStamped()
         pose.header.stamp = self.get_clock().now().to_msg()
-        pose.header.frame_id = self.last_depth_image.header.frame_id  # usually "camera_link" or similar
+        pose.header.frame_id = frame_id  # usually "camera_link" or similar
 
         pose.pose.position.x = x
         pose.pose.position.y = y
