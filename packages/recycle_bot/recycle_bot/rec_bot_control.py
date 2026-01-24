@@ -44,8 +44,8 @@ class cobot_control(Node):
         #     durability=DurabilityPolicy.VOLATILE  # no need to retain past detections
         # )
         
-        # Load sorting sequence from YAML file
-        self.sorting_sequence = self.load_sorting_sequence()
+        # load config from YAML file
+        self.sorting_sequence, self.neutral_pose = self.load_config()
         self.sequence_index = 0
         # implemented as thread-safe deque, for now we use FIFO
         self.task_queue = deque() 
@@ -89,15 +89,46 @@ class cobot_control(Node):
     def robot_description_callback(self, msg):
         self.robot_description = msg.data
 
-    def load_sorting_sequence(self):
+    def load_config(self):
+        """Load sorting sequence and neutral pose from YAML config."""
         yaml_path = os.path.join(os.path.dirname(__file__), "sorting_sequence.yaml")
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
-                return data.get("sorting_sequence", [])
+
+            sorting_sequence = data.get("sorting_sequence", [])
+
+            # load neutral pose
+            neutral_data = data.get("neutral_pose", None)
+            neutral_pose = None
+            if neutral_data:
+                neutral_pose = self.create_pose_from_dict(neutral_data)
+                self.get_logger().info("Neutral pose loaded from config")
+            else:
+                self.get_logger().warn("No neutral_pose in config, skipping neutral movements")
+
+            return sorting_sequence, neutral_pose
+
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
-            return []
+            return [], None
+
+    def create_pose_from_dict(self, pose_dict):
+        """Create PoseStamped from dict with position and orientation keys."""
+        pose = PoseStamped()
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.header.frame_id = "base_link"
+
+        pose.pose.position.x = float(pose_dict["position"][0])
+        pose.pose.position.y = float(pose_dict["position"][1])
+        pose.pose.position.z = float(pose_dict["position"][2])
+
+        pose.pose.orientation.x = float(pose_dict["orientation"][0])
+        pose.pose.orientation.y = float(pose_dict["orientation"][1])
+        pose.pose.orientation.z = float(pose_dict["orientation"][2])
+        pose.pose.orientation.w = float(pose_dict["orientation"][3])
+
+        return pose
 
     def vision_callback(self, msg: PoseStamped):
         """Handles incoming object pose from the vision system and queues it."""
@@ -159,15 +190,36 @@ class cobot_control(Node):
 
         return result.success
 
+    def move_to_neutral(self) -> bool:
+        """Move to neutral pose if configured."""
+        if self.neutral_pose is None:
+            return True  # skip if not configured
+
+        # refresh timestamp
+        self.neutral_pose.header.stamp = self.get_clock().now().to_msg()
+
+        if not self.move_to_pose(self.neutral_pose):
+            self.get_logger().error("Failed to reach neutral pose")
+            return False
+        return True
+
     def process_tasks(self):
         """
         Processes pending sorting tasks if the robot is idle.
 
         Task sequence:
-            1. move to pick pose
-            2. grip object
-            3. move to place pose
-            4. release object
+            1. move to neutral (safe start)
+            2. move to pick pose
+            3. grip object
+            4. move to neutral (safe transit with object)
+            5. move to place pose
+            6. release object
+            7. move to neutral (safe end)
+
+                 neutral ←──────────────────────┐
+                    │                           │
+                    ▼                           │
+                  pick ──► grip ──► neutral ──► place ──► release
         """
         if self.executing_task or not self.task_queue:
             return
@@ -175,28 +227,51 @@ class cobot_control(Node):
         self.executing_task = True
         pick_pose, place_pose = self.task_queue.popleft()
 
-        # pick sequence: move → grip
+        # 1. start from neutral
+        if not self.move_to_neutral():
+            self.get_logger().error("Failed to reach neutral, aborting task")
+            self.executing_task = False
+            return
+
+        # 2. move to pick
         if not self.move_to_pose(pick_pose):
-            self.get_logger().error("Failed to reach pick pose, aborting task")
+            self.get_logger().error("Failed to reach pick pose, returning to neutral")
+            self.move_to_neutral()
             self.executing_task = False
             return
 
+        # 3. grip
         if not self.gripper_action("grip"):
-            self.get_logger().error("Failed to grip object, aborting task")
+            self.get_logger().error("Failed to grip object, returning to neutral")
+            self.move_to_neutral()
             self.executing_task = False
             return
 
-        self.get_logger().info("Object gripped, moving to place pose")
+        self.get_logger().info("Object gripped, lifting to neutral")
 
-        # place sequence: move → release
+        # 4. lift to neutral (safe transit with object)
+        if not self.move_to_neutral():
+            self.get_logger().error("Failed to lift to neutral, releasing object")
+            self.gripper_action("release")
+            self.executing_task = False
+            return
+
+        # 5. move to place
         if not self.move_to_pose(place_pose):
-            self.get_logger().error("Failed to reach place pose, releasing object")
-            self.gripper_action("release")  # safety release
+            self.get_logger().error("Failed to reach place pose, releasing and returning to neutral")
+            self.gripper_action("release")
+            self.move_to_neutral()
             self.executing_task = False
             return
 
+        # 6. release
         if not self.gripper_action("release"):
             self.get_logger().warn("Failed to release object")
+
+        self.get_logger().info("Object released, returning to neutral")
+
+        # 7. return to neutral
+        self.move_to_neutral()
 
         self.get_logger().info("Sorting task completed")
         self.executing_task = False
