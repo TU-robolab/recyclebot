@@ -7,9 +7,8 @@ from collections import deque
 
 # ROS2 imports
 import rclpy
+import rclpy.duration
 import tf2_ros
-
-
 
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
@@ -73,6 +72,10 @@ class cobot_control(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
+        # timeout configuration (seconds)
+        self.tf_timeout_sec = 1.0
+        self.planning_timeout_sec = 10.0
+
         # to be used for vision subscriber (detects object availability and poses)
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, depth=10)
         self.create_subscription(PoseStamped, "/vision/detected_object", self.vision_callback, qos_profile)
@@ -134,7 +137,12 @@ class cobot_control(Node):
         """Handles incoming object pose from the vision system and queues it."""
         try:
             # convert from camera transform to robot base-link reference
-            transform = self.tf_buffer.lookup_transform("base_link", msg.header.frame_id, rclpy.time.Time())
+            transform = self.tf_buffer.lookup_transform(
+                "base_link",
+                msg.header.frame_id,
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=self.tf_timeout_sec)
+            )
             transformed_pose = tf2_ros.do_transform_pose(msg, transform)
 
             # retrieve target bin location (base-link reference)
@@ -143,8 +151,12 @@ class cobot_control(Node):
             # add sorting task to FIFO queue
             self.task_queue.append((transformed_pose, target_pose))
             self.get_logger().info("Queued new sorting task.")
+        except tf2_ros.LookupException:
+            self.get_logger().warn(f"TF lookup failed: frame '{msg.header.frame_id}' not found")
+        except tf2_ros.ExtrapolationException:
+            self.get_logger().warn("TF extrapolation error: transform not available yet")
         except Exception as e:
-            self.get_logger().warn(f"Not able to process detected trash: {e}")
+            self.get_logger().warn(f"Failed to process detected object: {e}")
 
     def get_next_sorting_pose(self):
         """Returns the next target pose from the predefined sorting sequence, cycles sequence if needed."""
@@ -315,25 +327,34 @@ class cobot_control(Node):
             self.get_logger().error(f"Error in Cartesian motion: {str(e)}")
             return False
 
-    def move_to_pose(self, pose: PoseStamped):
-        """Plans and executes a Cartesian motion to the given pose."""
-        pose_to_plan = self.normalize_pose_stamped(pose)
+    def move_to_pose(self, pose: PoseStamped) -> bool:
+        """
+        Plans and executes motion to the given pose.
 
-        if pose_to_plan is None:
+        Note: planning timeout is configured in OMPL settings (moveit_cpp.yaml)
+        """
+        try:
+            pose_to_plan = self.normalize_pose_stamped(pose)
+
+            if pose_to_plan is None:
+                return False
+
+            self.arm.set_start_state_to_current_state()
+            self.arm.set_goal_state(pose_stamped_msg=pose_to_plan, pose_link="tool0")
+            plan_result = self.arm.plan()
+
+            if not plan_result or not getattr(plan_result, "success", False):
+                status = getattr(plan_result, "status", "unknown")
+                self.get_logger().error(f"Planning failed: {status}")
+                return False
+
+            self.get_logger().info("Executing planned pose")
+            self.execute_trajectory(plan_result.trajectory)
+            return True
+
+        except Exception as e:
+            self.get_logger().error(f"Motion planning error: {e}")
             return False
-
-        self.arm.set_start_state_to_current_state()
-        self.arm.set_goal_state(pose_stamped_msg=pose_to_plan, pose_link="tool0")
-        plan_result = self.arm.plan()
-
-        if not plan_result or not getattr(plan_result, "success", False):
-            status = getattr(plan_result, "status", "unknown")
-            self.get_logger().error(f"Planning failed: {status}")
-            return False
-
-        self.get_logger().info("Executing planned pose")
-        self.execute_trajectory(plan_result.trajectory)
-        return True
 
     def print_current_status(self):
         """queries and prints robot"s state"""
