@@ -60,7 +60,7 @@ class RecBotCore(Node):
             Detection3DArray,
             'object_detections',
             self.detection_callback,
-            10  # or another qos
+            qos_detected_objects  # RELIABLE to match vision publisher
         )
 
         self.detected_object_pub = self.create_publisher(
