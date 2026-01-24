@@ -21,6 +21,7 @@ from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
 from moveit_msgs.msg import Constraints, OrientationConstraint
 from moveit_configs_utils import MoveItConfigsBuilder
 from std_msgs.msg import Bool, String
+from grip_interface.srv import GripCommand
 
 
 class cobot_control(Node):
@@ -75,7 +76,11 @@ class cobot_control(Node):
         # to be used for vision subscriber (detects object availability and poses)
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, depth=10)
         self.create_subscription(PoseStamped, "/vision/detected_object", self.vision_callback, qos_profile)
-        
+
+        # gripper service client
+        self.gripper_client = self.create_client(GripCommand, '/gripper_action')
+        self.gripper_timeout_sec = 5.0
+
         # Timer for checking and processing tasks
         self.create_timer(1.0, self.process_tasks)
 
@@ -122,24 +127,78 @@ class cobot_control(Node):
         # convert from return YAML value into posetamped datatype
         return self.create_pose(target_pose_obj)
 
+    def gripper_action(self, action: str) -> bool:
+        """
+        Call gripper service to grip or release.
+
+        Args:
+            action: "grip" or "release"
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.gripper_client.wait_for_service(timeout_sec=self.gripper_timeout_sec):
+            self.get_logger().error("Gripper service not available")
+            return False
+
+        request = GripCommand.Request()
+        request.action = action
+
+        future = self.gripper_client.call_async(request)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=self.gripper_timeout_sec)
+
+        if future.result() is None:
+            self.get_logger().error(f"Gripper {action} call timed out")
+            return False
+
+        result = future.result()
+        if result.success:
+            self.get_logger().info(f"Gripper {action}: {result.message}")
+        else:
+            self.get_logger().error(f"Gripper {action} failed: {result.message}")
+
+        return result.success
+
     def process_tasks(self):
-        """Processes pending sorting tasks if the robot is idle."""
+        """
+        Processes pending sorting tasks if the robot is idle.
+
+        Task sequence:
+            1. move to pick pose
+            2. grip object
+            3. move to place pose
+            4. release object
+        """
         if self.executing_task or not self.task_queue:
             return
-        
+
         self.executing_task = True
-        # each task execution goes from pick -> neutral -> place
-        """ neutral_pose = self.create_pose(
+        pick_pose, place_pose = self.task_queue.popleft()
 
-        )
-        """
-        pick_pose, place_pose = self.task_queue.popleft() # FIFO order
-        
+        # pick sequence: move → grip
+        if not self.move_to_pose(pick_pose):
+            self.get_logger().error("Failed to reach pick pose, aborting task")
+            self.executing_task = False
+            return
 
-        if self.move_to_pose(pick_pose):
-            self.get_logger().info("Pick successful, moving to place.")
-            if self.move_to_pose(place_pose):
-                self.get_logger().info("Sorting task completed.")
+        if not self.gripper_action("grip"):
+            self.get_logger().error("Failed to grip object, aborting task")
+            self.executing_task = False
+            return
+
+        self.get_logger().info("Object gripped, moving to place pose")
+
+        # place sequence: move → release
+        if not self.move_to_pose(place_pose):
+            self.get_logger().error("Failed to reach place pose, releasing object")
+            self.gripper_action("release")  # safety release
+            self.executing_task = False
+            return
+
+        if not self.gripper_action("release"):
+            self.get_logger().warn("Failed to release object")
+
+        self.get_logger().info("Sorting task completed")
         self.executing_task = False
 
     def move_cartesian(self, waypoints):
