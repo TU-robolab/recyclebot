@@ -77,7 +77,8 @@ class cobot_control(Node):
         self.planning_timeout_sec = 10.0
 
         # to be used for vision subscriber (detects object availability and poses)
-        qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, depth=10)
+        # use RELIABLE to match rec_bot_core publisher
+        qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE, depth=10)
         self.create_subscription(PoseStamped, "/vision/detected_object", self.vision_callback, qos_profile)
 
         # gripper service client
