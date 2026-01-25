@@ -197,14 +197,32 @@ class TestE2EPipeline(unittest.TestCase):
         # this is expected behavior - we verify the pipeline runs without errors
         if len(self.poses) > 0:
             pose = self.poses[-1]
-            print(f"             Last pose position: ({pose.pose.position.x:.3f}, "
-                  f"{pose.pose.position.y:.3f}, {pose.pose.position.z:.3f})")
+            x, y, z = pose.pose.position.x, pose.pose.position.y, pose.pose.position.z
+
+            print(f"             Last pose position: ({x:.3f}, {y:.3f}, {z:.3f})")
             print(f"             Frame ID: {pose.header.frame_id}")
 
-            # verify pose has valid data
+            # validate pose against known fake RGBD data:
+            # - fake depths: 0.7m, 0.8m, 0.9m, 1.0m, 1.2m, 1.5m (background)
+            # - filter config: min_depth=0.1m, max_depth=1.5m
+            # - camera: fx=fy=920, cx=640, cy=360, image=1280x720
+
+            # verify frame_id is set
             self.assertIsNotNone(pose.header.frame_id)
-            # z should be positive (in front of camera)
-            self.assertGreater(pose.pose.position.z, 0.0)
+
+            # z (depth) should be within filter range
+            self.assertGreater(z, 0.1, "Depth below minimum filter threshold")
+            self.assertLess(z, 1.6, "Depth above maximum filter threshold")
+
+            # x, y should be reasonable for the camera FOV
+            # at z=1.5m, max x = (1280-640)*1.5/920 ≈ 1.04m
+            # at z=1.5m, max y = (720-360)*1.5/920 ≈ 0.59m
+            self.assertGreater(x, -1.5, "X position out of expected range")
+            self.assertLess(x, 1.5, "X position out of expected range")
+            self.assertGreater(y, -1.0, "Y position out of expected range")
+            self.assertLess(y, 1.0, "Y position out of expected range")
+
+            print(f"             Pose validation: PASSED")
         else:
             # no poses is acceptable if detections didn't pass filters
             print("             No poses published (detections may not pass filters)")
