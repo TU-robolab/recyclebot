@@ -1,15 +1,7 @@
-# YAML defining sorting target locations, neutral pose, and camera transform
+# YAML defining sorting target locations and neutral pose
 # defined as a conjunction of a position and orientation in reference to base_link:
-# - position: cartesian coordinates (mm for poses, meters for transforms)
+# - position: cartesian coordinates (mm)
 # - orientation: quaternion [x, y, z, w]
-
-# camera transform: static transform from base to camera_link (meters)
-# used for projecting detections into robot frame
-camera_transform:
-  parent_frame: "base"
-  child_frame: "camera_link"
-  translation: [-0.384, 0.286, 0.624]  # meters
-  rotation: [-0.999, 0.045, 0.0, 0.0]  # quaternion [x, y, z, w]
 
 # neutral pose: safe position above workspace for transit between pick and place
 # robot moves here after gripping before moving to place location
