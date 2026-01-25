@@ -34,7 +34,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from std_srvs.srv import Trigger
-from vision_msgs.msg import Detection2DArray
+from vision_msgs.msg import Detection3DArray
 from realsense2_camera_msgs.msg import RGBD
 from datetime import datetime
 import os
@@ -90,12 +90,18 @@ class TestVisionWorkflow(unittest.TestCase):
         self.rgbd_frames = []
         self.bridge = CvBridge()
 
-        # Create subscription to detection topic
+        # Create subscription to detection topic (RELIABLE QoS to match vision publisher)
+        qos_detections = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE
+        )
         self.detection_sub = self.node.create_subscription(
-            Detection2DArray,
+            Detection3DArray,
             '/object_detections',
             self.detection_callback,
-            10
+            qos_detections
         )
 
         # Create subscription to RGBD camera topic for depth tests
@@ -500,9 +506,16 @@ class TestVisionWorkflow(unittest.TestCase):
         # Wait for service
         self.assertTrue(self.wait_for_service(timeout_sec=15.0))
 
-        # Add extra delay to ensure vision node and YOLO model are fully ready
-        # YOLO model loading can take several seconds
-        time.sleep(5.0)
+        # Wait for vision node to receive RGBD frames before triggering
+        self.rgbd_frames.clear()
+        timeout = 10.0
+        start_time = time.time()
+        while len(self.rgbd_frames) == 0:
+            rclpy.spin_once(self.node, timeout_sec=0.1)
+            if time.time() - start_time > timeout:
+                self.fail("No RGBD frames received - vision node may not be subscribed")
+
+        print(f"         RGBD frames received: {len(self.rgbd_frames)}")
 
         # Create request
         request = Trigger.Request()
@@ -576,7 +589,7 @@ class TestVisionWorkflow(unittest.TestCase):
 
         # Verify detections
         test_passed = (len(self.detections_received) > 0 and
-                      isinstance(detection_array, Detection2DArray) and
+                      isinstance(detection_array, Detection3DArray) and
                       len(detection_array.detections) > 0)
 
         self.report_data['tests'].append({
@@ -590,7 +603,7 @@ class TestVisionWorkflow(unittest.TestCase):
 
         self.assertGreater(len(self.detections_received), 0,
                           "No detection messages received")
-        self.assertIsInstance(detection_array, Detection2DArray)
+        self.assertIsInstance(detection_array, Detection3DArray)
         self.assertGreater(len(detection_array.detections), 0,
                           "Detection array is empty")
 
@@ -632,8 +645,8 @@ class TestVisionWorkflow(unittest.TestCase):
         for detection in detection_array.detections:
             # Check bounding box
             self.assertIsNotNone(detection.bbox)
-            self.assertGreater(detection.bbox.size_x, 0, "Invalid bbox width")
-            self.assertGreater(detection.bbox.size_y, 0, "Invalid bbox height")
+            self.assertGreater(detection.bbox.size.x, 0, "Invalid bbox width")
+            self.assertGreater(detection.bbox.size.y, 0, "Invalid bbox height")
 
             # Check results (class and confidence)
             self.assertGreater(len(detection.results), 0, "No detection results")
@@ -648,9 +661,9 @@ class TestVisionWorkflow(unittest.TestCase):
                 'confidence': result.hypothesis.score,
                 'bbox_center_x': detection.bbox.center.position.x,
                 'bbox_center_y': detection.bbox.center.position.y,
-                'bbox_width': detection.bbox.size_x,
-                'bbox_height': detection.bbox.size_y,
-                'bbox_area': detection.bbox.size_x * detection.bbox.size_y
+                'bbox_width': detection.bbox.size.x,
+                'bbox_height': detection.bbox.size.y,
+                'bbox_area': detection.bbox.size.x * detection.bbox.size.y
             }
             detection_info['objects'].append(obj_info)
 
