@@ -63,7 +63,7 @@ def generate_launch_description():
         period=15.0,
         actions=[
             ExecuteProcess(
-                cmd=['python3', '-m', 'pytest', test_script, '-v', '--tb=short'],
+                cmd=['python3', '-m', 'pytest', test_script, '-v', '-s', '--tb=short'],
                 output='screen',
                 shell=False
             )
