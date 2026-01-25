@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import os
+import yaml
 from threading import Lock
 
 # ros imports
@@ -152,19 +154,55 @@ class RecBotCore(Node):
 
         self.detected_object_pub.publish(pose)
 
+    def load_camera_transform(self):
+        """
+        Load camera transform from YAML config with defaults.
+
+        Returns dict with keys: parent_frame, child_frame, translation, rotation
+        """
+        # defaults (original hardcoded values)
+        defaults = {
+            "parent_frame": "base",
+            "child_frame": "camera_link",
+            "translation": [-0.384, 0.286, 0.624],
+            "rotation": [-0.999, 0.045, 0.0, 0.0]
+        }
+
+        yaml_path = os.path.join(os.path.dirname(__file__), "sorting_sequence.yaml")
+        try:
+            with open(yaml_path, 'r') as file:
+                data = yaml.safe_load(file)
+
+            config = data.get("camera_transform", {})
+            result = {
+                "parent_frame": config.get("parent_frame", defaults["parent_frame"]),
+                "child_frame": config.get("child_frame", defaults["child_frame"]),
+                "translation": config.get("translation", defaults["translation"]),
+                "rotation": config.get("rotation", defaults["rotation"])
+            }
+            self.get_logger().info(f"Loaded camera transform from config: {result['parent_frame']} -> {result['child_frame']}")
+            return result
+
+        except Exception as e:
+            self.get_logger().warn(f"Failed to load camera transform from config: {e}, using defaults")
+            return defaults
+
     def publish_camera_static_transform(self):
+        """Publish static transform from base to camera using config or defaults."""
+        config = self.load_camera_transform()
+
         static_br = tf2_ros.StaticTransformBroadcaster(self)
         transform = TransformStamped()
         transform.header.stamp = self.get_clock().now().to_msg()
-        transform.header.frame_id = "base"
-        transform.child_frame_id = "camera_link" # change to published by system if needed
-        transform.transform.translation.x = -0.38384216583910713
-        transform.transform.translation.y = 0.2863018787024152
-        transform.transform.translation.z = 0.6239699702309053
-        transform.transform.rotation.x = -0.9989747131951828
-        transform.transform.rotation.y = 0.04527164772325851
-        transform.transform.rotation.z = -1.2163534954626416e-05
-        transform.transform.rotation.w = 1.2691403055540589e-05
+        transform.header.frame_id = config["parent_frame"]
+        transform.child_frame_id = config["child_frame"]
+        transform.transform.translation.x = config["translation"][0]
+        transform.transform.translation.y = config["translation"][1]
+        transform.transform.translation.z = config["translation"][2]
+        transform.transform.rotation.x = config["rotation"][0]
+        transform.transform.rotation.y = config["rotation"][1]
+        transform.transform.rotation.z = config["rotation"][2]
+        transform.transform.rotation.w = config["rotation"][3]
         static_br.sendTransform(transform)
 
                                
