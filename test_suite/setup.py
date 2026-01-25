@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'fake_rgbd_publisher = test_suite.fake_rgbd_publisher:main',
             'fake_joint_state_publisher = test_suite.fake_joint_state_publisher:main',
+            'mock_gripper_service = test_suite.mock_gripper_service:main',
         ],
     },
 )
