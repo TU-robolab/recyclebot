@@ -183,21 +183,27 @@ class RecBotCore(Node):
 
         # project pixel to 3D point in camera space
         #
+        # RealSense provides Z-depth (perpendicular to image plane), not ray distance.
+        # we scale the ray to reach the Z-depth plane:
+        #
         #        camera
         #           ·
-        #          /|\
-        #         / | \
-        #        /  |  \   ray = unit vector from camera through pixel (u, v)
-        #       /   |z  \
-        #      /    |    \
-        #     /     ↓     \
-        #    ·------·------·  image plane at depth z
-        #          (x, y, z)
+        #          /|
+        #         / |
+        #        /  | Z-depth (what RealSense gives)
+        #       / θ |
+        #      /    |
+        #     ·-----+ point at (x, y, z)
+        #      \
+        #       ray (unit vector)
+        #
+        # scale = z / ray[2] = z / cos(θ)
         #
         ray = camera_model.projectPixelTo3dRay((u, v))  # unit vector
-        x = ray[0] * z
-        y = ray[1] * z
-        z = ray[2] * z
+        scale = z / ray[2]  # ray[2] ≈ 1.0 for center, < 1.0 for edges
+        x = ray[0] * scale
+        y = ray[1] * scale
+        # z remains as the original Z-depth
 
         # create PoseStamped
         pose = PoseStamped()
