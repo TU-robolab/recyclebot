@@ -15,9 +15,10 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from tf_transformations import quaternion_from_euler
 from image_geometry import PinholeCameraModel
-from moveit.planning import MoveItPy
+from moveit.planning import MoveItPy, PlanningSceneMonitor
 from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
-from moveit_msgs.msg import Constraints, OrientationConstraint
+from moveit_msgs.msg import Constraints, OrientationConstraint, CollisionObject
+from shape_msgs.msg import SolidPrimitive
 from moveit_configs_utils import MoveItConfigsBuilder
 from std_msgs.msg import Bool, String
 from grip_interface.srv import GripCommand
@@ -68,6 +69,9 @@ class cobot_control(Node):
         self.velocity_scaling = 0.2
         self.acceleration_scaling = 0.2
 
+        # add collision objects to planning scene
+        self.setup_collision_objects()
+
         # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
@@ -92,6 +96,102 @@ class cobot_control(Node):
 
     def robot_description_callback(self, msg):
         self.robot_description = msg.data
+
+    def setup_collision_objects(
+        self,
+        table_size=(1.2, 0.8, 0.05),
+        table_position=(0.0, 0.0, -0.025),
+        camera_size=(0.10, 0.03, 0.03),
+        camera_position=(-0.384, 0.286, 0.624)
+    ):
+        """
+        Add collision objects to planning scene for safe motion planning.
+
+        Args:
+            table_size: (x, y, z) dimensions in meters, default 1.2x0.8x0.05m
+            table_position: (x, y, z) center position relative to base_link
+            camera_size: (x, y, z) dimensions in meters, default ~D415 with margin
+            camera_position: (x, y, z) position from rec_bot_core.py static transform
+
+        Collision geometry:
+        - table: box underneath robot base where UR16e is mounted
+        - camera: box at camera mount position (RealSense D415)
+        """
+        planning_scene_monitor = self.moveit.get_planning_scene_monitor()
+
+        with planning_scene_monitor.read_write() as scene:
+            # table collision object
+            #
+            #   top view:
+            #        ┌─────────────────────┐
+            #        │                     │
+            #        │    table (1.2m)     │
+            #        │         ·──────────── UR base at center
+            #        │                     │
+            #        └─────────────────────┘
+            #              0.8m
+            #
+            #   side view:
+            #        ════════════ base_link (z=0)
+            #        ┌──────────┐
+            #        │  table   │ 0.05m thick
+            #        └──────────┘ z = -0.025m (center)
+            #
+            table = CollisionObject()
+            table.header.frame_id = "base_link"
+            table.header.stamp = self.get_clock().now().to_msg()
+            table.id = "table"
+            table.operation = CollisionObject.ADD
+
+            table_box = SolidPrimitive()
+            table_box.type = SolidPrimitive.BOX
+            table_box.dimensions = list(table_size)
+
+            table_pose = Pose()
+            table_pose.position.x = table_position[0]
+            table_pose.position.y = table_position[1]
+            table_pose.position.z = table_position[2]
+            table_pose.orientation.w = 1.0
+
+            table.primitives.append(table_box)
+            table.primitive_poses.append(table_pose)
+
+            scene.apply_collision_object(table)
+            self.get_logger().info("Added table collision object")
+
+            # camera collision object (RealSense D415: ~99mm x 25mm x 25mm)
+            #
+            #   side view:
+            #                    ┌───┐ camera
+            #                    │   │
+            #        ────────────┼───┼──────── z = 0.624m
+            #                    │   │
+            #                    └───┘
+            #                      │
+            #        ═════════════╧════════════ base_link
+            #              x = -0.384m
+            #
+            camera = CollisionObject()
+            camera.header.frame_id = "base_link"
+            camera.header.stamp = self.get_clock().now().to_msg()
+            camera.id = "camera"
+            camera.operation = CollisionObject.ADD
+
+            camera_box = SolidPrimitive()
+            camera_box.type = SolidPrimitive.BOX
+            camera_box.dimensions = list(camera_size)
+
+            camera_pose = Pose()
+            camera_pose.position.x = camera_position[0]
+            camera_pose.position.y = camera_position[1]
+            camera_pose.position.z = camera_position[2]
+            camera_pose.orientation.w = 1.0
+
+            camera.primitives.append(camera_box)
+            camera.primitive_poses.append(camera_pose)
+
+            scene.apply_collision_object(camera)
+            self.get_logger().info("Added camera collision object")
 
     def load_config(self):
         """Load sorting sequence and neutral pose from YAML config."""
