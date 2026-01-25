@@ -34,6 +34,9 @@ class RecBotCore(Node):
         self.last_camera_info = None
         self.last_depth_info = None
 
+        # detection filtering config (loaded from YAML with defaults)
+        self.load_filter_config()
+
         # setup ROS quality of service for camera frames
         qos_camera_feed = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,  # keep only the latest frames
@@ -85,6 +88,44 @@ class RecBotCore(Node):
             self.last_camera_info = msg.rgb_camera_info
             self.last_depth_info  = msg.depth_camera_info
         
+    def load_filter_config(self):
+        """
+        Load detection filter config from YAML with defaults.
+
+        Filter thresholds:
+        - min_confidence: minimum detection confidence (0.0-1.0)
+        - min_depth_m: minimum valid depth in meters (rejects too close)
+        - max_depth_m: maximum valid depth in meters (rejects too far)
+
+        RealSense D415 range: 0.3m - 10m (optimal 0.5m - 3m)
+        """
+        defaults = {
+            "min_confidence": 0.5,
+            "min_depth_m": 0.3,
+            "max_depth_m": 1.5
+        }
+
+        yaml_path = os.path.join(os.path.dirname(__file__), "calibration.yaml")
+        try:
+            with open(yaml_path, 'r') as file:
+                data = yaml.safe_load(file)
+
+            config = data.get("detection_filter", {})
+            self.min_confidence = config.get("min_confidence", defaults["min_confidence"])
+            self.min_depth_m = config.get("min_depth_m", defaults["min_depth_m"])
+            self.max_depth_m = config.get("max_depth_m", defaults["max_depth_m"])
+
+            self.get_logger().info(
+                f"Detection filter: confidence>={self.min_confidence}, "
+                f"depth in [{self.min_depth_m}, {self.max_depth_m}]m"
+            )
+
+        except Exception as e:
+            self.get_logger().warn(f"Failed to load filter config: {e}, using defaults")
+            self.min_confidence = defaults["min_confidence"]
+            self.min_depth_m = defaults["min_depth_m"]
+            self.max_depth_m = defaults["max_depth_m"]
+
     def detection_callback(self, msg: Detection3DArray):
         for detection in msg.detections:
             self.process_detection(detection)
@@ -97,10 +138,29 @@ class RecBotCore(Node):
         v = int(detection.bbox.center.position.y)
         z = detection.bbox.center.position.z  # avg depth in meters from vision node
 
-        self.get_logger().info(f"Detection center: (u={u}, v={v}), depth={z:.3f}m")
+        # get confidence from first hypothesis (if available)
+        confidence = 0.0
+        if detection.results:
+            confidence = detection.results[0].hypothesis.score
 
+        self.get_logger().info(f"Detection: (u={u}, v={v}), depth={z:.3f}m, conf={confidence:.2f}")
+
+        # filter by confidence
+        if confidence < self.min_confidence:
+            self.get_logger().warn(f"Low confidence ({confidence:.2f} < {self.min_confidence}), skipping")
+            return
+
+        # filter by depth range
         if z == 0.0:
             self.get_logger().warn("No valid depth for detection, skipping")
+            return
+
+        if z < self.min_depth_m:
+            self.get_logger().warn(f"Object too close ({z:.3f}m < {self.min_depth_m}m), skipping")
+            return
+
+        if z > self.max_depth_m:
+            self.get_logger().warn(f"Object too far ({z:.3f}m > {self.max_depth_m}m), skipping")
             return
 
         # keep lock on camera info only as long as necessary
@@ -168,7 +228,7 @@ class RecBotCore(Node):
             "rotation": [-0.999, 0.045, 0.0, 0.0]
         }
 
-        yaml_path = os.path.join(os.path.dirname(__file__), "sorting_sequence.yaml")
+        yaml_path = os.path.join(os.path.dirname(__file__), "calibration.yaml")
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
