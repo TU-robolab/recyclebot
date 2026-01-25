@@ -7,6 +7,7 @@ from threading import Lock
 import rclpy
 import tf2_ros
 from rclpy.node import Node
+from ament_index_python.packages import get_package_share_directory
 
 from std_msgs.msg import String
 from realsense2_camera_msgs.msg import RGBD
@@ -105,7 +106,7 @@ class RecBotCore(Node):
             "max_depth_m": 1.5
         }
 
-        yaml_path = os.path.join(os.path.dirname(__file__), "calibration.yaml")
+        yaml_path = os.path.join(get_package_share_directory("recycle_bot"), "config", "calibration.yaml")
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
@@ -234,7 +235,7 @@ class RecBotCore(Node):
             "rotation": [-0.999, 0.045, 0.0, 0.0]
         }
 
-        yaml_path = os.path.join(os.path.dirname(__file__), "calibration.yaml")
+        yaml_path = os.path.join(get_package_share_directory("recycle_bot"), "config", "calibration.yaml")
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
@@ -281,7 +282,8 @@ def main(args=None):
     rec_bot_core = RecBotCore()
 
     try:
-        executor.spin(rec_bot_core)
+        executor.add_node(rec_bot_core)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
