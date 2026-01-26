@@ -8,6 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
 
 # install basic packages and set up locales
+# BuildKit cache mounts: persist apt package downloads across builds to avoid re-downloading
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update -y && apt-get -y install --no-install-recommends locales gettext \
@@ -16,6 +17,7 @@ RUN locale-gen en_GB.UTF-8; update-locale LC_ALL=en_GB.UTF-8 LANG=en_GB.UTF-8
 ENV LANG en_GB.UTF-8
 # install apt base packages
 COPY apt-base-packages /tmp/apt-base-packages
+# Cache mounts speed up rebuilds by reusing downloaded packages
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
@@ -70,6 +72,7 @@ RUN mkdir -p ${ROS2_WS}/src && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}
 
 # install apt dev packages
 COPY apt-dev-packages /tmp/apt-dev-packages
+# Cache mounts speed up rebuilds by reusing downloaded packages (ROS, OpenCV, MoveIt, etc.)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update \
@@ -79,6 +82,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
 
 # build the ROS2 workspace
+# Cache mounts persist rosdep dependency downloads across builds
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     cd ${ROS2_WS}/src \
