@@ -7,20 +7,21 @@ from collections import deque
 
 # ROS2 imports
 import rclpy
+import rclpy.duration
 import tf2_ros
-
-
 
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from tf_transformations import quaternion_from_euler
 from image_geometry import PinholeCameraModel
-from moveit.planning import MoveItPy
+from moveit.planning import MoveItPy, PlanningSceneMonitor
 from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
-from moveit_msgs.msg import Constraints, OrientationConstraint
+from moveit_msgs.msg import Constraints, OrientationConstraint, CollisionObject
+from shape_msgs.msg import SolidPrimitive
 from moveit_configs_utils import MoveItConfigsBuilder
 from std_msgs.msg import Bool, String
+from grip_interface.srv import GripCommand
 
 
 class cobot_control(Node):
@@ -43,8 +44,8 @@ class cobot_control(Node):
         #     durability=DurabilityPolicy.VOLATILE  # no need to retain past detections
         # )
         
-        # Load sorting sequence from YAML file
-        self.sorting_sequence = self.load_sorting_sequence()
+        # load config from YAML file
+        self.sorting_sequence, self.neutral_pose = self.load_config()
         self.sequence_index = 0
         # implemented as thread-safe deque, for now we use FIFO
         self.task_queue = deque() 
@@ -68,14 +69,26 @@ class cobot_control(Node):
         self.velocity_scaling = 0.2
         self.acceleration_scaling = 0.2
 
+        # add collision objects to planning scene
+        self.setup_collision_objects()
+
         # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
+        # timeout configuration (seconds)
+        self.tf_timeout_sec = 1.0
+        self.planning_timeout_sec = 10.0
+
         # to be used for vision subscriber (detects object availability and poses)
-        qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, depth=10)
+        # use RELIABLE to match rec_bot_core publisher
+        qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE, depth=10)
         self.create_subscription(PoseStamped, "/vision/detected_object", self.vision_callback, qos_profile)
-        
+
+        # gripper service client
+        self.gripper_client = self.create_client(GripCommand, '/gripper_action')
+        self.gripper_timeout_sec = 5.0
+
         # Timer for checking and processing tasks
         self.create_timer(1.0, self.process_tasks)
 
@@ -84,21 +97,153 @@ class cobot_control(Node):
     def robot_description_callback(self, msg):
         self.robot_description = msg.data
 
-    def load_sorting_sequence(self):
+    def setup_collision_objects(
+        self,
+        table_size=(1.2, 0.8, 0.05),
+        table_position=(0.0, 0.0, -0.025),
+        camera_size=(0.10, 0.03, 0.03),
+        camera_position=(-0.384, 0.286, 0.624)
+    ):
+        """
+        Add collision objects to planning scene for safe motion planning.
+
+        Args:
+            table_size: (x, y, z) dimensions in meters, default 1.2x0.8x0.05m
+            table_position: (x, y, z) center position relative to base_link
+            camera_size: (x, y, z) dimensions in meters, default ~D415 with margin
+            camera_position: (x, y, z) position from rec_bot_core.py static transform
+
+        Collision geometry:
+        - table: box underneath robot base where UR16e is mounted
+        - camera: box at camera mount position (RealSense D415)
+        """
+        planning_scene_monitor = self.moveit.get_planning_scene_monitor()
+
+        with planning_scene_monitor.read_write() as scene:
+            # table collision object
+            #
+            #   top view:
+            #        ┌─────────────────────┐
+            #        │                     │
+            #        │    table (1.2m)     │
+            #        │         ·──────────── UR base at center
+            #        │                     │
+            #        └─────────────────────┘
+            #              0.8m
+            #
+            #   side view:
+            #        ════════════ base_link (z=0)
+            #        ┌──────────┐
+            #        │  table   │ 0.05m thick
+            #        └──────────┘ z = -0.025m (center)
+            #
+            table = CollisionObject()
+            table.header.frame_id = "base_link"
+            table.header.stamp = self.get_clock().now().to_msg()
+            table.id = "table"
+            table.operation = CollisionObject.ADD
+
+            table_box = SolidPrimitive()
+            table_box.type = SolidPrimitive.BOX
+            table_box.dimensions = list(table_size)
+
+            table_pose = Pose()
+            table_pose.position.x = table_position[0]
+            table_pose.position.y = table_position[1]
+            table_pose.position.z = table_position[2]
+            table_pose.orientation.w = 1.0
+
+            table.primitives.append(table_box)
+            table.primitive_poses.append(table_pose)
+
+            scene.apply_collision_object(table)
+            self.get_logger().info("Added table collision object")
+
+            # camera collision object (RealSense D415: ~99mm x 25mm x 25mm)
+            #
+            #   side view:
+            #                    ┌───┐ camera
+            #                    │   │
+            #        ────────────┼───┼──────── z = 0.624m
+            #                    │   │
+            #                    └───┘
+            #                      │
+            #        ═════════════╧════════════ base_link
+            #              x = -0.384m
+            #
+            camera = CollisionObject()
+            camera.header.frame_id = "base_link"
+            camera.header.stamp = self.get_clock().now().to_msg()
+            camera.id = "camera"
+            camera.operation = CollisionObject.ADD
+
+            camera_box = SolidPrimitive()
+            camera_box.type = SolidPrimitive.BOX
+            camera_box.dimensions = list(camera_size)
+
+            camera_pose = Pose()
+            camera_pose.position.x = camera_position[0]
+            camera_pose.position.y = camera_position[1]
+            camera_pose.position.z = camera_position[2]
+            camera_pose.orientation.w = 1.0
+
+            camera.primitives.append(camera_box)
+            camera.primitive_poses.append(camera_pose)
+
+            scene.apply_collision_object(camera)
+            self.get_logger().info("Added camera collision object")
+
+    def load_config(self):
+        """Load sorting sequence and neutral pose from YAML config."""
         yaml_path = os.path.join(os.path.dirname(__file__), "sorting_sequence.yaml")
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
-                return data.get("sorting_sequence", [])
+
+            sorting_sequence = data.get("sorting_sequence", [])
+
+            # load neutral pose
+            neutral_data = data.get("neutral_pose", None)
+            neutral_pose = None
+            if neutral_data:
+                neutral_pose = self.create_pose_from_dict(neutral_data)
+                self.get_logger().info("Neutral pose loaded from config")
+            else:
+                self.get_logger().warn("No neutral_pose in config, skipping neutral movements")
+
+            return sorting_sequence, neutral_pose
+
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
-            return []
+            return [], None
+
+    def create_pose_from_dict(self, pose_dict):
+        """Create PoseStamped from dict with position and orientation keys."""
+        pose = PoseStamped()
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.header.frame_id = "base_link"
+
+        pose.pose.position.x = float(pose_dict["position"][0])
+        pose.pose.position.y = float(pose_dict["position"][1])
+        pose.pose.position.z = float(pose_dict["position"][2])
+
+        pose.pose.orientation.x = float(pose_dict["orientation"][0])
+        pose.pose.orientation.y = float(pose_dict["orientation"][1])
+        pose.pose.orientation.z = float(pose_dict["orientation"][2])
+        pose.pose.orientation.w = float(pose_dict["orientation"][3])
+
+        return pose
 
     def vision_callback(self, msg: PoseStamped):
         """Handles incoming object pose from the vision system and queues it."""
         try:
             # convert from camera transform to robot base-link reference
-            transform = self.tf_buffer.lookup_transform("base_link", msg.header.frame_id, rclpy.time.Time())
+            transform = self.tf_buffer.lookup_transform(
+                "base_link",
+                msg.header.frame_id,
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=self.tf_timeout_sec)
+            )
             transformed_pose = tf2_ros.do_transform_pose(msg, transform)
 
             # retrieve target bin location (base-link reference)
@@ -107,8 +252,12 @@ class cobot_control(Node):
             # add sorting task to FIFO queue
             self.task_queue.append((transformed_pose, target_pose))
             self.get_logger().info("Queued new sorting task.")
+        except tf2_ros.LookupException:
+            self.get_logger().warn(f"TF lookup failed: frame '{msg.header.frame_id}' not found")
+        except tf2_ros.ExtrapolationException:
+            self.get_logger().warn("TF extrapolation error: transform not available yet")
         except Exception as e:
-            self.get_logger().warn(f"Not able to process detected trash: {e}")
+            self.get_logger().warn(f"Failed to process detected object: {e}")
 
     def get_next_sorting_pose(self):
         """Returns the next target pose from the predefined sorting sequence, cycles sequence if needed."""
@@ -122,24 +271,122 @@ class cobot_control(Node):
         # convert from return YAML value into posetamped datatype
         return self.create_pose(target_pose_obj)
 
+    def gripper_action(self, action: str) -> bool:
+        """
+        Call gripper service to grip or release.
+
+        Args:
+            action: "grip" or "release"
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.gripper_client.wait_for_service(timeout_sec=self.gripper_timeout_sec):
+            self.get_logger().error("Gripper service not available")
+            return False
+
+        request = GripCommand.Request()
+        request.action = action
+
+        future = self.gripper_client.call_async(request)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=self.gripper_timeout_sec)
+
+        if future.result() is None:
+            self.get_logger().error(f"Gripper {action} call timed out")
+            return False
+
+        result = future.result()
+        if result.success:
+            self.get_logger().info(f"Gripper {action}: {result.message}")
+        else:
+            self.get_logger().error(f"Gripper {action} failed: {result.message}")
+
+        return result.success
+
+    def move_to_neutral(self) -> bool:
+        """Move to neutral pose if configured."""
+        if self.neutral_pose is None:
+            return True  # skip if not configured
+
+        # refresh timestamp
+        self.neutral_pose.header.stamp = self.get_clock().now().to_msg()
+
+        if not self.move_to_pose(self.neutral_pose):
+            self.get_logger().error("Failed to reach neutral pose")
+            return False
+        return True
+
     def process_tasks(self):
-        """Processes pending sorting tasks if the robot is idle."""
+        """
+        Processes pending sorting tasks if the robot is idle.
+
+        Task sequence:
+            1. move to neutral (safe start)
+            2. move to pick pose
+            3. grip object
+            4. move to neutral (safe transit with object)
+            5. move to place pose
+            6. release object
+            7. move to neutral (safe end)
+
+                 neutral ←──────────────────────┐
+                    │                           │
+                    ▼                           │
+                  pick ──► grip ──► neutral ──► place ──► release
+        """
         if self.executing_task or not self.task_queue:
             return
-        
+
         self.executing_task = True
-        # each task execution goes from pick -> neutral -> place
-        """ neutral_pose = self.create_pose(
+        pick_pose, place_pose = self.task_queue.popleft()
 
-        )
-        """
-        pick_pose, place_pose = self.task_queue.popleft() # FIFO order
-        
+        # 1. start from neutral
+        if not self.move_to_neutral():
+            self.get_logger().error("Failed to reach neutral, aborting task")
+            self.executing_task = False
+            return
 
-        if self.move_to_pose(pick_pose):
-            self.get_logger().info("Pick successful, moving to place.")
-            if self.move_to_pose(place_pose):
-                self.get_logger().info("Sorting task completed.")
+        # 2. move to pick
+        if not self.move_to_pose(pick_pose):
+            self.get_logger().error("Failed to reach pick pose, returning to neutral")
+            self.move_to_neutral()
+            self.executing_task = False
+            return
+
+        # 3. grip
+        if not self.gripper_action("grip"):
+            self.get_logger().error("Failed to grip object, returning to neutral")
+            self.move_to_neutral()
+            self.executing_task = False
+            return
+
+        self.get_logger().info("Object gripped, lifting to neutral")
+
+        # 4. lift to neutral (safe transit with object)
+        if not self.move_to_neutral():
+            self.get_logger().error("Failed to lift to neutral, releasing object")
+            self.gripper_action("release")
+            self.executing_task = False
+            return
+
+        # 5. move to place
+        if not self.move_to_pose(place_pose):
+            self.get_logger().error("Failed to reach place pose, releasing and returning to neutral")
+            self.gripper_action("release")
+            self.move_to_neutral()
+            self.executing_task = False
+            return
+
+        # 6. release
+        if not self.gripper_action("release"):
+            self.get_logger().warn("Failed to release object")
+
+        self.get_logger().info("Object released, returning to neutral")
+
+        # 7. return to neutral
+        self.move_to_neutral()
+
+        self.get_logger().info("Sorting task completed")
         self.executing_task = False
 
     def move_cartesian(self, waypoints):
@@ -181,25 +428,34 @@ class cobot_control(Node):
             self.get_logger().error(f"Error in Cartesian motion: {str(e)}")
             return False
 
-    def move_to_pose(self, pose: PoseStamped):
-        """Plans and executes a Cartesian motion to the given pose."""
-        pose_to_plan = self.normalize_pose_stamped(pose)
+    def move_to_pose(self, pose: PoseStamped) -> bool:
+        """
+        Plans and executes motion to the given pose.
 
-        if pose_to_plan is None:
+        Note: planning timeout is configured in OMPL settings (moveit_cpp.yaml)
+        """
+        try:
+            pose_to_plan = self.normalize_pose_stamped(pose)
+
+            if pose_to_plan is None:
+                return False
+
+            self.arm.set_start_state_to_current_state()
+            self.arm.set_goal_state(pose_stamped_msg=pose_to_plan, pose_link="tool0")
+            plan_result = self.arm.plan()
+
+            if not plan_result or not getattr(plan_result, "success", False):
+                status = getattr(plan_result, "status", "unknown")
+                self.get_logger().error(f"Planning failed: {status}")
+                return False
+
+            self.get_logger().info("Executing planned pose")
+            self.execute_trajectory(plan_result.trajectory)
+            return True
+
+        except Exception as e:
+            self.get_logger().error(f"Motion planning error: {e}")
             return False
-
-        self.arm.set_start_state_to_current_state()
-        self.arm.set_goal_state(pose_stamped_msg=pose_to_plan, pose_link="tool0")
-        plan_result = self.arm.plan()
-
-        if not plan_result or not getattr(plan_result, "success", False):
-            status = getattr(plan_result, "status", "unknown")
-            self.get_logger().error(f"Planning failed: {status}")
-            return False
-
-        self.get_logger().info("Executing planned pose")
-        self.execute_trajectory(plan_result.trajectory)
-        return True
 
     def print_current_status(self):
         """queries and prints robot"s state"""

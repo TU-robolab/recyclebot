@@ -16,7 +16,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallb
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from sensor_msgs.msg import Image
-from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
+from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
 from std_srvs.srv import Trigger
 from realsense2_camera_msgs.msg import RGBD
 
@@ -48,18 +48,22 @@ class VisionDetector(Node):
         # used labels
         self.class_labels = ["bottle_pet","box_pp","bucket","canister","cup_pp-ps","flower_pot","lid_pp-ps","non-food_bottle","other","watering_can"]
         
-        # image configuration
+        # RGBD data (protected by rgbd_lock)
         self.bridge = CvBridge()
+        self.rgbd_lock = Lock()  # protects: last_rgbd_image
         self.last_rgbd_image = None
-        self.last_depth_image = None
-        self.image_lock = Lock()
                 
         # create list to track detected trash (max 128 values ~4.2 secs at 30FPS)
         self.detection_deque = deque(maxlen=128)
         self.detection_lock = Lock()
 
         # threshold to weed out duplicate detections
-        self.similarity_threshold = 0.7  
+        self.similarity_threshold = 0.7
+
+        # depth scale: converts raw depth values to meters
+        # D415 default: 0.001 (raw values in mm, so mm * 0.001 = meters)
+        # TODO: consider extracting from /camera/camera/depth/camera_info or parameter server
+        self.depth_scale = 0.001  
         
         # create ROS2 interfaces to triger capture of goals
         self.srv = self.create_service(Trigger, "capture_detections", 
@@ -95,8 +99,8 @@ class VisionDetector(Node):
             durability=DurabilityPolicy.VOLATILE  # no need to retain past detections
         )
         
-        # publish an array of current detections     
-        self.detection_pub = self.create_publisher(Detection2DArray, 
+        # publish an array of current 3D detections (with depth)
+        self.detection_pub = self.create_publisher(Detection3DArray,
                                                   "object_detections",
                                                    qos_detected_objects
         )
@@ -112,7 +116,7 @@ class VisionDetector(Node):
     image type is realsense2_msgs.msg (RGBD) -> cv image etc. 
     """
     def image_callback(self, msg):
-        with self.image_lock:
+        with self.rgbd_lock:
             self.last_rgbd_image = msg
         
     """ 
@@ -123,7 +127,7 @@ class VisionDetector(Node):
         cv_image = None
         depth_cv_image = None
         # keep lock on last image only as long as necessary
-        with self.image_lock:
+        with self.rgbd_lock:
             if self.last_rgbd_image is None:
                 response.success = False
                 response.message = "No image available"
@@ -140,8 +144,8 @@ class VisionDetector(Node):
 
         # display debug images
         #self.show_rgbd(cv_image,depth_cv_image)
-        # Launch visualization in separate thread
-        Thread(target=self.show_rgbd, args=(cv_image, depth_cv_image)).start()
+        #(comment this line for headless testing) Launch visualization in separate thread 
+        #Thread(target=self.show_rgbd, args=(cv_image, depth_cv_image)).start()
 
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
         inf_results = self.model(cv_image, conf=0.5)  
@@ -168,12 +172,26 @@ class VisionDetector(Node):
         return response            
 
     def show_rgbd(self, rgb_img, depth_img):
-        # normalize depth for visualization
-        depth_display = cv2.normalize(depth_img, None, 0, 255, cv2.NORM_MINMAX)
-        depth_display = depth_display.astype(np.uint8)
+        # create colorized depth visualization
+        # INVERT so close=255 (red/warm) and far=0 (blue/cool)
+        valid_mask = depth_img > 0
+        depth_normalized = np.zeros_like(depth_img, dtype=np.uint8)
 
-        # apply colormap for better visibility
-        depth_colormap = cv2.applyColorMap(depth_display, cv2.COLORMAP_JET)
+        if np.any(valid_mask):
+            valid_depth = depth_img[valid_mask]
+            depth_min, depth_max = np.min(valid_depth), np.max(valid_depth)
+
+            # normalize and INVERT: close objects → 255 (red), far objects → 0 (blue)
+            depth_normalized[valid_mask] = (
+                255 - ((depth_img[valid_mask] - depth_min) / (depth_max - depth_min) * 255)
+            ).astype(np.uint8)
+
+        # apply colormap (TURBO: red=255=close, blue=0=far)
+        depth_colormap = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_TURBO)
+
+        # mark invalid pixels as black
+        depth_colormap[~valid_mask] = [0, 0, 0]
+
         depth_colormap = cv2.resize(depth_colormap, (rgb_img.shape[1], rgb_img.shape[0]))
 
         depth_colormap = cv2.resize(depth_colormap, (rgb_img.shape[1]// 2, rgb_img.shape[0]//2))
@@ -188,85 +206,156 @@ class VisionDetector(Node):
         
     def process_yolo_results(self, results, img, depth_img):
         detections = []
-        
+
         # process YOLO results (first detection result if batched)
         result = results[0]
-        
+
+        # image dimensions for bounds checking
+        img_h, img_w = depth_img.shape[:2]
+
         # get bounding boxes and format detections object list with req params
         boxes = result.boxes
-     
+
         for box in boxes:
             # get box coordinates (in xywh format) (center of bbox)
-            x, y, w, h = box.xywh[0].cpu().numpy()
+            cx, cy, w, h = box.xywh[0].cpu().numpy()
 
             # get confidence and class ID
             confidence = float(box.conf.cpu().numpy()[0])
             class_id = int(box.cls.cpu().numpy()[0])
-            
+
+            # compute bounding box corners for depth extraction
+            #
+            #   (x1, y1) ────────────┐
+            #      │                 │
+            #      │    depth_bbox   │
+            #      │                 │
+            #      └──────────── (x2, y2)
+            #
+            x1 = int(max(0, cx - w / 2))
+            y1 = int(max(0, cy - h / 2))
+            x2 = int(min(img_w, cx + w / 2))
+            y2 = int(min(img_h, cy + h / 2))
+
+            # extract depth region and compute average depth in meters
+            depth_bbox = depth_img[y1:y2, x1:x2]
+            valid_depth = depth_bbox[depth_bbox > 0]  # exclude invalid pixels (0 = no reading)
+
+            if len(valid_depth) > 0:
+                avg_depth_m = float(np.mean(valid_depth)) * self.depth_scale
+            else:
+                avg_depth_m = 0.0  # no valid depth readings
+
             # convert to correct format for our pipeline
             detection = {
                 "class_id": class_id,
                 "label": self.class_labels[class_id] if class_id < len(self.class_labels) else f"class_{class_id}",
                 "confidence": confidence,
                 "bbox_uv": (
-                    x ,  # center_x
-                    y,  #  center_y
+                    cx,            # center_x
+                    cy,            # center_y
                     int(w),        # width
                     int(h)         # height
                 ),
+                "depth_m": avg_depth_m,  # average depth in meters
                 "timestamp": time.time()
             }
-            
+
             detections.append(detection)
-        
+
         return detections
    
     def is_duplicate(self, new_det):
         for existing_det in self.detection_deque:
-            # Calculate IoU for duplicate detection check
+            # calculate IoU for duplicate detection check
+            # bbox_uv format: (center_x, center_y, width, height)
             box_a = new_det["bbox_uv"]
             box_b = existing_det["bbox_uv"]
-            
-            x_a = max(box_a[0], box_b[0])
-            y_a = max(box_a[1], box_b[1])
-            x_b = min(box_a[0]+box_a[2], box_b[0]+box_b[2])
-            y_b = min(box_a[1]+box_a[3], box_b[1]+box_b[3])
-            
-            inter_area = max(0, x_b - x_a) * max(0, y_b - y_a)
-            union_area = (box_a[2]*box_a[3] + box_b[2]*box_b[3] - inter_area)
-            
-            if inter_area / union_area > self.similarity_threshold:
+
+            # convert from center format to corner format
+            #
+            #            w
+            #    ┌───────────────┐
+            #    │   (cx, cy)    │
+            #  h │       ·       │
+            #    │               │
+            #    └───────────────┘
+            #
+            #  becomes:
+            #
+            #   (x1, y1) ────────┐
+            #      │             │
+            #      │             │
+            #      └──────── (x2, y2)
+            #
+            a_x1 = box_a[0] - box_a[2] / 2
+            a_y1 = box_a[1] - box_a[3] / 2
+            a_x2 = box_a[0] + box_a[2] / 2
+            a_y2 = box_a[1] + box_a[3] / 2
+
+            b_x1 = box_b[0] - box_b[2] / 2
+            b_y1 = box_b[1] - box_b[3] / 2
+            b_x2 = box_b[0] + box_b[2] / 2
+            b_y2 = box_b[1] + box_b[3] / 2
+
+            # calculate intersection
+            #
+            #   box_a (───)          box_b (━━━)
+            #
+            #    ┌─────────────┐
+            #    │         ┏━━━┿━━━━━━━┓
+            #    │         ┃///│///////┃
+            #    │         ┃///│///////┃
+            #    └─────────┃───┘///////┃
+            #              ┃///////////┃
+            #              ┗━━━━━━━━━━━┛
+            #
+            #   intersection = ///
+            #   IoU = intersection / union
+            #
+            inter_x1 = max(a_x1, b_x1)
+            inter_y1 = max(a_y1, b_y1)
+            inter_x2 = min(a_x2, b_x2)
+            inter_y2 = min(a_y2, b_y2)
+
+            inter_area = max(0, inter_x2 - inter_x1) * max(0, inter_y2 - inter_y1)
+            union_area = (box_a[2] * box_a[3] + box_b[2] * box_b[3] - inter_area)
+
+            if union_area > 0 and inter_area / union_area > self.similarity_threshold:
                 return True
         return False
 
     def process_deque(self):
         # skip if empty
         if not self.detection_deque:
-         #   print("empty detection deque")
             return
-            
-        #print("processing detection queue")
-        detection_array = Detection2DArray()
+
+        detection_array = Detection3DArray()
         detection_array.header.stamp = self.get_clock().now().to_msg()
-        
+
         with self.detection_lock:
             while self.detection_deque:
-                # fifo order 
+                # fifo order
                 det = self.detection_deque.popleft()
-                
-                d = Detection2D()
+
+                d = Detection3D()
+                # bbox.center.position:
+                #   x, y = pixel coordinates of bbox center
+                #   z = average valid depth in meters (0 if no valid depth)
                 d.bbox.center.position.x = float(det["bbox_uv"][0])
                 d.bbox.center.position.y = float(det["bbox_uv"][1])
-                d.bbox.size_x = float(det["bbox_uv"][2])
-                d.bbox.size_y = float(det["bbox_uv"][3])
-                
+                d.bbox.center.position.z = float(det["depth_m"])
+                d.bbox.size.x = float(det["bbox_uv"][2])
+                d.bbox.size.y = float(det["bbox_uv"][3])
+                d.bbox.size.z = 0.0  # not used
+
                 hypothesis = ObjectHypothesisWithPose()
                 hypothesis.hypothesis.class_id = det["label"]
                 hypothesis.hypothesis.score = det["confidence"]
                 d.results.append(hypothesis)
-                
+
                 detection_array.detections.append(d)
-        
+
         self.detection_pub.publish(detection_array)
 
 def main(args=None):

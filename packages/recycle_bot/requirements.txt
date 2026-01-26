@@ -1,3 +1,3 @@
-torch
-ultralytics
-numpy<2
+numpy==1.26.4
+ultralytics==8.3.250
+# DO NOT ADD TORCH, TORCHAUDIO or TORCHVISION here , installed in dockerfile

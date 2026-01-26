@@ -1,0 +1,115 @@
+name: Vision Tests
+
+on:
+  push:
+    branches:
+      - main
+      - dev/**
+    paths:
+      - 'packages/recycle_bot/recycle_bot/rec_bot_vision.py'
+      - 'packages/recycle_bot/**/*.py'
+      - 'test_suite/test/test_vision_workflow.py'
+      - 'test_suite/scripts/**'
+      - 'test_suite/package.xml'
+      - 'test_suite/setup.py'
+      - 'Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.github/workflows/vision-tests.yml'
+  pull_request:
+    branches:
+      - main
+      - dev/**
+    paths:
+      - 'packages/recycle_bot/recycle_bot/rec_bot_vision.py'
+      - 'packages/recycle_bot/**/*.py'
+      - 'test_suite/test/test_vision_workflow.py'
+      - 'test_suite/scripts/**'
+      - 'test_suite/package.xml'
+      - 'test_suite/setup.py'
+      - 'Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.github/workflows/vision-tests.yml'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  vision-integration-tests:
+    name: Run Vision Workflow Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Set up environment variables
+        run: |
+          # Use existing export_env.sh script
+          bash export_env.sh
+          cat .env
+
+      - name: Build Docker container
+        run: |
+          docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml build
+        timeout-minutes: 20
+
+      - name: Start Docker container
+        run: |
+          docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml up -d
+
+      - name: Wait for container to be ready
+        run: |
+          echo "Waiting for container to be healthy..."
+          timeout 120 bash -c 'until docker exec recyclebot-dev-1 test -d /home/$USER/ros2_ws; do sleep 2; done'
+          echo "Container is ready"
+
+      - name: Build ROS2 workspace
+        run: |
+          docker exec recyclebot-dev-1 bash -c "
+            source /opt/ros/\${ROS_DISTRO}/setup.bash &&
+            cd ~/ros2_ws &&
+            colcon build --packages-select recycle_bot test_suite --symlink-install
+          "
+
+      - name: Run vision workflow tests
+        id: run_tests
+        run: |
+          docker exec recyclebot-dev-1 /ros_entrypoint.sh bash -c "
+            cd ~/ros2_ws/src/test_suite &&
+            bash scripts/run_vision_test.sh
+          "
+
+      - name: Copy test report
+        if: always()
+        run: |
+          docker cp recyclebot-dev-1:/tmp/vision_workflow_test_report.txt ./vision_test_report.txt || echo "No report file found"
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vision-test-report
+          path: vision_test_report.txt
+          if-no-files-found: warn
+
+      - name: Display test summary
+        if: always()
+        run: |
+          if [ -f vision_test_report.txt ]; then
+            echo "## Vision Test Results" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat vision_test_report.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml down -v
+
+      - name: Check test results
+        if: steps.run_tests.outcome == 'failure'
+        run: |
+          echo "::error::Vision tests failed. Check the test report artifact for details."
+          exit 1
