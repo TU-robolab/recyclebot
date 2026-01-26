@@ -12,3 +12,6 @@ echo "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR}" >> ${ENV_FILE}
 echo "REMOTE_HOSTNAME=ur" >> ${ENV_FILE}
 echo "REMOTE_IP=192.168.1.102" >> ${ENV_FILE}
 echo "COMPOSE_BAKE=true" >> ${ENV_FILE}
+
+# Export Docker BuildKit for faster builds (shell environment only)
+export DOCKER_BUILDKIT=1
