@@ -1,0 +1,43 @@
+# Pre-commit hooks for RecycleBot
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  - repo: local
+    hooks:
+      # Docker compose validation
+      - id: docker-compose-check
+        name: Validate Docker Compose Configuration
+        entry: bash -c 'bash export_env.sh && docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml config --quiet'
+        language: system
+        files: ^(docker-compose.*\.yml|export_env\.sh)$
+        pass_filenames: false
+        stages: [pre-commit]
+        verbose: true
+
+      # Vision tests - run when vision-related files change
+      - id: vision-tests
+        name: Vision Workflow Tests
+        entry: bash -c 'docker exec recyclebot-mac-1 /ros_entrypoint.sh bash -c "cd ~/ros2_ws/src/test_suite && bash scripts/run_vision_test.sh" || docker exec recyclebot-dev-1 /ros_entrypoint.sh bash -c "cd ~/ros2_ws/src/test_suite && bash scripts/run_vision_test.sh"'
+        language: system
+        files: ^(packages/recycle_bot/recycle_bot/rec_bot_vision\.py|test_suite/(test|scripts)/.*)$
+        pass_filenames: false
+        stages: [pre-push]
+        verbose: true
+
+  # Basic validation hooks (no formatting)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        stages: [pre-commit]
+      - id: check-yaml
+        stages: [pre-commit]
+      - id: check-ast
+        stages: [pre-commit]
+        types: [python]
+      - id: check-added-large-files
+        args: ['--maxkb=102400']  # 100MB limit (allows YOLO models)
+        stages: [pre-commit]
+      - id: check-merge-conflict
+        stages: [pre-commit]

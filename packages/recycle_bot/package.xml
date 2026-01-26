@@ -34,6 +34,9 @@
   <!-- YAML Configuration Handling -->
   <depend>python3-yaml</depend>
 
+  <!-- Gripper Interface -->
+  <depend>grip_interface</depend>
+
   <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>onnxruntime</exec_depend>
   <exec_depend>numpy</exec_depend>
