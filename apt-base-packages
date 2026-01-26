@@ -20,7 +20,7 @@ x11-apps
 x11-xserver-utils
 xauth
 xterm
-xdg-open
+xdg-utils
 
 # python
 python-is-python3
