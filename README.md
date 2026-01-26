@@ -81,8 +81,8 @@ git clone https://github.com/TU-robolab/recyclebot.git
 cd recyclebot
 git lfs pull
 
-# Configure environment
-./export_env.sh
+# Configure environment (source to export DOCKER_BUILDKIT to current shell)
+source ./export_env.sh
 
 # Allow Docker display access
 xhost +si:localuser:root
