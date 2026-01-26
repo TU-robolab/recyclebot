@@ -107,7 +107,7 @@ ENV PYTHONNOUSERSITE=1 \
 # copy requirements as root
 COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
 
-# setup CPU+CUDA (121) with specific library determinism for torch     
+# setup CPU+CUDA (126) with specific library determinism for torch     
 ARG TORCH_CUDA=cu126
 RUN python3 -m pip install --no-cache-dir --break-system-packages \
          --index-url https://download.pytorch.org/whl/${TORCH_CUDA} \
