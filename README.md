@@ -93,7 +93,8 @@ xhost +local:root
 
 ```bash
 # Build (with BuildKit for faster cached builds)
-DOCKER_BUILDKIT=1 docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml build
+source ./export_env.sh (gives buildkit and compose bake)
+docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml build
 
 # Launch
 docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml up -d
