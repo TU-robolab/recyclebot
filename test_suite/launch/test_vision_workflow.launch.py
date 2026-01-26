@@ -7,7 +7,7 @@ Starts fake RGBD publisher, vision node, and runs integration tests.
 import os
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import ExecuteProcess, TimerAction
+from launch.actions import ExecuteProcess, TimerAction, Shutdown
 from ament_index_python.packages import get_package_share_directory
 
 
@@ -45,7 +45,8 @@ def generate_launch_description():
             ExecuteProcess(
                 cmd=['python3', '-m', 'pytest', test_script, '-v', '--tb=short'],
                 output='screen',
-                shell=False
+                shell=False,
+                on_exit=[Shutdown()]
             )
         ]
     )
