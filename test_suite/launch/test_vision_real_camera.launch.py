@@ -15,7 +15,7 @@ Outputs:
 import os
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import ExecuteProcess, TimerAction, IncludeLaunchDescription
+from launch.actions import ExecuteProcess, TimerAction, IncludeLaunchDescription, Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
 
@@ -66,7 +66,8 @@ def generate_launch_description():
             ExecuteProcess(
                 cmd=['python3', '-m', 'pytest', test_script, '-v', '-s', '--tb=short'],
                 output='screen',
-                shell=False
+                shell=False,
+                on_exit=[Shutdown()]
             )
         ]
     )
