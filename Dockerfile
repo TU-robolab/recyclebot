@@ -8,13 +8,17 @@ ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-c"]
 
 # install basic packages and set up locales
-RUN apt-get update -y && apt-get -y install --no-install-recommends locales gettext \
-&& rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -y && apt-get -y install --no-install-recommends locales gettext \
+    && rm -rf /var/lib/apt/lists/*
 RUN locale-gen en_GB.UTF-8; update-locale LC_ALL=en_GB.UTF-8 LANG=en_GB.UTF-8
 ENV LANG en_GB.UTF-8
 # install apt base packages
 COPY apt-base-packages /tmp/apt-base-packages
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y $(cut -d# -f1 </tmp/apt-base-packages | envsubst) \
     && apt-get -y autoremove --purge \
     && apt-get clean \
@@ -66,14 +70,18 @@ RUN mkdir -p ${ROS2_WS}/src && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS}
 
 # install apt dev packages
 COPY apt-dev-packages /tmp/apt-dev-packages
-RUN apt-get update \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
     && apt-get install -y $(cut -d# -f1 </tmp/apt-dev-packages | envsubst) \
     && apt-get -y autoremove --purge \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
 
 # build the ROS2 workspace
-RUN cd ${ROS2_WS}/src \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    cd ${ROS2_WS}/src \
     && git clone https://github.com/openvmp/serial.git \
     && git clone https://github.com/giuschio/ros2_handeye_calibration.git \
     && apt-get update \
