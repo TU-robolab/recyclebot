@@ -51,7 +51,7 @@ services:
       # - /dev/ttyUR:/dev/ttyUR # for gripper
       #- ../workspaces:/home/${USER_NAME}/workspaces
       - ./packages:/home/${USER_NAME}/ros2_ws/src:rw # add bind mount for packages developed for recyclebot to the workspace
-      - ./test_suite:/home/${USER_NAME}/ros2_ws/src:rw # add bind mount for testsuite developed for recyclebot to the workspace
+      - ./test_suite:/home/${USER_NAME}/ros2_ws/src/test_suite:rw # add bind mount for testsuite developed for recyclebot to the workspace
     device_cgroup_rules:
       - 'c 81:* rmw'  # allow access to video IO
       - 'c 189:* rmw' # allow access to USB devices
