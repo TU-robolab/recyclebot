@@ -1,120 +1,79 @@
 # RecycleBot
 
-CV based pick-and-place system for trash sorting using ROS2 Jazzy inside a containerized environment, developed and maintained by Elvis Borges @**Triku Studio**.  
+CV based pick-and-place system for trash sorting using ROS2 Jazzy inside a containerized environment, developed and maintained by Elvis Borges @**Triku Studio**.
 
 ---
 
-## Table of Contents 
+## Table of Contents
 
-- [RecycleBot](#recyclebot)
-  * [Table of Contents](#table-of-contents)
-  * [Overview](#overview)
-  * [System Requirements](#system-requirements)
-  * [Setup & Run](#setup---run)
-    + [1 - Configure base Linux system](#1---configure-base-linux-system)
-    + [2 - Clone & Configure](#2---clone---configure)
-    + [3 - Docker Build & Launch](#3---docker-build---launch)
-    + [4 - Access Container](#4---access-container)
-  * [Subsystems](#subsystems)
-    + [Robot (UR)](#robot--ur-)
-    + [Camera (realsense)](#camera--realsense-)
-    + [Gripper (Robotiq E-Pick)](#gripper--robotiq-e-pick-)
-    + [Troubleshooting/Common Issues](#troubleshooting-common-issues)
-      - [Docker socket/permissions](#docker-socket-permissions)
-      - [reset build cache due to build issues](#reset-build-cache-due-to-build-issues)
-      - [Wayland GUI access](#wayland-gui-access)
-      - [Maintenance (SAFE)](#maintenance--safe-)
-      - [Maintenance (DESTRUCTIVE)](#maintenance--destructive-)
-  * [Design Notes](#design-notes)
-    + [**Deployment vs. Development Containers**](#--deployment-vs-development-containers--)
-    + [Package Overview](#package-overview)
-      - [Gripper](#gripper)
-        * [1. `grip_interface`](#1--grip-interface-)
-        * [2. `grip_command_package`](#2--grip-command-package-)
-        * [3. `serial`](#3--serial-)
-  * [Appendix](#appendix)
-    + [Gripper WoW](#gripper-wow)
-    + [VNC setup](#vnc-setup)
-    + [Convert between euler quaternions](#convert-between-euler-quaternions)
-    + [Typical WoW](#typical-wow)
-  * [License](#license)
-
-<small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
+- [Overview](#overview)
+- [System Requirements](#system-requirements)
+- [Setup & Run](#setup--run)
+- [Subsystems](#subsystems)
+  - [Robot (UR)](#robot-ur)
+  - [Camera (RealSense)](#camera-realsense)
+  - [Gripper (Robotiq E-Pick)](#gripper-robotiq-e-pick)
+- [Testing](#testing)
+- [Troubleshooting](#troubleshooting)
+- [Design Notes](#design-notes)
+- [License](#license)
 
 ---
 
 ## Overview
 
-**recycleBot** provides a portable ROS2 Jazzy workspace configured for simulation, vision, and robotics hardware operation, integrating:
-- motion control of **UR robots (UR16e / UR10e)**,
-- **serial-controlled gripper** interface, and
-- **Intel Realsense** vision node for perception.  
+**RecycleBot** provides a portable ROS2 Jazzy workspace configured for simulation, vision, and robotics hardware operation, integrating:
+- Motion control of **UR robots (UR16e / UR10e)**
+- **Serial-controlled gripper** interface (Robotiq E-Pick)
+- **Intel RealSense D415** vision for perception
+- **YOLO-based object detection** for recyclable classification
 
-It uses **Docker Compose**, so every setup is version-consistent, portable across systems, and easy to transition from development to deployment.
+It uses **Docker Compose** for version-consistent, portable deployments.
 
 ---
 
 ## System Requirements
-- **Ubuntu 24.04 LTS** (or compatible)  
-- **Docker Engine ≥ 24** and **docker-compose plugin**  
-- **git-lfs** for large files  
+
+- **Ubuntu 24.04 LTS** (or compatible)
+- **Docker Engine ≥ 24** and **docker-compose plugin**
+- **git-lfs** for large files
 - (optional) **Real-time kernel** for UR control
 
 ---
 
-## Setup & Run 
+## Setup & Run
 
-### 1 - Configure base Linux system
+### 1. Configure Base Linux System
 
-- **Ubuntu 24.04 LTS**  
-  ```bash
-  hostnamectl
-  sudo apt update && sudo apt full-upgrade
-  sudo do-release-upgrade
-  # finalize by rebooting:
-  sudo reboot
-  ```
--  **Real time kernel on Ubuntu (needed for UR control)**
-  ```bash
-  # attach account to canonical to enable pro ubuntu mode
-  sudo pro attach
-  # update your dependencies
-  sudo apt update && sudo apt install ubuntu-advantage-tools
-  # enable real time kernel mode 
-  sudo pro enable realtime-kernel
+```bash
+# Ubuntu 24.04 LTS
+sudo apt update && sudo apt full-upgrade
 
-  # reboot the system
-  reboot
-  ``` 
-- **Docker**
-   - install using the updated [docker installation page](https://docs.docker.com/engine/install/ubuntu/#prerequisites) WoW
-   - ensure docker is given access priviledges:
-      1. add the `docker` group (if it doesn't already exist):
-        ```
-         sudo groupadd docker
-        ```
-      2. add the connected user "$USER" to the `docker` group. (change username  if you do not want to use your current user):
-    
-        ```
-         sudo gpasswd -a $USER docker
-        ```
-    
-      3. run  `newgrp docker` or log out/in to activate the changes to groups.
-    
-      4.  use the following to check if you can run Docker without `sudo`.
-    
-        ```
-         docker run hello-world
-        ```
-    
-      5.  run this in your host system terminal to allow Docker to Use Wayland in your host system (in case your ubuntu uses wayland instead of X11 for GUI forwarding to container)
-      ```
-        xhost +si:localuser:$USER
-      ```
+# Real-time kernel (needed for UR control)
+sudo pro attach
+sudo apt install ubuntu-advantage-tools
+sudo pro enable realtime-kernel
+sudo reboot
+```
 
----
+### 2. Install Docker
 
-### 2 - Clone & Configure
+Install using the [official Docker installation guide](https://docs.docker.com/engine/install/ubuntu/).
+
+```bash
+# Add user to docker group
+sudo groupadd docker
+sudo gpasswd -a $USER docker
+newgrp docker
+
+# Verify
+docker run hello-world
+
+# Allow GUI access
+xhost +si:localuser:$USER
+```
+
+### 3. Clone & Configure
 
 ```bash
 cd ~
@@ -122,72 +81,84 @@ git clone https://github.com/TU-robolab/recyclebot.git
 cd recyclebot
 git lfs pull
 
-# configure your local environment variables using the export_env script
+# Configure environment
 ./export_env.sh
-# this by default enables docker compose bake to speed up build. if unstable run docker compose build command  (Header 3 - Docker Build & Launch") with scape sequence : 
-# COMPOSE_BAKE=false docker compose build 
-# allow Docker X11 display access
+
+# Allow Docker display access
 xhost +si:localuser:root
-xhost +local:ur16e
 xhost +local:root
 ```
 
----
-
-### 3 - Docker Build & Launch
+### 4. Docker Build & Launch
 
 ```bash
+# Build (with BuildKit for faster cached builds)
+DOCKER_BUILDKIT=1 docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml build
 
-docker compose --env-file .env   -f docker-compose.base.yml -f docker-compose.dev.yml build
-# Optional clean build
-# docker compose ... build --no-cache
-
-docker compose --env-file .env   -f docker-compose.base.yml -f docker-compose.dev.yml up -d
+# Launch
+docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml up -d
 ```
 
----
+**Note:** BuildKit caching significantly speeds up rebuilds by caching apt downloads. First build may take ~30 minutes, subsequent builds are much faster.
 
-### 4 - Access Container
+### 5. Access Container & Build Workspace
 
-1. Open the dev Container
 ```bash
-  docker exec -it recyclebot-dev-1 bash
-	source /ros_entrypoint.sh
-```
-2. Source and build ROS workspace (inside the container):
-```bash
+# Enter container
+docker exec -it recyclebot-dev-1 bash
+source /ros_entrypoint.sh
+
+# Build ROS workspace
 colcon build --cmake-clean-first
 source install/setup.bash
-```   
+```
+
+**Expected output after build:**
+
+![Build output](resources/image-20250119211628872.png)
+
+**Container running:**
+
+![Container running](resources/image-20250119211726811.png)
 
 ---
 
-## Subsystems 
+## Subsystems
 
 ### Robot (UR)
 
-1.	Start External Control on pendant.
-2.	Launch driver 
+1. Start External Control on teach pendant
+2. Launch driver:
 ```bash
-colcon build --cmake-clean-first
-ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur16e robot_ip:=192.168.1.102 kinematics_params_file:="/home/ur16e/ros2_ws/src/recycle_bot/my_robot_calibration.yaml" launch_rviz:=false
-# launch smoke demo to move/test robot 
+ros2 launch ur_robot_driver ur_control.launch.py \
+  ur_type:=ur16e \
+  robot_ip:=192.168.1.102 \
+  kinematics_params_file:="/home/ur16e/ros2_ws/src/recycle_bot/my_robot_calibration.yaml" \
+  launch_rviz:=false
+```
+3. Test with smoke demo:
+```bash
 ros2 launch recycle_bot rec_bot_smoke.launch.py
 ```
-3. 	Verify topic/service is correctly setup.
 
 ---
 
-### Camera (realsense)
+### Camera (RealSense)
 
-1.	Launch camera 
+Launch camera with RGBD enabled:
 ```bash
-ros2 launch realsense2_camera rs_launch.py enable_rgbd:=true enable_sync:=true align_depth.enable:=true enable_color:=true enable_depth:=true
+ros2 launch realsense2_camera rs_launch.py \
+  enable_rgbd:=true \
+  enable_sync:=true \
+  align_depth.enable:=true \
+  enable_color:=true \
+  enable_depth:=true
 ```
-2. 	Verify topic/service is correctly setup:
+
+Verify with:
 ```bash
 ros2 run rviz2 rviz2
-# or use
+# or
 realsense-viewer
 ```
 
@@ -195,86 +166,98 @@ realsense-viewer
 
 ### Gripper (Robotiq E-Pick)
 
-1.	Launch the node:
+**Launch:**
 ```bash
 ros2 launch grip_command_package master.launch.py debug:=true
 ```
-2. Grip or release with:
-```bash
-    ros2 service call /gripper_action grip_interface/srv/GripCommand "{action: 'grip'}"
 
-    ros2 service call /gripper_action grip_interface/srv/GripCommand "{action: 'release'}"
+This starts the UR driver, serial interface, and gripper node.
+
+**Commands:**
+```bash
+# Grip
+ros2 service call /gripper_action grip_interface/srv/GripCommand "{action: 'grip'}"
+
+# Release
+ros2 service call /gripper_action grip_interface/srv/GripCommand "{action: 'release'}"
+
+# Check status
+ros2 topic echo /object_detection/status
 ```
-3. Echo topic /object_detection/status
+
+**Service interface:**
 ```
-    ros2 topic echo /object_detection/status
+string action      # "grip" or "release"
+---
+bool success
+string message
 ```
 
 ---
 
-### Troubleshooting/Common Issues
+## Testing
 
-#### Docker socket/permissions
+The test suite provides automated validation of the vision and control pipeline.
 
-* permission denied while trying to connect to the Docker daemon socket
-  
+See [test_suite/README.md](test_suite/README.md) for full documentation.
+
+### Available Tests
+
+| Test Suite | Command | Description |
+|------------|---------|-------------|
+| Vision Workflow | `ros2 launch test_suite test_vision_workflow.launch.py` | 6 tests with fake camera |
+| E2E Pipeline | `ros2 launch test_suite test_e2e_pipeline.launch.py` | 8 tests: vision → core → gripper |
+| Real Camera | `ros2 launch test_suite test_vision_real_camera.launch.py` | Vision tests with RealSense D415 |
+
+### Quick Test
+
 ```bash
-sudo systemctl status docker
-sudo systemctl start docker # if not started , if so , do sudo systemctl restart docker
+# Build test packages
+colcon build --packages-select test_suite recycle_bot
+
+# Run E2E tests
+ros2 launch test_suite test_e2e_pipeline.launch.py
+```
+
+**Test outputs:**
+- Console report with pass/fail status
+- `/tmp/vision_workflow_test_report.txt`
+- `/tmp/rgbd_frame_*_combined.png` (RGB + depth visualization)
+
+---
+
+## Troubleshooting
+
+### Docker Permissions
+
+```bash
+sudo systemctl start docker
 sudo usermod -aG docker $USER && newgrp docker
-docker run hello-world
-ls -l /var/run/docker.sock   # should be group 'docker'
+ls -l /var/run/docker.sock  # Should show group 'docker'
 ```
-* check docker daemon socket:
+
+### Build Cache Issues
+
 ```bash
-ls -l /var/run/docker.sock
-
-# output should be
-$ srw-rw---- 1 root docker ...
-
-``` 
-
----
-
-#### reset build cache due to build issues
-
-* for build problems in the container, resets the container to a clean state by deleting the `build_cache` volume:
-```
 docker volume rm build_cache
 ```
-* for build problems involving dpkg, this is due to shortcomings in the package resolution in ROS. Some packages conflict with others, so dpkg refuses to overwrite files owned by another package.  To avoid this, you must not use expansion wildcards -* in the "*-packages" files. Always install an explicit, minimal set of the packages that you know will not conflict with another, e.g. : instead of `ros-${ROS_DISTRO}-moveit-*`, use 
-```
-ros-${ROS_DISTRO}-moveit
-ros-${ROS_DISTRO}-moveit-py
-```
----
 
-#### Wayland GUI access
+### Wayland GUI Access
 
 ```bash
 xhost +si:localuser:$USER
 xhost +local:root
 ```
 
----
-
-#### Maintenance (SAFE)
+### Maintenance
 
 ```bash
-# unused data
+# Safe cleanup
 docker system prune -f
 docker builder prune -f
-```
 
----
-
-#### Maintenance (DESTRUCTIVE)
-
-```bash
-# remove all images
-docker system df
+# Full reset (destructive)
 docker rmi $(docker images -q) --force
-docker builder prune -a --force
 docker rm -f $(docker ps -aq)
 ```
 
@@ -282,164 +265,33 @@ docker rm -f $(docker ps -aq)
 
 ## Design Notes
 
-* there are two main types of containers: **development containers** and **deployment containers**:
-- We create an image in two steps:
-  - **base** - **ROS & basic packages are installed** (ROS2 jazzy - supported until 2029).
-  - **dev - packages used by recyclebot for vision, sim, and control **
+### Container Architecture
 
-You will find different kinds of files in this repository.  
+- **Base image:** ROS2 Jazzy packages
+- **Dev image:** RecycleBot packages for vision, sim, and control
 
-- **`Dockerfile`**: instructions to build container, with any necessary tools and dependencies
-- `docker-compose*.yml`  configuration to build, run and combine the images built using `Dockerfile`.
-- `devcontainer.json`
-  - builds services and provides the configuration vscode eventually uses (using the `*.yml files*`).
-  - Mounts local source code  to the container's ROS workspace directory.
-- `apt-**-packages` - contains list of packages installed in each phase of the docker image build
+### Development vs Deployment
 
----
+| Aspect | Development | Deployment |
+|--------|-------------|------------|
+| Source code | Bind-mounted | Built into image |
+| Build cache | Persistent volume | None |
+| Flexibility | Edit without rebuild | Immutable |
 
-### **Deployment vs. Development Containers**
+### Key Files
 
-- **Deployment (prod) Containers** :
-  - Everything (ROS, your configurations, workspace, etc.) is set up in the `Dockerfile`.
-  - No bind mounts or local directories are used; the container runs in isolation.
-- **Development (dev) Containers**:
-  - Used for active prototyping
-  - prioritizes  flexibility to edit files, build, and experiment without frequent image rebuilds via:
-    - **build-cache** to the `.bashrc` or build artifacts in the container are stored in the **build_cache** volume, so you don’t lose progress when the container shuts down.
-    - **git based development** - syncing code to container is simple by updating git repositories and using the bind mount, and can happen in your local computers/setup
-      - if you want to **debug locally in container**, you can use the **VScode dev containers plugin directly**
-        - this allows you to run/develop projects inside the container environment directly in VS Code
+- `Dockerfile` - Container build instructions
+- `docker-compose*.yml` - Service configuration
+- `devcontainer.json` - VS Code integration
+- `apt-*-packages` - Package lists per build phase
 
 ---
 
-### Package Overview
-
-#### Gripper 
-*  this has 3 main components:
-
-##### 1. `grip_interface`
-
-A simple and clean ROS 2 service definition for triggering gripper actions.
-
-* **Service Definition**
-
-```
-string action
----
-bool success
-string message
-```
-
-- `action`: Command string to be interpreted by the gripper (e.g. "grip", "release").
-- `success`: Indicates whether the command was executed successfully.
-- `message`: Human-readable status or error description.
-
-
-##### 2. `grip_command_package`
-
-This package is the core control logic for operating the gripper via a serial interface. It includes both a ROS 2 node and a launch file, integrating the hardware interface (remote_serial) and the UR robot driver for full system startup.
-
-*  **Key Components**
-Implements the grip_interface service under `/gripper_action`
-Publishes serial commands via `/serial/com1/inject/output`
-Subscribes to `/serial/com1/inspect/input` to receive inspection data
-Publishes object detection results on `/object_detection/status`
-Periodically sends sensor queries using a timer
-Has a debug parameter (set via launch file) to control verbose logging
-Initializes the gripper on startup via a custom serial command
-
-* Launch File: `master_launch.py`	
-	- UR Robot Driver
-	Launches ur_robot_driver with tool communication enabled, using `/tmp/ttyUR` as the tool port.	
-	- Serial Interface (remote_serial)
-	Starts the `remote_serial_standalone` node with full configuration for baud rate, data bits, stop bits, flow control, etc.
-	- Gripper Node
-	Launches `gripper_node` from `grip_command_package`.
-
-This launch setup ensures the entire pipeline — robot arm, serial access, and gripper control — comes online seamlessly.
-
-##### 3. `serial`
-
-This package integrates the powerful and flexible [`remote_serial`](https://github.com/openvmp/serial) implementation.
-
-- Full ROS 2 integration for serial I/O
-- Handles serial line **saturation gracefully**
-- Prevents data loss and blocking behavior
-- Exposes serial ports as ROS 2 interfaces for introspection and debugging
-
----
-
-## Appendix
-
-### Gripper WoW
-
-* Start the robot:
-* 	Start robot over teach pendant and initiialize it so its at least in robot idle mode
-
-* Start the system:
-```bash
-ros2 launch grip_command_package master.launch.py
-```
-This will:
-- Start the UR driver
-- Connect to the gripper over serial
-- Bring up the service interface
-- Publishes the gripper status on `/object_detection/status`
-
-* Send a Command
-You can call the service like this:
-```bash
-ros2 service call /gripper_action grip_interface/srv/GripCommand "{action: 'grip'}"
-```
-or
-```bash
-ros2 service call /gripper_action grip_interface/srv/GripCommand "{action: 'release'}"
-```
-
-* Echo the gripper detection status:
-```bash
-ros2 topic echo /object_detection/status
-```
-
----
-
-### VNC setup
-
-* `vnc setup cv@cv-NUC8i3BEH:~/recyclebot$ x0vncserver -localhost no -passwordfile ~/.vnc/passwd -display $DISPLAY`
-### Convert between euler quaternions
-* https://www.andre-gaschler.com/rotationconverter/
-
----
-
-### Typical WoW
-1. typical build of container
-   * you should see something like: 
-
-     ![image-20250119211628872](resources/image-20250119211628872.png)
-2. run `docker ps` to see final container:
-
-   ![image-20250119211726811](resources/image-20250119211726811.png)
-
-3. connect to container once built:
-
-   ```bash
-   docker exec -it recyclebot-dev-1 /bin/bash
-   ```
-
-   * you should be able to ls/ run basic ROS commands:
-
-     ![image-20250119211846522](resources/image-20250119211846522.png)
-
-     ![image-20250119211917016](resources/image-20250119211917016.png)
-
----
-
-## License 
+## License
 
 This repository is distributed under the MIT License unless otherwise stated.
 
 ---
-Maintained by Triku Studio
-© 2025 Triku Studio — All Rights Reserved.
 
+Maintained by Triku Studio
+© 2026 Triku Studio — All Rights Reserved.
