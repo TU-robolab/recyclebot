@@ -139,5 +139,3 @@ COPY --chmod=755 ./ros_entrypoint.sh /ros_entrypoint.sh
 ENTRYPOINT ["/ros_entrypoint.sh"]
 
 CMD ["bash"]
-
-q
