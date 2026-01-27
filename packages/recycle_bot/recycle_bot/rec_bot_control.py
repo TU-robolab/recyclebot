@@ -582,7 +582,7 @@ def main():
     )
 
     target_pose = PoseStamped()
-    target_pose.header.frame_id = "base"
+    target_pose.header.frame_id = "base_link"
     target_pose.header.stamp = ur_node.get_clock().now().to_msg()
     target_pose.pose = pose
     target_pose = ur_node.normalize_pose_stamped(target_pose)
