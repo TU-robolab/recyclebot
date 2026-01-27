@@ -229,7 +229,7 @@ class RecBotCore(Node):
         """
         # defaults (original hardcoded values)
         defaults = {
-            "parent_frame": "base",
+            "parent_frame": "base_link",
             "child_frame": "camera_link",
             "translation": [-0.384, 0.286, 0.624],
             "rotation": [-0.999, 0.045, 0.0, 0.0]
@@ -255,7 +255,7 @@ class RecBotCore(Node):
             return defaults
 
     def publish_camera_static_transform(self):
-        """Publish static transform from base to camera using config or defaults."""
+        """Publish static transform from base_link to camera using config or defaults."""
         config = self.load_camera_transform()
 
         static_br = tf2_ros.StaticTransformBroadcaster(self)

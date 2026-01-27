@@ -34,7 +34,7 @@ def main():
         # plan cartesian pose target for the tool end ("tool0") in base frame 
         # ------------------------------------------------------------------
         pose_goal = PoseStamped()
-        pose_goal.header.frame_id = "base"          # reference frame
+        pose_goal.header.frame_id = "base_link"     # reference frame
         pose_goal.pose.position.x = 0.116
         pose_goal.pose.position.y = -0.468
         pose_goal.pose.position.z = 0.874
