@@ -12,6 +12,7 @@ import tf2_ros
 
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.parameter import Parameter
 from tf_transformations import quaternion_from_euler
 from image_geometry import PinholeCameraModel
@@ -594,13 +595,16 @@ def main():
     if ur_node.move_to_pose(target_pose):
         ur_node.get_logger().info("Target pose executed")
 
+    executor = MultiThreadedExecutor()
+
     try:
-        rclpy.spin(ur_node)
+        executor.add_node(ur_node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
-
-    ur_node.destroy_node()
-    rclpy.try_shutdown()
+    finally:
+        ur_node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":
