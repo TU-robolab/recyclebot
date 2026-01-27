@@ -249,6 +249,10 @@ class cobot_control(Node):
             # retrieve target bin location (base-link reference)
             target_pose = self.get_next_sorting_pose()
 
+            if target_pose is None:
+                self.get_logger().error("Cannot queue task: no sorting sequence configured")
+                return
+
             # add sorting task to FIFO queue
             self.task_queue.append((transformed_pose, target_pose))
             self.get_logger().info("Queued new sorting task.")
