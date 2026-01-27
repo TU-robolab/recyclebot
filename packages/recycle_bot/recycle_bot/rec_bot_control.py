@@ -462,11 +462,6 @@ class cobot_control(Node):
             self.get_logger().error(f"Motion planning error: {e}")
             return False
 
-    def print_current_status(self):
-        """queries and prints robot"s state"""
-        current_pose = self.move_group.get_current_pose().pose
-        print("Current End-Effector Pose:", current_pose)
-        
     def create_pose(self, location , element_idx=0):
         """ 
          element_index tells you which element you would like
