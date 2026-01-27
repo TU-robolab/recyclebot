@@ -46,7 +46,7 @@ class cobot_control(Node):
         # )
         
         # load config from YAML file
-        self.sorting_sequence, self.neutral_pose = self.load_config()
+        self.sorting_sequence, self.neutral_pose, self.cycle = self.load_config()
         self.sequence_index = 0
         # implemented as thread-safe deque, for now we use FIFO
         self.task_queue = deque() 
@@ -195,13 +195,14 @@ class cobot_control(Node):
             self.get_logger().info("Added camera collision object")
 
     def load_config(self):
-        """Load sorting sequence and neutral pose from YAML config."""
+        """Load sorting sequence, neutral pose, and cycle setting from YAML config."""
         yaml_path = os.path.join(os.path.dirname(__file__), "sorting_sequence.yaml")
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
 
             sorting_sequence = data.get("sorting_sequence", [])
+            cycle = data.get("cycle", True)  # default to cycling for backwards compatibility
 
             # load neutral pose
             neutral_data = data.get("neutral_pose", None)
@@ -212,11 +213,11 @@ class cobot_control(Node):
             else:
                 self.get_logger().warn("No neutral_pose in config, skipping neutral movements")
 
-            return sorting_sequence, neutral_pose
+            return sorting_sequence, neutral_pose, cycle
 
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
-            return [], None
+            return [], None, True
 
     def create_pose_from_dict(self, pose_dict):
         """Create PoseStamped from dict with position and orientation keys."""
@@ -265,14 +266,21 @@ class cobot_control(Node):
             self.get_logger().warn(f"Failed to process detected object: {e}")
 
     def get_next_sorting_pose(self):
-        """Returns the next target pose from the predefined sorting sequence, cycles sequence if needed."""
+        """Returns the next target pose from the predefined sorting sequence, cycles if configured."""
         if not self.sorting_sequence:
             self.get_logger().error("No sorting sequence available!")
             return None
-        
+
+        if self.sequence_index >= len(self.sorting_sequence):
+            if self.cycle:
+                self.sequence_index = 0  # wrap around
+            else:
+                self.get_logger().warn("Sorting sequence exhausted and cycle=false")
+                return None
+
         target_pose_obj = self.sorting_sequence[self.sequence_index]
-        self.sequence_index = (self.sequence_index + 1) % len(self.sorting_sequence)
-        
+        self.sequence_index += 1
+
         # convert from return YAML value into posetamped datatype
         return self.create_pose(target_pose_obj)
 
