@@ -40,6 +40,8 @@ def generate_launch_description():
             'align_depth.enable': 'true',
             'enable_color': 'true',
             'enable_depth': 'true',
+            'depth_module.depth_profile': '1280x720x6',
+            'rgb_camera.color_profile': '1280x720x6',
         }.items()
     )
 

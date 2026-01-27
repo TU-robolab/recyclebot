@@ -48,7 +48,14 @@ def generate_launch_description():
                 "rs_launch.py",
             )
         ),
-        launch_arguments={"pointcloud.enable": "true"}.items(),
+        launch_arguments={
+            'pointcloud.enable': 'true',
+            'enable_rgbd': 'true',
+            'enable_sync': 'true',
+            'align_depth.enable': 'true',
+            'depth_module.depth_profile': '1280x720x6',
+            'rgb_camera.color_profile': '1280x720x6',
+        }.items(),
     )
 
     grip_launch = IncludeLaunchDescription(
