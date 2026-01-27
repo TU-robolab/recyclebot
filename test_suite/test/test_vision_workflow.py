@@ -78,7 +78,11 @@ class TestVisionWorkflow(unittest.TestCase):
         print("\n" + "="*80)
         print("SAVING FRAME VISUALIZATIONS")
         print("="*80)
-        cls.save_frame_visualizations()
+        # Use fixed depth range for real camera (set via env var)
+        if os.environ.get('REAL_CAMERA_TEST'):
+            cls.save_frame_visualizations(depth_clip_min=200, depth_clip_max=1500)
+        else:
+            cls.save_frame_visualizations()
 
         cls.generate_report()
         rclpy.shutdown()
@@ -147,7 +151,8 @@ class TestVisionWorkflow(unittest.TestCase):
         return True
 
     @classmethod
-    def save_frame_visualizations(cls, frames=1):
+    def save_frame_visualizations(cls, frames=1, draw_detections=True,
+                                   depth_clip_min=None, depth_clip_max=None):
         """
         Save RGB and depth frame visualizations to files
 
@@ -157,6 +162,9 @@ class TestVisionWorkflow(unittest.TestCase):
                 - -1: Save all frames
                 - list: List of specific frame indices to save, e.g., [0, 2, 5]
                 - str: Range string like "1:3" to save frames 1 through 3 (inclusive)
+            draw_detections: If True, draw bounding boxes from detections on the images
+            depth_clip_min: Minimum depth in mm for visualization (clips closer values)
+            depth_clip_max: Maximum depth in mm for visualization (clips farther values)
         """
         if not cls.report_data['rgbd_frames']:
             return
@@ -197,6 +205,52 @@ class TestVisionWorkflow(unittest.TestCase):
                 # Convert depth image
                 depth_image = bridge.imgmsg_to_cv2(rgbd_msg.depth, desired_encoding="passthrough")
 
+                # Draw bounding boxes if detections are available
+                if draw_detections and cls.report_data['detections']:
+                    # Color palette - bright colors for black text (BGR format)
+                    colors = [
+                        (0, 255, 0),    # Bright Green
+                        (0, 255, 255),  # Yellow
+                        (0, 165, 255),  # Orange
+                        (255, 255, 0),  # Cyan
+                        (147, 20, 255), # Pink
+                        (0, 255, 127),  # Spring Green
+                        (255, 191, 0),  # Deep Sky Blue
+                        (0, 215, 255),  # Gold
+                        (212, 255, 127),# Aquamarine
+                        (144, 238, 144),# Light Green
+                    ]
+
+                    # Use the first detection set (most recent)
+                    detection_set = cls.report_data['detections'][0]
+                    for i, obj in enumerate(detection_set.get('objects', [])):
+                        cx = obj['bbox_center_x']
+                        cy = obj['bbox_center_y']
+                        w = obj['bbox_width']
+                        h = obj['bbox_height']
+                        label = obj['class_id']
+                        conf = obj['confidence']
+
+                        # Convert center format to corner format
+                        x1 = int(cx - w / 2)
+                        y1 = int(cy - h / 2)
+                        x2 = int(cx + w / 2)
+                        y2 = int(cy + h / 2)
+
+                        # Pick color from palette (cycle if more detections than colors)
+                        color = colors[i % len(colors)]
+                        cv2.rectangle(rgb_image, (x1, y1), (x2, y2), color, 3)
+
+                        # Draw label background
+                        label_text = f"{label} {conf:.0%}"
+                        (text_w, text_h), baseline = cv2.getTextSize(
+                            label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                        cv2.rectangle(rgb_image, (x1, y1 - text_h - 10), (x1 + text_w + 6, y1), color, -1)
+
+                        # Draw label text - always black, bold
+                        cv2.putText(rgb_image, label_text, (x1 + 3, y1 - 5),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+
                 # Save RGB image
                 rgb_path = f"{output_dir}/rgbd_frame_{idx}_rgb.png"
                 cv2.imwrite(rgb_path, rgb_image)
@@ -204,12 +258,13 @@ class TestVisionWorkflow(unittest.TestCase):
                 # Create colorized depth visualization
                 # Normalize depth to 0-255 for visualization (ignoring invalid pixels)
                 # INVERT so close=255 (red/warm) and far=0 (blue/cool)
-                valid_mask = depth_image > 0
+                valid_mask = (depth_image > 0) & (depth_image < 65535)
                 depth_normalized = np.zeros_like(depth_image, dtype=np.uint8)
 
                 if np.any(valid_mask):
                     valid_depth = depth_image[valid_mask]
-                    depth_min, depth_max = np.min(valid_depth), np.max(valid_depth)
+                    depth_min = depth_clip_min if depth_clip_min is not None else np.min(valid_depth)
+                    depth_max = depth_clip_max if depth_clip_max is not None else np.max(valid_depth)
 
                     # Normalize and INVERT: close objects → 255 (red), far objects → 0 (blue)
                     depth_normalized[valid_mask] = (

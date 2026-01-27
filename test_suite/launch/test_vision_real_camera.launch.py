@@ -69,7 +69,8 @@ def generate_launch_description():
                 cmd=['python3', '-m', 'pytest', test_script, '-v', '-s', '--tb=short'],
                 output='screen',
                 shell=False,
-                on_exit=[Shutdown()]
+                on_exit=[Shutdown()],
+                additional_env={'REAL_CAMERA_TEST': '1'}
             )
         ]
     )

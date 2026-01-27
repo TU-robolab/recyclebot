@@ -174,7 +174,7 @@ class VisionDetector(Node):
     def show_rgbd(self, rgb_img, depth_img):
         # create colorized depth visualization
         # INVERT so close=255 (red/warm) and far=0 (blue/cool)
-        valid_mask = depth_img > 0
+        valid_mask = (depth_img > 0) & (depth_img < 65535)
         depth_normalized = np.zeros_like(depth_img, dtype=np.uint8)
 
         if np.any(valid_mask):
@@ -239,7 +239,7 @@ class VisionDetector(Node):
 
             # extract depth region and compute average depth in meters
             depth_bbox = depth_img[y1:y2, x1:x2]
-            valid_depth = depth_bbox[depth_bbox > 0]  # exclude invalid pixels (0 = no reading)
+            valid_depth = depth_bbox[(depth_bbox > 0) & (depth_bbox < 65535)]  # exclude invalid pixels
 
             if len(valid_depth) > 0:
                 avg_depth_m = float(np.mean(valid_depth)) * self.depth_scale
