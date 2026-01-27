@@ -204,13 +204,14 @@ class TestVisionWorkflow(unittest.TestCase):
                 # Create colorized depth visualization
                 # Normalize depth to 0-255 for visualization (ignoring invalid pixels)
                 # INVERT so close=255 (red/warm) and far=0 (blue/cool)
-                valid_mask = depth_image > 0
+                # Filter: exclude invalid (0 and 65535)
+                valid_mask = (depth_image > 0) & (depth_image < 65535)
                 depth_normalized = np.zeros_like(depth_image, dtype=np.uint8)
 
-                if np.any(valid_mask):
-                    valid_depth = depth_image[valid_mask]
-                    depth_min, depth_max = np.min(valid_depth), np.max(valid_depth)
+                # Fixed depth range: 0.2m to 1.5m (200mm to 1500mm)
+                depth_min, depth_max = 200, 1500
 
+                if np.any(valid_mask):
                     # Normalize and INVERT: close objects → 255 (red), far objects → 0 (blue)
                     depth_normalized[valid_mask] = (
                         255 - ((depth_image[valid_mask] - depth_min) / (depth_max - depth_min) * 255)
