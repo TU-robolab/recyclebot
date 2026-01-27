@@ -477,9 +477,9 @@ class cobot_control(Node):
         """
 
         pose = PoseStamped()
-        
+
         # header configuration
-        pose.header.stamp = rclpy.Time.now()
+        pose.header.stamp = self.get_clock().now().to_msg()
         pose.header.frame_id = "base_link"
         
         location_name = list(location[element_idx].keys())[0]
