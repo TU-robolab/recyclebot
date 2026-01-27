@@ -12,6 +12,7 @@ import tf2_ros
 
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.parameter import Parameter
 from tf_transformations import quaternion_from_euler
 from image_geometry import PinholeCameraModel
@@ -45,7 +46,7 @@ class cobot_control(Node):
         # )
         
         # load config from YAML file
-        self.sorting_sequence, self.neutral_pose = self.load_config()
+        self.sorting_sequence, self.neutral_pose, self.cycle = self.load_config()
         self.sequence_index = 0
         # implemented as thread-safe deque, for now we use FIFO
         self.task_queue = deque() 
@@ -194,13 +195,14 @@ class cobot_control(Node):
             self.get_logger().info("Added camera collision object")
 
     def load_config(self):
-        """Load sorting sequence and neutral pose from YAML config."""
+        """Load sorting sequence, neutral pose, and cycle setting from YAML config."""
         yaml_path = os.path.join(os.path.dirname(__file__), "sorting_sequence.yaml")
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
 
             sorting_sequence = data.get("sorting_sequence", [])
+            cycle = data.get("cycle", True)  # default to cycling for backwards compatibility
 
             # load neutral pose
             neutral_data = data.get("neutral_pose", None)
@@ -211,11 +213,11 @@ class cobot_control(Node):
             else:
                 self.get_logger().warn("No neutral_pose in config, skipping neutral movements")
 
-            return sorting_sequence, neutral_pose
+            return sorting_sequence, neutral_pose, cycle
 
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
-            return [], None
+            return [], None, True
 
     def create_pose_from_dict(self, pose_dict):
         """Create PoseStamped from dict with position and orientation keys."""
@@ -249,6 +251,10 @@ class cobot_control(Node):
             # retrieve target bin location (base-link reference)
             target_pose = self.get_next_sorting_pose()
 
+            if target_pose is None:
+                self.get_logger().error("Cannot queue task: no sorting sequence configured")
+                return
+
             # add sorting task to FIFO queue
             self.task_queue.append((transformed_pose, target_pose))
             self.get_logger().info("Queued new sorting task.")
@@ -260,14 +266,21 @@ class cobot_control(Node):
             self.get_logger().warn(f"Failed to process detected object: {e}")
 
     def get_next_sorting_pose(self):
-        """Returns the next target pose from the predefined sorting sequence, cycles sequence if needed."""
+        """Returns the next target pose from the predefined sorting sequence, cycles if configured."""
         if not self.sorting_sequence:
             self.get_logger().error("No sorting sequence available!")
             return None
-        
+
+        if self.sequence_index >= len(self.sorting_sequence):
+            if self.cycle:
+                self.sequence_index = 0  # wrap around
+            else:
+                self.get_logger().warn("Sorting sequence exhausted and cycle=false")
+                return None
+
         target_pose_obj = self.sorting_sequence[self.sequence_index]
-        self.sequence_index = (self.sequence_index + 1) % len(self.sorting_sequence)
-        
+        self.sequence_index += 1
+
         # convert from return YAML value into posetamped datatype
         return self.create_pose(target_pose_obj)
 
@@ -457,11 +470,6 @@ class cobot_control(Node):
             self.get_logger().error(f"Motion planning error: {e}")
             return False
 
-    def print_current_status(self):
-        """queries and prints robot"s state"""
-        current_pose = self.move_group.get_current_pose().pose
-        print("Current End-Effector Pose:", current_pose)
-        
     def create_pose(self, location , element_idx=0):
         """ 
          element_index tells you which element you would like
@@ -477,9 +485,9 @@ class cobot_control(Node):
         """
 
         pose = PoseStamped()
-        
+
         # header configuration
-        pose.header.stamp = rclpy.Time.now()
+        pose.header.stamp = self.get_clock().now().to_msg()
         pose.header.frame_id = "base_link"
         
         location_name = list(location[element_idx].keys())[0]
@@ -582,7 +590,7 @@ def main():
     )
 
     target_pose = PoseStamped()
-    target_pose.header.frame_id = "base"
+    target_pose.header.frame_id = "base_link"
     target_pose.header.stamp = ur_node.get_clock().now().to_msg()
     target_pose.pose = pose
     target_pose = ur_node.normalize_pose_stamped(target_pose)
@@ -590,13 +598,16 @@ def main():
     if ur_node.move_to_pose(target_pose):
         ur_node.get_logger().info("Target pose executed")
 
+    executor = MultiThreadedExecutor()
+
     try:
-        rclpy.spin(ur_node)
+        executor.add_node(ur_node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
-
-    ur_node.destroy_node()
-    rclpy.try_shutdown()
+    finally:
+        ur_node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":

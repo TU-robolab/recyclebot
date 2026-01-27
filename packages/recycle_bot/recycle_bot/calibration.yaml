@@ -1,10 +1,10 @@
 # calibration config for rec_bot_core
 # camera transform and detection filtering parameters
 
-# camera transform: static transform from base to camera_link (meters)
+# camera transform: static transform from base_link to camera_link (meters)
 # used for projecting detections into robot frame
 camera_transform:
-  parent_frame: "base"
+  parent_frame: "base_link"
   child_frame: "camera_link"
   translation: [-0.384, 0.286, 0.624]  # meters
   rotation: [-0.999, 0.045, 0.0, 0.0]  # quaternion [x, y, z, w]
