@@ -85,30 +85,30 @@ class FakeRGBDPublisher(Node):
         """
         width, height = 1280, 720
 
-        # Initialize with background depth (1500mm = 1.5m)
-        depth = np.full((height, width), 1500, dtype=np.uint16)
+        # Initialize with table depth (from calibration: ~0.624m)
+        depth = np.full((height, width), 624, dtype=np.uint16)
 
         # Add depth values for the objects matching the RGB image positions
-        # Objects closer to camera have lower depth values (in millimeters)
+        # Objects closer to camera have lower depth values (5-25 cm above table)
 
-        # Red rectangle (200, 200, 350, 500) - at 800mm (closest object)
-        depth[200:500, 200:350] = 800
+        # Red rectangle (200, 200, 350, 500) - at 574mm (5 cm above table)
+        depth[200:500, 200:350] = 574
 
-        # Green rectangle (500, 150, 650, 400) - at 1000mm
-        depth[150:400, 500:650] = 1000
+        # Green rectangle (500, 150, 650, 400) - at 554mm (7 cm above table)
+        depth[150:400, 500:650] = 554
 
-        # Blue rectangle (800, 250, 950, 550) - at 1200mm
-        depth[250:550, 800:950] = 1200
+        # Blue rectangle (800, 250, 950, 550) - at 524mm (10 cm above table)
+        depth[250:550, 800:950] = 524
 
-        # Cyan circle at (400, 600) radius 60 - at 700mm (very close)
+        # Cyan circle at (400, 600) radius 60 - at 474mm (15 cm above table)
         # Use circle equation: (x - cx)² + (y - cy)² <= r²
         y, x = np.ogrid[:height, :width]  # Create coordinate grids
         mask_cyan = (x - 400)**2 + (y - 600)**2 <= 60**2
-        depth[mask_cyan] = 700
+        depth[mask_cyan] = 474
 
-        # Magenta circle at (900, 600) radius 50 - at 900mm
+        # Magenta circle at (900, 600) radius 50 - at 374mm (25 cm above table)
         mask_magenta = (x - 900)**2 + (y - 600)**2 <= 50**2
-        depth[mask_magenta] = 900
+        depth[mask_magenta] = 374
 
         # Add realistic noise to simulate sensor noise (±2mm standard deviation)
         # Real depth cameras have measurement uncertainty
