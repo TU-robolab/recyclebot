@@ -272,8 +272,6 @@ class RecBotCore(Node):
         transform.transform.rotation.w = config["rotation"][3]
         static_br.sendTransform(transform)
 
-                               
-        
 
 def main(args=None):
     rclpy.init(args=args)
