@@ -33,8 +33,8 @@ class FakeRGBDPublisher(Node):
             qos_camera_feed
         )
 
-        # Create timer to publish at 30 Hz (matching RealSense D415 settings)
-        self.timer = self.create_timer(1.0/30.0, self.publish_fake_rgbd)
+        # Create timer to publish at 6 Hz
+        self.timer = self.create_timer(1.0/6.0, self.publish_fake_rgbd)
 
         self.bridge = CvBridge()
         self.frame_count = 0
@@ -70,7 +70,7 @@ class FakeRGBDPublisher(Node):
         D415 specs:
         - Range: 0.3m to ~3m
         - Format: Z16 (16-bit unsigned integer depth values)
-        - Resolution: 1280x720 @ 30fps
+        - Resolution: 1280x720 @ 6fps
 
         DEPTH SCALE:
         - RealSense cameras use a depth_scale factor (typically 0.001 for D415)
