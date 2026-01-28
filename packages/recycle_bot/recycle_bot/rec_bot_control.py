@@ -19,7 +19,7 @@ from tf_transformations import quaternion_from_euler
 from image_geometry import PinholeCameraModel
 from moveit.planning import MoveItPy, PlanningSceneMonitor
 from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
-from moveit_msgs.msg import Constraints, OrientationConstraint, CollisionObject
+from moveit_msgs.msg import Constraints, OrientationConstraint, CollisionObject, AttachedCollisionObject
 from shape_msgs.msg import SolidPrimitive
 from moveit_configs_utils import MoveItConfigsBuilder
 from std_msgs.msg import Bool, String
@@ -205,6 +205,8 @@ class cobot_control(Node):
             sorting_sequence = data.get("sorting_sequence", [])
             cycle = data.get("cycle", True)  # default to cycling for backwards compatibility
             self.approach_height_m = float(data.get("approach_height_m", 0.10))
+            size = data.get("grasped_object_size", [0.10, 0.10, 0.10])
+            self.grasped_object_size = [float(size[0]), float(size[1]), float(size[2])]
 
             # load neutral pose
             neutral_data = data.get("neutral_pose", None)
@@ -220,6 +222,7 @@ class cobot_control(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
             self.approach_height_m = 0.10
+            self.grasped_object_size = [0.10, 0.10, 0.10]
             return [], None, True
 
     def create_pose_from_dict(self, pose_dict):
@@ -393,6 +396,7 @@ class cobot_control(Node):
             self.move_to_neutral()
             self.executing_task = False
             return
+        self.attach_object_to_tool()
 
         self.get_logger().info("Object gripped, lifting to neutral")
 
@@ -423,6 +427,8 @@ class cobot_control(Node):
         # 8. release
         if not self.gripper_action("release"):
             self.get_logger().warn("Failed to release object")
+        else:
+            self.detach_object_from_tool()
 
         self.get_logger().info("Object released, returning to neutral")
 
@@ -551,6 +557,44 @@ class cobot_control(Node):
             self.get_logger().warn("Time parameterization failed, executing raw trajectory")
 
         self.moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"])
+
+    def attach_object_to_tool(self):
+        """Attach a simple collision object to the tool for safer planning."""
+        try:
+            aco = AttachedCollisionObject()
+            aco.link_name = "tool0"
+            aco.touch_links = ["tool0"]
+
+            aco.object = CollisionObject()
+            aco.object.id = "grasped_object"
+            aco.object.header.frame_id = "tool0"
+            aco.object.operation = CollisionObject.ADD
+
+            box = SolidPrimitive()
+            box.type = SolidPrimitive.BOX
+            box.dimensions = list(self.grasped_object_size)
+
+            box_pose = Pose()
+            box_pose.position.z = self.grasped_object_size[2] / 2.0
+            box_pose.orientation.w = 1.0
+
+            aco.object.primitives.append(box)
+            aco.object.primitive_poses.append(box_pose)
+
+            planning_scene_monitor = self.moveit.get_planning_scene_monitor()
+            with planning_scene_monitor.read_write() as scene:
+                scene.apply_attached_collision_object(aco)
+        except Exception as exc:
+            self.get_logger().warn(f"Failed to attach collision object: {exc}")
+
+    def detach_object_from_tool(self):
+        """Detach the collision object from the tool."""
+        try:
+            planning_scene_monitor = self.moveit.get_planning_scene_monitor()
+            with planning_scene_monitor.read_write() as scene:
+                scene.remove_attached_collision_object("grasped_object")
+        except Exception as exc:
+            self.get_logger().warn(f"Failed to detach collision object: {exc}")
 
     def offset_pose_z(self, pose_stamped: PoseStamped, dz: float):
         """Return a PoseStamped offset in Z by dz (meters)."""
