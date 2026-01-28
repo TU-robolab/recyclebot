@@ -20,8 +20,9 @@ Usage:
 
 import os
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, ExecuteProcess, TimerAction, Shutdown
+from launch.actions import IncludeLaunchDescription, ExecuteProcess, TimerAction, Shutdown, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
@@ -30,6 +31,11 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 def generate_launch_description():
     """Generate launch description for control + robot motion testing."""
+    debug_no_collision_objects = DeclareLaunchArgument(
+        "debug_no_collision_objects",
+        default_value="false",
+        description="Disable collision objects in rec_bot_control for debugging",
+    )
 
     # =========================================================================
     # 1. Fake RGBD Camera
@@ -109,7 +115,10 @@ def generate_launch_description():
         package='recycle_bot',
         executable='rec_bot_control',
         name='rec_bot_control',
-        parameters=[moveit_config.to_dict()],
+        parameters=[
+            moveit_config.to_dict(),
+            {"debug_no_collision_objects": LaunchConfiguration("debug_no_collision_objects")},
+        ],
         output='screen'
     )
 
@@ -149,6 +158,7 @@ def generate_launch_description():
     # Launch Description
     # =========================================================================
     return LaunchDescription([
+        debug_no_collision_objects,
         fake_camera,
         vision_node,
         core_node,
