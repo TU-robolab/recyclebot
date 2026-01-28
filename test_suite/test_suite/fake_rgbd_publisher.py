@@ -8,10 +8,13 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from sensor_msgs.msg import Image, CameraInfo
+from geometry_msgs.msg import TransformStamped
 from realsense2_camera_msgs.msg import RGBD
 from cv_bridge import CvBridge
 import numpy as np
 import cv2
+import tf2_ros
+from tf_transformations import quaternion_from_euler
 
 
 class FakeRGBDPublisher(Node):
@@ -33,6 +36,10 @@ class FakeRGBDPublisher(Node):
             qos_camera_feed
         )
 
+        # Simulate RealSense static TFs for optical frames in tests.
+        self.static_tf_broadcaster = tf2_ros.StaticTransformBroadcaster(self)
+        self.publish_static_tfs()
+
         # Create timer to publish at 6 Hz
         self.timer = self.create_timer(1.0/6.0, self.publish_fake_rgbd)
 
@@ -40,6 +47,36 @@ class FakeRGBDPublisher(Node):
         self.frame_count = 0
 
         self.get_logger().info('Fake RGBD Publisher started - publishing to /camera/camera/rgbd')
+
+    def publish_static_tfs(self):
+        # Publish camera_link -> optical frames to match RealSense conventions.
+        optical_q = quaternion_from_euler(-np.pi / 2.0, 0.0, -np.pi / 2.0)
+
+        color_tf = TransformStamped()
+        color_tf.header.stamp = self.get_clock().now().to_msg()
+        color_tf.header.frame_id = "camera_link"
+        color_tf.child_frame_id = "camera_color_optical_frame"
+        color_tf.transform.translation.x = 0.0
+        color_tf.transform.translation.y = 0.0
+        color_tf.transform.translation.z = 0.0
+        color_tf.transform.rotation.x = optical_q[0]
+        color_tf.transform.rotation.y = optical_q[1]
+        color_tf.transform.rotation.z = optical_q[2]
+        color_tf.transform.rotation.w = optical_q[3]
+
+        depth_tf = TransformStamped()
+        depth_tf.header.stamp = color_tf.header.stamp
+        depth_tf.header.frame_id = "camera_link"
+        depth_tf.child_frame_id = "camera_depth_optical_frame"
+        depth_tf.transform.translation.x = 0.0
+        depth_tf.transform.translation.y = 0.0
+        depth_tf.transform.translation.z = 0.0
+        depth_tf.transform.rotation.x = optical_q[0]
+        depth_tf.transform.rotation.y = optical_q[1]
+        depth_tf.transform.rotation.z = optical_q[2]
+        depth_tf.transform.rotation.w = optical_q[3]
+
+        self.static_tf_broadcaster.sendTransform([color_tf, depth_tf])
 
     def create_fake_image(self):
         """Create a fake RGB image with some shapes that YOLO might detect"""
@@ -158,7 +195,7 @@ class FakeRGBDPublisher(Node):
 
         # Create fake depth image
         depth_img = self.create_fake_depth()
-        depth_msg = self.bridge.cv2_to_imgmsg(depth_img, encoding="passthrough")
+        depth_msg = self.bridge.cv2_to_imgmsg(depth_img, encoding="16UC1")
         depth_msg.header = rgbd_msg.header
         rgbd_msg.depth = depth_msg
 
