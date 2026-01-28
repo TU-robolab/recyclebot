@@ -36,6 +36,11 @@ def generate_launch_description():
         default_value="false",
         description="Disable collision objects in rec_bot_control for debugging",
     )
+    debug_motion_log = DeclareLaunchArgument(
+        "debug_motion_log",
+        default_value="true",
+        description="Enable verbose motion debug logs in rec_bot_control",
+    )
 
     # =========================================================================
     # 1. Fake RGBD Camera
@@ -118,6 +123,7 @@ def generate_launch_description():
         parameters=[
             moveit_config.to_dict(),
             {"debug_no_collision_objects": LaunchConfiguration("debug_no_collision_objects")},
+            {"debug_motion_log": LaunchConfiguration("debug_motion_log")},
         ],
         output='screen'
     )
@@ -159,6 +165,7 @@ def generate_launch_description():
     # =========================================================================
     return LaunchDescription([
         debug_no_collision_objects,
+        debug_motion_log,
         fake_camera,
         vision_node,
         core_node,
