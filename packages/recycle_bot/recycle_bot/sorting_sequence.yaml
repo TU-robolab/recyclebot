@@ -17,3 +17,4 @@ sorting_sequence:
 
 cycle: true  # cycle through targets when end is reached
 approach_height_m: 0.10  # meters above pick/place for approach/retreat
+grasped_object_size: [0.10, 0.10, 0.10]  # meters (box attached to tool for planning)
