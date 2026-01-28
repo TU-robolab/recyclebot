@@ -33,6 +33,7 @@ import time
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
+from rclpy.time import Time
 from std_srvs.srv import Trigger
 from vision_msgs.msg import Detection3DArray
 from realsense2_camera_msgs.msg import RGBD
@@ -41,6 +42,7 @@ import os
 import numpy as np
 from cv_bridge import CvBridge
 import cv2
+import tf2_ros
 
 
 class TestVisionWorkflow(unittest.TestCase):
@@ -89,6 +91,8 @@ class TestVisionWorkflow(unittest.TestCase):
         self.detections_received = []
         self.rgbd_frames = []
         self.bridge = CvBridge()
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self.node)
 
         # Create subscription to detection topic (RELIABLE QoS to match vision publisher)
         qos_detections = QoSProfile(
@@ -680,6 +684,41 @@ class TestVisionWorkflow(unittest.TestCase):
             print(f"         Object {idx}: {obj['class_id']} ({obj['confidence']:.2%})")
             print(f"           BBox: ({obj['bbox_center_x']:.1f}, {obj['bbox_center_y']:.1f}) "
                   f"{obj['bbox_width']:.1f}x{obj['bbox_height']:.1f}px")
+
+    def test_04b_tf_available(self):
+        """Test that TF can resolve base_link to camera_color_optical_frame"""
+        timeout = 5.0
+        start_time = time.time()
+        transform = None
+        last_error = None
+
+        while time.time() - start_time < timeout:
+            rclpy.spin_once(self.node, timeout_sec=0.1)
+            try:
+                transform = self.tf_buffer.lookup_transform(
+                    "base_link",
+                    "camera_color_optical_frame",
+                    Time()
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+
+        test_passed = transform is not None
+        details = "Transform available"
+        if transform is None:
+            details = f"Transform unavailable: {last_error}"
+
+        self.report_data['tests'].append({
+            'name': 'TF base_link -> camera_color_optical_frame',
+            'passed': test_passed,
+            'details': details
+        })
+
+        self.assertIsNotNone(
+            transform,
+            f"TF missing between base_link and camera_color_optical_frame: {last_error}"
+        )
 
     def test_05_rgbd_data_available(self):
         """Test that RGBD frames are being published from the fake camera"""

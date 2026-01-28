@@ -18,6 +18,8 @@ import time
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
+from rclpy.time import Time
+import tf2_ros
 
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped
@@ -309,6 +311,36 @@ class TestE2EPipeline(unittest.TestCase):
                 if d.results:
                     print(f"               - confidence: {d.results[0].hypothesis.score:.2f}")
                     print(f"               - class_id: {d.results[0].hypothesis.class_id}")
+
+    # -------------------------------------------------------------------------
+    # Test 9: TF availability
+    # -------------------------------------------------------------------------
+    def test_09_tf_available(self):
+        """Verify TF can resolve base_link to camera_color_optical_frame."""
+        timeout = 5.0
+        start = time.time()
+        transform = None
+        last_error = None
+
+        tf_buffer = tf2_ros.Buffer()
+        tf_listener = tf2_ros.TransformListener(tf_buffer, self.node)
+
+        while time.time() - start < timeout:
+            rclpy.spin_once(self.node, timeout_sec=0.1)
+            try:
+                transform = tf_buffer.lookup_transform(
+                    "base_link",
+                    "camera_color_optical_frame",
+                    Time()
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+
+        self.assertIsNotNone(
+            transform,
+            f"TF missing between base_link and camera_color_optical_frame: {last_error}"
+        )
 
 
 if __name__ == '__main__':
