@@ -260,7 +260,7 @@ class cobot_control(Node):
                 rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=self.tf_timeout_sec),
             )
-            transformed_pose = tf2_geometry_msgs.do_transform_pose(msg, transform)
+            transformed_pose = tf2_geometry_msgs.do_transform_pose_stamped(msg, transform)
 
             # retrieve target bin location (base-link reference)
             target_pose = self.get_next_sorting_pose()
@@ -523,8 +523,7 @@ class cobot_control(Node):
         try:
             planning_scene_monitor = self.moveit.get_planning_scene_monitor()
             with planning_scene_monitor.read_only() as scene:
-                current_state = scene.current_state
-                in_collision = scene.is_state_colliding(current_state)
+                in_collision = scene.is_state_colliding("ur_arm")
                 self.get_logger().info(
                     f"[debug] start in collision: {in_collision}, frame: {target_pose.header.frame_id}"
                 )
@@ -708,13 +707,14 @@ def main():
     rclpy.init()
 
     ur_node = cobot_control()
-    if ur_node.move_to_neutral():
-        ur_node.get_logger().info("Moved to neutral pose on startup")
-
     executor = MultiThreadedExecutor()
 
     try:
         executor.add_node(ur_node)
+        # Defer neutral move until executor is spinning so MoveIt has state.
+        rclpy.spin_once(ur_node, timeout_sec=0.1)
+        if ur_node.move_to_neutral():
+            ur_node.get_logger().info("Moved to neutral pose on startup")
         executor.spin()
     except KeyboardInterrupt:
         pass
