@@ -73,8 +73,12 @@ class cobot_control(Node):
         self.velocity_scaling = 0.2
         self.acceleration_scaling = 0.2
 
-        # add collision objects to planning scene
-        self.setup_collision_objects()
+        self.debug_no_collision_objects = bool(
+            self.declare_parameter("debug_no_collision_objects", False).value
+        )
+        # add collision objects to planning scene unless disabled
+        if not self.debug_no_collision_objects:
+            self.setup_collision_objects()
 
         # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
@@ -520,7 +524,7 @@ class cobot_control(Node):
             planning_scene_monitor = self.moveit.get_planning_scene_monitor()
             with planning_scene_monitor.read_only() as scene:
                 current_state = scene.current_state
-                in_collision = current_state.is_colliding()
+                in_collision = scene.is_state_colliding(current_state)
                 self.get_logger().info(
                     f"[debug] start in collision: {in_collision}, frame: {target_pose.header.frame_id}"
                 )
