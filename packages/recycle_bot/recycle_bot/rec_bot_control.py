@@ -239,14 +239,12 @@ class cobot_control(Node):
     def vision_callback(self, msg: PoseStamped):
         """Handles incoming object pose from the vision system and queues it."""
         try:
-            # convert from camera transform to robot base-link reference
-            transform = self.tf_buffer.lookup_transform(
+            # convert from camera frame to robot base_link reference
+            transformed_pose = self.tf_buffer.transform(
+                msg,
                 "base_link",
-                msg.header.frame_id,
-                rclpy.time.Time(),
-                timeout=rclpy.duration.Duration(seconds=self.tf_timeout_sec)
+                timeout=rclpy.duration.Duration(seconds=self.tf_timeout_sec),
             )
-            transformed_pose = tf2_ros.do_transform_pose(msg, transform)
 
             # retrieve target bin location (base-link reference)
             target_pose = self.get_next_sorting_pose()
@@ -470,7 +468,7 @@ class cobot_control(Node):
             self.get_logger().error(f"Motion planning error: {e}")
             return False
 
-    def create_pose(self, location , element_idx=0):
+    def create_pose(self, location, element_idx=0):
         """ 
          element_index tells you which element you would like
          location based on format from YAML file, eg for current YAML, input would be:
@@ -490,17 +488,23 @@ class cobot_control(Node):
         pose.header.stamp = self.get_clock().now().to_msg()
         pose.header.frame_id = "base_link"
         
-        location_name = list(location[element_idx].keys())[0]
+        if isinstance(location, dict):
+            location_name = next(iter(location.keys()))
+            location_data = location[location_name]
+        else:
+            location_name = list(location[element_idx].keys())[0]
+            location_data = location[element_idx][location_name]
+
         # position coordinates
-        pose.pose.position.x = location[element_idx][location_name]["position"][0]
-        pose.pose.position.y = location[element_idx][location_name]["position"][1]
-        pose.pose.position.z = location[element_idx][location_name]["position"][2]
+        pose.pose.position.x = location_data["position"][0]
+        pose.pose.position.y = location_data["position"][1]
+        pose.pose.position.z = location_data["position"][2]
         
         # orientation quaternion 
-        pose.pose.orientation.x = location[element_idx][location_name]["orientation"][0]
-        pose.pose.orientation.y = location[element_idx][location_name]["orientation"][1]
-        pose.pose.orientation.z = location[element_idx][location_name]["orientation"][2]
-        pose.pose.orientation.w = location[element_idx][location_name]["orientation"][3]
+        pose.pose.orientation.x = location_data["orientation"][0]
+        pose.pose.orientation.y = location_data["orientation"][1]
+        pose.pose.orientation.z = location_data["orientation"][2]
+        pose.pose.orientation.w = location_data["orientation"][3]
         
         return pose
 
