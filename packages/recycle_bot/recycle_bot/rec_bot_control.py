@@ -20,6 +20,7 @@ from image_geometry import PinholeCameraModel
 from moveit.planning import MoveItPy, PlanningSceneMonitor
 from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
 from moveit_msgs.msg import Constraints, OrientationConstraint, CollisionObject, AttachedCollisionObject
+from ament_index_python.packages import get_package_share_directory
 from shape_msgs.msg import SolidPrimitive
 from moveit_configs_utils import MoveItConfigsBuilder
 from std_msgs.msg import Bool, String
@@ -197,7 +198,9 @@ class cobot_control(Node):
 
     def load_config(self):
         """Load sorting sequence, neutral pose, and cycle setting from YAML config."""
-        yaml_path = os.path.join(os.path.dirname(__file__), "sorting_sequence.yaml")
+        yaml_path = os.path.join(
+            get_package_share_directory("recycle_bot"), "config", "sorting_sequence.yaml"
+        )
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
