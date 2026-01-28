@@ -10,6 +10,7 @@ from threading import Event
 import rclpy
 import rclpy.duration
 import tf2_ros
+import tf2_geometry_msgs
 
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
@@ -249,11 +250,13 @@ class cobot_control(Node):
         """Handles incoming object pose from the vision system and queues it."""
         try:
             # convert from camera frame to robot base_link reference
-            transformed_pose = self.tf_buffer.transform(
-                msg,
+            transform = self.tf_buffer.lookup_transform(
                 "base_link",
+                msg.header.frame_id,
+                rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=self.tf_timeout_sec),
             )
+            transformed_pose = tf2_geometry_msgs.do_transform_pose(msg, transform)
 
             # retrieve target bin location (base-link reference)
             target_pose = self.get_next_sorting_pose()
