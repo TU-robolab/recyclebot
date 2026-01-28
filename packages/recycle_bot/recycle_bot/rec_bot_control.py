@@ -679,22 +679,8 @@ def main():
     rclpy.init()
 
     ur_node = cobot_control()
-
-    pose = create_waypoint_pose(
-        x=0.116,
-        y=-0.468,
-        z=0.874,
-        quaternion=(0.330, -0.646, 0.606, 0.324),
-    )
-
-    target_pose = PoseStamped()
-    target_pose.header.frame_id = "base_link"
-    target_pose.header.stamp = ur_node.get_clock().now().to_msg()
-    target_pose.pose = pose
-    target_pose = ur_node.normalize_pose_stamped(target_pose)
-    
-    if ur_node.move_to_pose(target_pose):
-        ur_node.get_logger().info("Target pose executed")
+    if ur_node.move_to_neutral():
+        ur_node.get_logger().info("Moved to neutral pose on startup")
 
     executor = MultiThreadedExecutor()
 
