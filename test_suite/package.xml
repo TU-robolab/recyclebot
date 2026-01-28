@@ -13,6 +13,9 @@
   <depend>cv_bridge</depend>
   <depend>std_srvs</depend>
   <depend>vision_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>grip_interface</depend>
+  <depend>ur_robot_driver</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

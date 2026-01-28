@@ -215,6 +215,51 @@ docker exec recyclebot-mac-1 cat /tmp/vision_workflow_test_report.txt
 - ROS2 workspace built: `colcon build`
 - Packages installed: `recycle_bot`, `test_suite`
 
+### Method 4: End-to-End Robot Motion Tests (NEW)
+
+Complete pipeline testing from camera to robot motion using UR's virtual robot:
+
+```bash
+# Build first
+colcon build --packages-select test_suite --symlink-install
+source install/setup.bash
+
+# Run full pipeline test
+ros2 launch test_suite test_control_robot_motion.launch.py
+```
+
+**What it tests:**
+```
+fake_rgbd → rec_bot_vision (YOLO) → rec_bot_core (3D projection) → rec_bot_control (MoveIt) → UR Virtual Robot
+```
+
+**Test Coverage (8 tests):**
+1. ✓ RGBD frames published from fake camera
+2. ✓ Vision service `/capture_detections` available
+3. ✓ Detections → 3D poses pipeline working
+4. ✓ Initial joint states published
+5. ✓ Single pick motion (neutral → pick)
+6. ✓ Full pick-place sequence (neutral → pick → grip → neutral → place → release → neutral)
+7. ✓ Multiple detections queue sequentially
+8. ✓ Joint states update during execution
+
+**Key Features:**
+- Uses UR's **virtual robot** (`use_mock_hardware:=true`) - no custom mocks needed
+- Tests complete control logic with MoveIt planning
+- Validates task queueing and sequential execution
+- **Duration**: ~5 minutes (30s warmup + 4min tests)
+
+**Components:**
+- `fake_rgbd_publisher` - Synthetic camera
+- `rec_bot_vision` - YOLO detection
+- `rec_bot_core` - 3D projection
+- `ur_robot_driver` - Virtual robot (use_mock_hardware=true)
+- `rec_bot_control` - MoveIt + control logic
+- `mock_gripper_service` - Gripper simulation
+
+**Test file**: `test/test_control_robot_motion.py`
+**Launch file**: `launch/test_control_robot_motion.launch.py`
+
 ---
 
 ## Test Reports

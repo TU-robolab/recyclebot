@@ -208,6 +208,7 @@ See [test_suite/README.md](test_suite/README.md) for full documentation.
 |------------|---------|-------------|
 | Vision Workflow | `ros2 launch test_suite test_vision_workflow.launch.py` | 6 tests with fake camera |
 | E2E Pipeline | `ros2 launch test_suite test_e2e_pipeline.launch.py` | 8 tests: vision → core → gripper |
+| **E2E Robot Motion** | `ros2 launch test_suite test_control_robot_motion.launch.py` | **8 tests: camera → vision → control → MoveIt → UR virtual robot** |
 | Real Camera | `ros2 launch test_suite test_vision_real_camera.launch.py` | Vision tests with RealSense D415 |
 
 ### Quick Test
@@ -216,14 +217,41 @@ See [test_suite/README.md](test_suite/README.md) for full documentation.
 # Build test packages
 colcon build --packages-select test_suite recycle_bot
 
-# Run E2E tests
+# Run basic E2E tests (vision → core → gripper)
 ros2 launch test_suite test_e2e_pipeline.launch.py
+
+# Run full E2E tests with robot motion (NEW)
+ros2 launch test_suite test_control_robot_motion.launch.py
 ```
 
 **Test outputs:**
 - Console report with pass/fail status
 - `/tmp/vision_workflow_test_report.txt`
 - `/tmp/rgbd_frame_*_combined.png` (RGB + depth visualization)
+
+### E2E Robot Motion Test Details
+
+The new `test_control_robot_motion` test validates the complete system:
+
+**Pipeline**: fake_rgbd → YOLO detection → 3D projection → MoveIt planning → UR virtual robot execution
+
+**Key Features**:
+- Uses UR's **virtual robot** (`use_mock_hardware:=true`) - no hardware needed
+- Tests full sorting sequence: neutral → pick → grip → neutral → place → release → neutral
+- Validates MoveIt planning, trajectory execution, task queueing
+- **Duration**: ~5 minutes (30s warmup, 4min tests)
+
+**8 Test Cases**:
+1. RGBD frames published
+2. Vision service available
+3. Detections → poses pipeline
+4. Initial joint states
+5. Single pick motion
+6. Full pick-place sequence
+7. Multiple detections sequential
+8. Joint states update
+
+See `test_suite/README.md` for detailed documentation.
 
 ---
 
