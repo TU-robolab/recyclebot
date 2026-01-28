@@ -204,6 +204,7 @@ class cobot_control(Node):
 
             sorting_sequence = data.get("sorting_sequence", [])
             cycle = data.get("cycle", True)  # default to cycling for backwards compatibility
+            self.approach_height_m = float(data.get("approach_height_m", 0.10))
 
             # load neutral pose
             neutral_data = data.get("neutral_pose", None)
@@ -218,6 +219,7 @@ class cobot_control(Node):
 
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
+            self.approach_height_m = 0.10
             return [], None, True
 
     def create_pose_from_dict(self, pose_dict):
@@ -344,17 +346,19 @@ class cobot_control(Node):
 
         Task sequence:
             1. move to neutral (safe start)
-            2. move to pick pose
-            3. grip object
-            4. move to neutral (safe transit with object)
-            5. move to place pose
-            6. release object
-            7. move to neutral (safe end)
+            2. move to pre-pick pose (approach)
+            3. move to pick pose
+            4. grip object
+            5. move to neutral (safe transit with object)
+            6. move to pre-place pose (approach)
+            7. move to place pose
+            8. release object
+            9. move to neutral (safe end)
 
                  neutral ←──────────────────────┐
                     │                           │
                     ▼                           │
-                  pick ──► grip ──► neutral ──► place ──► release
+                  pre-pick ─► pick ─► grip ─► neutral ─► pre-place ─► place ─► release
         """
         if self.executing_task or not self.task_queue:
             return
@@ -368,14 +372,22 @@ class cobot_control(Node):
             self.executing_task = False
             return
 
-        # 2. move to pick
+        # 2. move to pre-pick (approach)
+        pre_pick = self.offset_pose_z(pick_pose, self.approach_height_m)
+        if pre_pick is not None and not self.move_to_pose(pre_pick):
+            self.get_logger().error("Failed to reach pre-pick pose, returning to neutral")
+            self.move_to_neutral()
+            self.executing_task = False
+            return
+
+        # 3. move to pick
         if not self.move_to_pose(pick_pose):
             self.get_logger().error("Failed to reach pick pose, returning to neutral")
             self.move_to_neutral()
             self.executing_task = False
             return
 
-        # 3. grip
+        # 4. grip
         if not self.gripper_action("grip"):
             self.get_logger().error("Failed to grip object, returning to neutral")
             self.move_to_neutral()
@@ -391,7 +403,16 @@ class cobot_control(Node):
             self.executing_task = False
             return
 
-        # 5. move to place
+        # 6. move to pre-place (approach)
+        pre_place = self.offset_pose_z(place_pose, self.approach_height_m)
+        if pre_place is not None and not self.move_to_pose(pre_place):
+            self.get_logger().error("Failed to reach pre-place pose, releasing and returning to neutral")
+            self.gripper_action("release")
+            self.move_to_neutral()
+            self.executing_task = False
+            return
+
+        # 7. move to place
         if not self.move_to_pose(place_pose):
             self.get_logger().error("Failed to reach place pose, releasing and returning to neutral")
             self.gripper_action("release")
@@ -399,13 +420,13 @@ class cobot_control(Node):
             self.executing_task = False
             return
 
-        # 6. release
+        # 8. release
         if not self.gripper_action("release"):
             self.get_logger().warn("Failed to release object")
 
         self.get_logger().info("Object released, returning to neutral")
 
-        # 7. return to neutral
+        # 9. return to neutral
         self.move_to_neutral()
 
         self.get_logger().info("Sorting task completed")
@@ -530,6 +551,18 @@ class cobot_control(Node):
             self.get_logger().warn("Time parameterization failed, executing raw trajectory")
 
         self.moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"])
+
+    def offset_pose_z(self, pose_stamped: PoseStamped, dz: float):
+        """Return a PoseStamped offset in Z by dz (meters)."""
+        if pose_stamped is None:
+            return None
+        offset_pose = PoseStamped()
+        offset_pose.header.frame_id = pose_stamped.header.frame_id or "base_link"
+        offset_pose.header.stamp = self.get_clock().now().to_msg()
+        offset_pose.pose.position = pose_stamped.pose.position
+        offset_pose.pose.orientation = pose_stamped.pose.orientation
+        offset_pose.pose.position.z += dz
+        return offset_pose
 
     def normalize_pose_orientation(self, pose):
         """Return a Pose with normalized quaternion orientation."""

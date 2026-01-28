@@ -16,3 +16,4 @@ sorting_sequence:
 #  - target_bin_3: { position: [x3, y3, z3], orientation: [qx3, qy3, qz3, qw3] }
 
 cycle: true  # cycle through targets when end is reached
+approach_height_m: 0.10  # meters above pick/place for approach/retreat
