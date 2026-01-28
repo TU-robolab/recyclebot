@@ -209,7 +209,7 @@ class cobot_control(Node):
             sorting_sequence = data.get("sorting_sequence", [])
             cycle = data.get("cycle", True)  # default to cycling for backwards compatibility
             self.approach_height_m = float(data.get("approach_height_m", 0.10))
-            size = data.get("grasped_object_size", [0.10, 0.10, 0.10])
+            size = data.get("grasped_object_size", [0.05, 0.05, 0.05])
             self.grasped_object_size = [float(size[0]), float(size[1]), float(size[2])]
 
             # load neutral pose
@@ -226,7 +226,7 @@ class cobot_control(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
             self.approach_height_m = 0.10
-            self.grasped_object_size = [0.10, 0.10, 0.10]
+            self.grasped_object_size = [0.05, 0.05, 0.05]
             return [], None, True
 
     def create_pose_from_dict(self, pose_dict):
@@ -496,6 +496,8 @@ class cobot_control(Node):
                 return False
 
             self.arm.set_start_state_to_current_state()
+            # Optional debug logging (comment out if too verbose)
+            self.log_motion_debug(pose_to_plan)
             self.arm.set_goal_state(pose_stamped_msg=pose_to_plan, pose_link="tool0")
             plan_result = self.arm.plan()
 
@@ -511,6 +513,29 @@ class cobot_control(Node):
         except Exception as e:
             self.get_logger().error(f"Motion planning error: {e}")
             return False
+
+    def log_motion_debug(self, target_pose: PoseStamped):
+        """Log planning context and collision status (debug helper)."""
+        try:
+            planning_scene_monitor = self.moveit.get_planning_scene_monitor()
+            with planning_scene_monitor.read_only() as scene:
+                current_state = scene.current_state
+                in_collision = current_state.is_colliding()
+                self.get_logger().info(
+                    f"[debug] start in collision: {in_collision}, frame: {target_pose.header.frame_id}"
+                )
+        except Exception as exc:
+            self.get_logger().warn(f"[debug] collision check failed: {exc}")
+
+        try:
+            p = target_pose.pose.position
+            o = target_pose.pose.orientation
+            self.get_logger().info(
+                f"[debug] target pose: pos=({p.x:.3f},{p.y:.3f},{p.z:.3f}) "
+                f"quat=({o.x:.3f},{o.y:.3f},{o.z:.3f},{o.w:.3f})"
+            )
+        except Exception as exc:
+            self.get_logger().warn(f"[debug] target pose logging failed: {exc}")
 
     def create_pose(self, location, element_idx=0):
         """ 
