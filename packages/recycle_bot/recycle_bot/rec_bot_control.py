@@ -4,6 +4,7 @@ import os
 import math
 
 from collections import deque
+from threading import Event
 
 # ROS2 imports
 import rclpy
@@ -299,14 +300,24 @@ class cobot_control(Node):
         request = GripCommand.Request()
         request.action = action
 
+        # Avoid spinning here so other callbacks (TF, vision, timers) keep running.
         future = self.gripper_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=self.gripper_timeout_sec)
+        done_event = Event()
+        future.add_done_callback(lambda _fut: done_event.set())
 
-        if future.result() is None:
+        if not done_event.wait(timeout=self.gripper_timeout_sec):
             self.get_logger().error(f"Gripper {action} call timed out")
             return False
 
-        result = future.result()
+        try:
+            result = future.result()
+        except Exception as exc:
+            self.get_logger().error(f"Gripper {action} call failed: {exc}")
+            return False
+
+        if result is None:
+            self.get_logger().error(f"Gripper {action} call returned no result")
+            return False
         if result.success:
             self.get_logger().info(f"Gripper {action}: {result.message}")
         else:
