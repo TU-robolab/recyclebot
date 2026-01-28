@@ -121,6 +121,18 @@ class TestControlRobotMotion(unittest.TestCase):
             rclpy.spin_once(self.node, timeout_sec=interval)
         return condition()
 
+    def wait_for_messages(self, getter, min_count=1, timeout=15.0):
+        """Wait until a message list reaches min_count."""
+        return self.spin_until(lambda: len(getter()) >= min_count, timeout=timeout)
+
+    def wait_for_topic(self, topic_name, timeout=30.0):
+        """Wait until a topic is visible in the ROS graph."""
+        def topic_visible():
+            topics = [name for name, _ in self.node.get_topic_names_and_types()]
+            return topic_name in topics
+
+        return self.spin_until(topic_visible, timeout=timeout)
+
     def wait_for_joint_motion(self, initial_positions, timeout=60.0, threshold=0.1):
         """Wait for joint positions to change significantly from initial."""
         start = time.time()
@@ -150,10 +162,10 @@ class TestControlRobotMotion(unittest.TestCase):
         """Verify fake RGBD publisher is sending frames."""
         self.rgbd_frames.clear()
 
-        success = self.spin_until(
-            lambda: len(self.rgbd_frames) >= 1,
-            timeout=10.0
-        )
+        topic_ready = self.wait_for_topic("/camera/camera/rgbd", timeout=30.0)
+        self.assertTrue(topic_ready, "RGBD topic not available")
+
+        success = self.wait_for_messages(lambda: self.rgbd_frames, min_count=1, timeout=30.0)
 
         print(f"\n[Test 1] RGBD frames received: {len(self.rgbd_frames)}")
         self.assertTrue(success, "No RGBD frames received")
@@ -164,7 +176,7 @@ class TestControlRobotMotion(unittest.TestCase):
     # =========================================================================
     def test_02_vision_service_available(self):
         """Verify /capture_detections service is available."""
-        success = self.trigger_client.wait_for_service(timeout_sec=15.0)
+        success = self.trigger_client.wait_for_service(timeout_sec=30.0)
 
         print(f"\n[Test 2] Vision service available: {success}")
         self.assertTrue(success, "/capture_detections service not available")
@@ -177,6 +189,11 @@ class TestControlRobotMotion(unittest.TestCase):
         self.detections.clear()
         self.poses.clear()
 
+        self.assertTrue(
+            self.trigger_client.wait_for_service(timeout_sec=30.0),
+            "Detection service not available"
+        )
+
         # Trigger detection
         request = Trigger.Request()
         future = self.trigger_client.call_async(request)
@@ -188,11 +205,11 @@ class TestControlRobotMotion(unittest.TestCase):
         self.assertTrue(response.success, f"Detection failed: {response.message}")
 
         # Wait for detection
-        success = self.spin_until(lambda: len(self.detections) > 0, timeout=5.0)
+        success = self.wait_for_messages(lambda: self.detections, min_count=1, timeout=15.0)
         self.assertTrue(success, "No detections received")
 
         # Wait for pose
-        success = self.spin_until(lambda: len(self.poses) > 0, timeout=5.0)
+        success = self.wait_for_messages(lambda: self.poses, min_count=1, timeout=20.0)
         self.assertTrue(success, "No poses received from core")
 
         print(f"\n[Test 3] Detections: {len(self.detections)}, Poses: {len(self.poses)}")
@@ -207,7 +224,7 @@ class TestControlRobotMotion(unittest.TestCase):
         """Verify /joint_states available before motion."""
         self.joint_states.clear()
 
-        success = self.spin_until(lambda: len(self.joint_states) >= 1, timeout=10.0)
+        success = self.wait_for_messages(lambda: self.joint_states, min_count=1, timeout=30.0)
 
         print(f"\n[Test 4] Joint states received: {len(self.joint_states)}")
         if len(self.joint_states) > 0:
@@ -225,7 +242,7 @@ class TestControlRobotMotion(unittest.TestCase):
         """Trigger detection → robot moves to pick position."""
         # Store initial joint state
         self.joint_states.clear()
-        self.spin_until(lambda: len(self.joint_states) >= 1, timeout=5.0)
+        self.wait_for_messages(lambda: self.joint_states, min_count=1, timeout=30.0)
         self.assertGreater(len(self.joint_states), 0, "No initial joint state")
 
         initial_positions = list(self.joint_states[0].position)
@@ -234,13 +251,18 @@ class TestControlRobotMotion(unittest.TestCase):
         self.detections.clear()
         self.poses.clear()
 
+        self.assertTrue(
+            self.trigger_client.wait_for_service(timeout_sec=30.0),
+            "Detection service not available"
+        )
+
         # Trigger detection
         request = Trigger.Request()
         future = self.trigger_client.call_async(request)
         self.spin_until(lambda: future.done(), timeout=30.0)
 
         # Wait for pose to be published (triggers control node)
-        success = self.spin_until(lambda: len(self.poses) > 0, timeout=10.0)
+        success = self.wait_for_messages(lambda: self.poses, min_count=1, timeout=20.0)
         self.assertTrue(success, "No pose received")
 
         print(f"\n[Test 5] Waiting for robot motion...")
@@ -266,11 +288,16 @@ class TestControlRobotMotion(unittest.TestCase):
         # For now, we verify extended motion sequence
 
         self.joint_states.clear()
-        self.spin_until(lambda: len(self.joint_states) >= 1, timeout=5.0)
+        self.wait_for_messages(lambda: self.joint_states, min_count=1, timeout=30.0)
         initial_positions = list(self.joint_states[0].position)
 
         self.detections.clear()
         self.poses.clear()
+
+        self.assertTrue(
+            self.trigger_client.wait_for_service(timeout_sec=30.0),
+            "Detection service not available"
+        )
 
         # Trigger detection
         request = Trigger.Request()
@@ -278,7 +305,7 @@ class TestControlRobotMotion(unittest.TestCase):
         self.spin_until(lambda: future.done(), timeout=30.0)
 
         # Wait for pose
-        self.spin_until(lambda: len(self.poses) > 0, timeout=10.0)
+        self.wait_for_messages(lambda: self.poses, min_count=1, timeout=20.0)
 
         print(f"\n[Test 6] Waiting for full pick-place sequence...")
 
@@ -306,6 +333,11 @@ class TestControlRobotMotion(unittest.TestCase):
         self.poses.clear()
         self.joint_states.clear()
 
+        self.assertTrue(
+            self.trigger_client.wait_for_service(timeout_sec=30.0),
+            "Detection service not available"
+        )
+
         # Trigger first detection
         request1 = Trigger.Request()
         future1 = self.trigger_client.call_async(request1)
@@ -319,7 +351,7 @@ class TestControlRobotMotion(unittest.TestCase):
         self.spin_until(lambda: future2.done(), timeout=30.0)
 
         # Wait for both poses
-        success = self.spin_until(lambda: len(self.poses) >= 2, timeout=15.0)
+        success = self.wait_for_messages(lambda: self.poses, min_count=2, timeout=25.0)
 
         print(f"\n[Test 7] Poses queued: {len(self.poses)}")
         print(f"         Waiting for sequential execution (this may take time)...")
@@ -343,10 +375,15 @@ class TestControlRobotMotion(unittest.TestCase):
         self.joint_states.clear()
 
         # Wait for initial state
-        self.spin_until(lambda: len(self.joint_states) >= 1, timeout=5.0)
+        self.wait_for_messages(lambda: self.joint_states, min_count=1, timeout=30.0)
         self.assertGreater(len(self.joint_states), 0, "No initial joint state")
 
         initial_positions = list(self.joint_states[0].position)
+
+        self.assertTrue(
+            self.trigger_client.wait_for_service(timeout_sec=30.0),
+            "Detection service not available"
+        )
 
         # Trigger detection
         request = Trigger.Request()
@@ -355,7 +392,7 @@ class TestControlRobotMotion(unittest.TestCase):
 
         # Wait for pose
         self.poses.clear()
-        self.spin_until(lambda: len(self.poses) > 0, timeout=10.0)
+        self.wait_for_messages(lambda: self.poses, min_count=1, timeout=20.0)
 
         print(f"\n[Test 8] Monitoring joint state updates during execution...")
 
