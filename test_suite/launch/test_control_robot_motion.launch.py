@@ -85,10 +85,22 @@ def generate_launch_description():
     # =========================================================================
     # 5. MoveIt Configuration
     # =========================================================================
-    moveit_config = MoveItConfigsBuilder(
-        robot_name="ur16e",
-        package_name="ur16e_moveit_config"
-    ).to_moveit_configs()
+    moveit_config = (
+        MoveItConfigsBuilder(
+            robot_name="ur16e",
+            package_name="ur16e_moveit_config"
+        )
+        .robot_description(file_path="config/ur16e.urdf.xacro")
+        .trajectory_execution(file_path="config/moveit_controllers.yaml")
+        .moveit_cpp(
+            file_path=os.path.join(
+                get_package_share_directory("ur16e_moveit_config"),
+                "config",
+                "moveit_cpp.yaml",
+            )
+        )
+        .to_moveit_configs()
+    )
 
     # =========================================================================
     # 6. Control Node (MoveIt + control logic)
