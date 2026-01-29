@@ -20,6 +20,8 @@ from rclpy.parameter import Parameter
 from tf_transformations import quaternion_from_euler
 from image_geometry import PinholeCameraModel
 from moveit.planning import MoveItPy, PlanningSceneMonitor
+from moveit.core.robot_state import RobotState
+from moveit.core.kinematic_constraints import construct_joint_constraint
 from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
 from moveit_msgs.msg import Constraints, OrientationConstraint, CollisionObject, AttachedCollisionObject
 from ament_index_python.packages import get_package_share_directory
@@ -435,7 +437,15 @@ class cobot_control(Node):
         """Plan and execute a joint-space goal."""
         try:
             self.arm.set_start_state_to_current_state()
-            self.arm.set_goal_state(joint_positions=joint_positions)
+            robot_state = RobotState(self.moveit.get_robot_model())
+            robot_state.joint_positions = joint_positions
+            joint_constraint = construct_joint_constraint(
+                robot_state=robot_state,
+                joint_model_group=self.moveit.get_robot_model().get_joint_model_group(
+                    "ur_arm"
+                ),
+            )
+            self.arm.set_goal_state(motion_plan_constraints=[joint_constraint])
             plan_result = self.arm.plan()
 
             if not plan_result or not getattr(plan_result, "success", False):
