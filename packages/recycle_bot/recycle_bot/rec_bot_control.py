@@ -2,6 +2,7 @@
 import yaml
 import os
 import math
+import time
 
 from collections import deque
 from threading import Event
@@ -26,6 +27,8 @@ from shape_msgs.msg import SolidPrimitive
 from moveit_configs_utils import MoveItConfigsBuilder
 from std_msgs.msg import Bool, String
 from grip_interface.srv import GripCommand
+from sensor_msgs.msg import JointState
+from controller_manager_msgs.srv import ListControllers
 
 
 class cobot_control(Node):
@@ -87,11 +90,21 @@ class cobot_control(Node):
         # timeout configuration (seconds)
         self.tf_timeout_sec = 1.0
         self.planning_timeout_sec = 10.0
+        self.startup_wait_timeout_sec = float(
+            self.declare_parameter("startup_wait_timeout_sec", 60.0).value
+        )
 
         # to be used for vision subscriber (detects object availability and poses)
         # use RELIABLE to match rec_bot_core publisher
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE, depth=10)
         self.create_subscription(PoseStamped, "/vision/detected_object", self.vision_callback, qos_profile)
+
+        self.joint_states_received = False
+        self.startup_ready = False
+        self.create_subscription(JointState, "/joint_states", self.joint_state_callback, 10)
+        self.controller_manager_client = self.create_client(
+            ListControllers, "/controller_manager/list_controllers"
+        )
 
         # gripper service client
         self.gripper_client = self.create_client(GripCommand, '/gripper_action')
@@ -104,6 +117,56 @@ class cobot_control(Node):
 
     def robot_description_callback(self, msg):
         self.robot_description = msg.data
+
+    def joint_state_callback(self, msg: JointState):
+        self.joint_states_received = True
+
+    def controller_active(self, controller_name: str) -> bool:
+        """Check whether a controller is active in controller_manager."""
+        if not self.controller_manager_client.wait_for_service(timeout_sec=1.0):
+            return False
+
+        request = ListControllers.Request()
+        future = self.controller_manager_client.call_async(request)
+        while rclpy.ok() and not future.done():
+            rclpy.spin_once(self, timeout_sec=0.1)
+        if not future.done():
+            return False
+
+        response = future.result()
+        if response is None:
+            return False
+
+        for controller in response.controller:
+            if controller.name == controller_name and controller.state == "active":
+                return True
+        return False
+
+    def wait_for_startup_ready(self) -> bool:
+        """Block until joint states are present and scaled controller is active."""
+        if self.startup_ready:
+            return True
+
+        start_time = time.time()
+        last_check = 0.0
+        while rclpy.ok() and (time.time() - start_time) < self.startup_wait_timeout_sec:
+            rclpy.spin_once(self, timeout_sec=0.1)
+            if not self.joint_states_received:
+                continue
+
+            now = time.time()
+            if now - last_check < 0.5:
+                continue
+            last_check = now
+
+            if self.controller_active("scaled_joint_trajectory_controller"):
+                self.startup_ready = True
+                return True
+
+        self.get_logger().error(
+            "Startup not ready: joint states or scaled_joint_trajectory_controller missing"
+        )
+        return False
 
     def setup_collision_objects(
         self,
@@ -373,6 +436,11 @@ class cobot_control(Node):
                     ▼                           │
                   pre-pick ─► pick ─► grip ─► neutral ─► pre-place ─► place ─► release
         """
+        if not self.startup_ready:
+            if self.joint_states_received and self.controller_active("scaled_joint_trajectory_controller"):
+                self.startup_ready = True
+            else:
+                return
         if self.executing_task or not self.task_queue:
             return
 
@@ -713,7 +781,7 @@ def main():
         executor.add_node(ur_node)
         # Defer neutral move until executor is spinning so MoveIt has state.
         rclpy.spin_once(ur_node, timeout_sec=0.1)
-        if ur_node.move_to_neutral():
+        if ur_node.wait_for_startup_ready() and ur_node.move_to_neutral():
             ur_node.get_logger().info("Moved to neutral pose on startup")
         executor.spin()
     except KeyboardInterrupt:
