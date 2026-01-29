@@ -52,7 +52,12 @@ class cobot_control(Node):
         # )
         
         # load config from YAML file
-        self.sorting_sequence, self.neutral_pose, self.cycle = self.load_config()
+        (
+            self.sorting_sequence,
+            self.neutral_pose,
+            self.neutral_joint_pose,
+            self.cycle,
+        ) = self.load_config()
         self.sequence_index = 0
         # implemented as thread-safe deque, for now we use FIFO
         self.task_queue = deque() 
@@ -288,13 +293,20 @@ class cobot_control(Node):
             else:
                 self.get_logger().warn("No neutral_pose in config, skipping neutral movements")
 
-            return sorting_sequence, neutral_pose, cycle
+            neutral_joint_pose = data.get("neutral_joint_pose", None)
+            if neutral_joint_pose:
+                neutral_joint_pose = {
+                    name: float(value) for name, value in neutral_joint_pose.items()
+                }
+                self.get_logger().info("Neutral joint pose loaded from config")
+
+            return sorting_sequence, neutral_pose, neutral_joint_pose, cycle
 
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
             self.approach_height_m = 0.10
             self.grasped_object_size = [0.05, 0.05, 0.05]
-            return [], None, True
+            return [], None, None, True
 
     def create_pose_from_dict(self, pose_dict):
         """Create PoseStamped from dict with position and orientation keys."""
@@ -405,6 +417,9 @@ class cobot_control(Node):
 
     def move_to_neutral(self) -> bool:
         """Move to neutral pose if configured."""
+        if self.neutral_joint_pose:
+            return self.move_to_joint_positions(self.neutral_joint_pose)
+
         if self.neutral_pose is None:
             return True  # skip if not configured
 
@@ -415,6 +430,25 @@ class cobot_control(Node):
             self.get_logger().error("Failed to reach neutral pose")
             return False
         return True
+
+    def move_to_joint_positions(self, joint_positions: dict) -> bool:
+        """Plan and execute a joint-space goal."""
+        try:
+            self.arm.set_start_state_to_current_state()
+            self.arm.set_goal_state(joint_positions=joint_positions)
+            plan_result = self.arm.plan()
+
+            if not plan_result or not getattr(plan_result, "success", False):
+                status = getattr(plan_result, "status", "unknown")
+                self.get_logger().error(f"Joint planning failed: {status}")
+                return False
+
+            self.get_logger().info("Executing joint-space plan")
+            self.execute_trajectory(plan_result.trajectory)
+            return True
+        except Exception as e:
+            self.get_logger().error(f"Joint motion planning error: {e}")
+            return False
 
     def process_tasks(self):
         """
