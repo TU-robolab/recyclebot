@@ -80,12 +80,16 @@ def main():
         if not trajectory_retimed:
             log.warn("time parameterization failed, executing raw plan")
 
+        while True:
+            pass
+
         # execute the trajectory with scaled joint planner
         moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"])
         log.info("Executed trajectory.")
     
     finally:
         rclpy.shutdown()
+
 
 
 if __name__ == "__main__":

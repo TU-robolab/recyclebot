@@ -52,21 +52,21 @@ def generate_launch_description():
     #     ],
     # )
 
-    # static_tf = Node(
-    #     package="tf2_ros",
-    #     executable="static_transform_publisher",
-    #     name="static_transform_publisher",
-    #     output="log",
-    #     arguments=["--frame-id", "world", "--child-frame-id", "panda_link0"],
-    # )
+    static_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_transform_publisher",
+        output="log",
+        arguments=["0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "world", "base_link"],
+    ) 
 
-    # robot_state_publisher = Node(
-    #     package="robot_state_publisher",
-    #     executable="robot_state_publisher",
-    #     name="robot_state_publisher",
-    #     output="log",
-    #     parameters=[moveit_config.robot_description],
-    # )
+    robot_state_publisher = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        name="robot_state_publisher",
+        output="log",
+        parameters=[moveit_config.robot_description],
+    )
 
     # ros2_controllers_path = os.path.join(
     #     get_package_share_directory("ur16e_moveit_config"),
@@ -100,10 +100,10 @@ def generate_launch_description():
         [
             moveit_exec_file,
             moveit_py_node,
-            # robot_state_publisher,
+            robot_state_publisher,
             # ros2_control_node,
             # rviz_node,
-            # static_tf,
+            static_tf,
         ]
         # + load_controllers
     )
