@@ -31,10 +31,18 @@ def main():
         
         
         # ------------------------------------------------------------------
-        # plan cartesian pose target for the tool end ("tool0") in base frame 
+        # log current tool0 pose for debugging
+        # ------------------------------------------------------------------
+        psm = moveit.get_planning_scene_monitor()
+        with psm.read_only() as scene:
+            current = scene.current_state.get_global_link_transform("tool0")
+            log.info(f"Current tool0 transform:\n{current}")
+
+        # ------------------------------------------------------------------
+        # plan cartesian pose target for the tool end ("tool0") in base frame
         # ------------------------------------------------------------------
         pose_goal = PoseStamped()
-        pose_goal.header.frame_id = "base_link"     # reference frame
+        pose_goal.header.frame_id = "base"     # UR controller coordinate frame
         pose_goal.pose.position.x = 0.116
         pose_goal.pose.position.y = -0.468
         pose_goal.pose.position.z = 0.874
@@ -65,7 +73,7 @@ def main():
         # error boundary checking
         if not plan_result or not getattr(plan_result, "success", False):
             status = getattr(plan_result, "status", "unknown")
-            log.error(f"planning failed: {status}")
+            log.error(f"planning failed: {plan_result}")
             return
 
         log.info("planning trajectory successful")
@@ -79,9 +87,6 @@ def main():
         
         if not trajectory_retimed:
             log.warn("time parameterization failed, executing raw plan")
-
-        while True:
-            pass
 
         # execute the trajectory with scaled joint planner
         moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"])
