@@ -52,17 +52,16 @@ def generate_launch_description():
     #     ],
     # )
 
-    # NOTE: robot_state_publisher and world->base_link static TF are already
-    # provided by the UR driver launch (ur_moveit.launch.py). Do not duplicate
-    # them here — two RSPs will fight over TF and corrupt the planning scene.
-
-    # static_tf = Node(
-    #     package="tf2_ros",
-    #     executable="static_transform_publisher",
-    #     name="static_transform_publisher",
-    #     output="log",
-    #     arguments=["0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "world", "base_link"],
-    # )
+    # Publish world -> base_link identity transform. The UR driver's RSP
+    # may also publish this (from the URDF), but MoveIt needs it available
+    # immediately — this ensures 'world' exists in TF before planning starts.
+    static_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_transform_publisher",
+        output="log",
+        arguments=["0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "world", "base_link"],
+    )
 
     # robot_state_publisher = Node(
     #     package="robot_state_publisher",
@@ -104,6 +103,7 @@ def generate_launch_description():
         [
             moveit_exec_file,
             moveit_py_node,
+            static_tf,
             # robot_state_publisher,
             # ros2_control_node,
             # rviz_node,
