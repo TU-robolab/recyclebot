@@ -5,6 +5,10 @@ import math
 from rclpy.logging import get_logger
 from moveit.planning import MoveItPy
 from geometry_msgs.msg import PoseStamped
+from moveit_msgs.msg import MoveItErrorCodes
+
+ERROR_CODE_NAMES = {v: k for k, v in vars(MoveItErrorCodes).items()
+                    if isinstance(v, int) and k.isupper()}
 
 
 def main():
@@ -71,9 +75,9 @@ def main():
         plan_result = arm.plan()
 
         # error boundary checking
-        if not plan_result or not getattr(plan_result, "success", False):
-            status = getattr(plan_result, "status", "unknown")
-            log.error(f"planning failed: {plan_result}")
+        if plan_result.error_code.val != MoveItErrorCodes.SUCCESS:
+            name = ERROR_CODE_NAMES.get(plan_result.error_code.val, "UNKNOWN")
+            log.error(f"Planning failed: {name} ({plan_result.error_code.val})")
             return
 
         log.info("planning trajectory successful")
@@ -93,6 +97,7 @@ def main():
         log.info("Executed trajectory.")
     
     finally:
+        moveit.shutdown()
         rclpy.shutdown()
 
 
