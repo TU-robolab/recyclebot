@@ -15,6 +15,7 @@ def main():
     rclpy.init()
     # https://docs.ros.org/en/rolling/p/rclpy/rclpy.logging.html
     log = get_logger("ur16e_move_client")
+    moveit = None
 
     try:    
         moveit = MoveItPy(node_name="ur16e_move_client")
@@ -47,6 +48,7 @@ def main():
         # ------------------------------------------------------------------
         pose_goal = PoseStamped()
         pose_goal.header.frame_id = "base"     # UR controller coordinate frame
+        pose_goal.header.stamp = moveit.get_node().get_clock().now().to_msg()
         pose_goal.pose.position.x = 0.116
         pose_goal.pose.position.y = -0.468
         pose_goal.pose.position.z = 0.874
@@ -74,14 +76,34 @@ def main():
         arm.set_goal_state(pose_stamped_msg=pose_goal, pose_link="tool0")       # tool0 = UR16e TCP link
         plan_result = arm.plan()
 
-        # error boundary checking
-        if plan_result.error_code.val != MoveItErrorCodes.SUCCESS:
-            name = ERROR_CODE_NAMES.get(plan_result.error_code.val, "UNKNOWN")
-            log.error(f"Planning failed: {name} ({plan_result.error_code.val})")
+        if not plan_result:
+            log.error("Planning failed: no plan result returned")
+            return
+
+        # Support both result variants used by MoveItPy APIs.
+        error_code = getattr(plan_result, "error_code", None)
+        error_code_val = getattr(error_code, "val", None) if error_code else None
+        plan_success = getattr(plan_result, "success", None)
+        trajectory = getattr(plan_result, "trajectory", None)
+
+        if error_code_val is not None:
+            if error_code_val != MoveItErrorCodes.SUCCESS:
+                name = ERROR_CODE_NAMES.get(error_code_val, "UNKNOWN")
+                log.error(f"Planning failed: {name} ({error_code_val})")
+                return
+        elif plan_success is not None:
+            if not plan_success:
+                status = getattr(plan_result, "status", "unknown")
+                log.error(f"Planning failed: {status}")
+                return
+        elif trajectory is None:
+            log.error("Planning failed: missing success/error_code and no trajectory")
             return
 
         log.info("planning trajectory successful")
-        trajectory = plan_result.trajectory
+        if trajectory is None:
+            log.error("Planning failed: plan result contains no trajectory")
+            return
         
         # per plan speed scaling with TOTG (https://moveit.picknik.ai/main/doc/api/python_api/_autosummary/moveit.core.robot_trajectory.html)
         trajectory_retimed = trajectory.apply_totg_time_parameterization(
@@ -92,12 +114,20 @@ def main():
         if not trajectory_retimed:
             log.warn("time parameterization failed, executing raw plan")
 
-        # execute the trajectory with scaled joint planner
-        moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"])
-        log.info("Executed trajectory.")
+        # execute the trajectory with scaled joint planner (blocking)
+        exec_result = moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"], blocking=True)
+
+        if exec_result:
+            log.info("Trajectory execution completed successfully.")
+        else:
+            log.error("Trajectory execution failed.")
     
     finally:
-        moveit.shutdown()
+        if moveit is not None:
+            try:
+                moveit.shutdown()
+            except Exception as exc:
+                log.warn(f"MoveIt shutdown failed: {exc}")
         rclpy.shutdown()
 
 
