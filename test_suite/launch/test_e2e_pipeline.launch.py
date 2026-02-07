@@ -42,6 +42,14 @@ def generate_launch_description():
         output='screen',
     )
 
+    # fake joint state publisher - publishes static joint states for 6 UR joints
+    fake_joint_state_node = Node(
+        package='test_suite',
+        executable='fake_joint_state_publisher',
+        name='fake_joint_state_publisher',
+        output='screen',
+    )
+
     # mock gripper service - simulates gripper without hardware
     mock_gripper_node = Node(
         package='test_suite',
@@ -75,6 +83,7 @@ def generate_launch_description():
         fake_camera_node,
         vision_node,
         core_node,
+        fake_joint_state_node,
         mock_gripper_node,
         run_test,
     ])

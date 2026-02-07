@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Launch file for end-to-end control + robot motion testing.
+Launch file for real control + robot motion testing (requires MoveIt + UR virtual robot).
 
-Tests complete pipeline with UR virtual robot (fake hardware):
+Tests MoveIt motion execution with UR virtual robot (fake hardware):
   fake_rgbd → vision → core → control → MoveIt → UR virtual robot
 
 Components:
@@ -14,8 +14,10 @@ Components:
   - mock_gripper_service: Simulated gripper
   - pytest: Test execution after 30s initialization
 
+Note: For basic pipeline tests without MoveIt, use test_e2e_pipeline.launch.py
+
 Usage:
-  ros2 launch test_suite test_control_robot_motion.launch.py
+  ros2 launch test_suite test_real_control_robot_motion.launch.py
 """
 
 import os
@@ -30,7 +32,7 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 
 def generate_launch_description():
-    """Generate launch description for control + robot motion testing."""
+    """Generate launch description for real control + robot motion testing."""
     debug_no_collision_objects = DeclareLaunchArgument(
         "debug_no_collision_objects",
         default_value="false",
@@ -145,7 +147,7 @@ def generate_launch_description():
         os.path.dirname(__file__),
         '..',
         'test',
-        'test_control_robot_motion.py'
+        'test_real_control_robot_motion.py'
     )
 
     run_test = TimerAction(
