@@ -2,39 +2,53 @@
 import rclpy
 import math
 
+from tf_transformations import quaternion_from_matrix
 from rclpy.logging import get_logger
 from moveit.planning import MoveItPy
 from geometry_msgs.msg import PoseStamped
+from moveit_msgs.msg import MoveItErrorCodes
+
+ERROR_CODE_NAMES = {v: k for k, v in vars(MoveItErrorCodes).items()
+                    if isinstance(v, int) and k.isupper()}
 
 
 def main():
     rclpy.init()
     # https://docs.ros.org/en/rolling/p/rclpy/rclpy.logging.html
     log = get_logger("ur16e_move_client")
+    moveit = None
 
     try:    
         moveit = MoveItPy(node_name="ur16e_move_client")
         
         # obtain a PlanningComponent for the manipulator group
         arm = moveit.get_planning_component("ur_arm")
-        
-        
-        # planning_state_mon = moveit.get_planning_scene_monitor()
-        # with planning_state_mon.read_only() as scene:
-        #     pose = scene.current_state.get_global_link_transform("tool0")
-        #     ps = PoseStamped()
-        #     ps.header.frame_id = scene.planning_scene.world.frame_id
-        #     ps.pose.position.x, ps.pose.position.y, ps.pose.position.z = pose.translation
-        #     ps.pose.orientation.x, ps.pose.orientation.y, \
-        #     ps.pose.orientation.z, ps.pose.orientation.w = pose.rotation  # shorthand
-        #     print(ps)
-        
-        
+
         # ------------------------------------------------------------------
-        # plan cartesian pose target for the tool end ("tool0") in base frame 
+        # log current tool0 pose as PoseStamped
+        # ------------------------------------------------------------------
+        psm = moveit.get_planning_scene_monitor()
+        with psm.read_only() as scene:
+            tf = scene.current_state.get_global_link_transform("tool0")
+            quat = quaternion_from_matrix(tf)  # returns [x, y, z, w]
+            current_pose = PoseStamped()
+            current_pose.header.frame_id = moveit.get_robot_model().model_frame
+            current_pose.header.stamp = rclpy.clock.Clock().now().to_msg()
+            current_pose.pose.position.x = tf[0, 3]
+            current_pose.pose.position.y = tf[1, 3]
+            current_pose.pose.position.z = tf[2, 3]
+            current_pose.pose.orientation.x = quat[0]
+            current_pose.pose.orientation.y = quat[1]
+            current_pose.pose.orientation.z = quat[2]
+            current_pose.pose.orientation.w = quat[3]
+            log.info(f"Current tool0 PoseStamped:\n{current_pose}")
+
+        # ------------------------------------------------------------------
+        # plan cartesian pose target for the tool end ("tool0") in base frame
         # ------------------------------------------------------------------
         pose_goal = PoseStamped()
-        pose_goal.header.frame_id = "base_link"     # reference frame
+        pose_goal.header.frame_id = "base"     # UR controller coordinate frame
+        pose_goal.header.stamp = rclpy.clock.Clock().now().to_msg() 
         pose_goal.pose.position.x = 0.116
         pose_goal.pose.position.y = -0.468
         pose_goal.pose.position.z = 0.874
@@ -62,14 +76,34 @@ def main():
         arm.set_goal_state(pose_stamped_msg=pose_goal, pose_link="tool0")       # tool0 = UR16e TCP link
         plan_result = arm.plan()
 
-        # error boundary checking
-        if not plan_result or not getattr(plan_result, "success", False):
-            status = getattr(plan_result, "status", "unknown")
-            log.error(f"planning failed: {status}")
+        if not plan_result:
+            log.error("Planning failed: no plan result returned")
+            return
+
+        # Support both result variants used by MoveItPy APIs.
+        error_code = getattr(plan_result, "error_code", None)
+        error_code_val = getattr(error_code, "val", None) if error_code else None
+        plan_success = getattr(plan_result, "success", None)
+        trajectory = getattr(plan_result, "trajectory", None)
+
+        if error_code_val is not None:
+            if error_code_val != MoveItErrorCodes.SUCCESS:
+                name = ERROR_CODE_NAMES.get(error_code_val, "UNKNOWN")
+                log.error(f"Planning failed: {name} ({error_code_val})")
+                return
+        elif plan_success is not None:
+            if not plan_success:
+                status = getattr(plan_result, "status", "unknown")
+                log.error(f"Planning failed: {status}")
+                return
+        elif trajectory is None:
+            log.error("Planning failed: missing success/error_code and no trajectory")
             return
 
         log.info("planning trajectory successful")
-        trajectory = plan_result.trajectory
+        if trajectory is None:
+            log.error("Planning failed: plan result contains no trajectory")
+            return
         
         # per plan speed scaling with TOTG (https://moveit.picknik.ai/main/doc/api/python_api/_autosummary/moveit.core.robot_trajectory.html)
         trajectory_retimed = trajectory.apply_totg_time_parameterization(
@@ -80,12 +114,24 @@ def main():
         if not trajectory_retimed:
             log.warn("time parameterization failed, executing raw plan")
 
-        # execute the trajectory with scaled joint planner
-        moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"])
-        log.info("Executed trajectory.")
+        # execute the trajectory with scaled joint planner (blocking)
+        exec_result = moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"])
+
+        if exec_result:
+            log.info("Trajectory execution completed successfully.")
+        else:
+            log.error("Trajectory execution failed.")
+
+
     
     finally:
+        if moveit is not None:
+            try:
+                moveit.shutdown()
+            except Exception as exc:
+                log.warn(f"MoveIt shutdown failed: {exc}")
         rclpy.shutdown()
+
 
 
 if __name__ == "__main__":

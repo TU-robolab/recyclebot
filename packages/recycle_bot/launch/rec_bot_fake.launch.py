@@ -2,10 +2,9 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
-from launch.substitutions import LaunchConfiguration
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
@@ -28,7 +27,7 @@ def generate_launch_description():
     )
 
     # =========================================================================
-    # 1. UR Robot Driver (real hardware)
+    # 1. UR Robot Driver (mock hardware)
     # =========================================================================
     ur_robot_driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -37,18 +36,25 @@ def generate_launch_description():
         launch_arguments={
             "ur_type": "ur16e",
             "robot_ip": "192.168.1.102",
-            "kinematics_params_file": os.path.join(
-                get_package_share_directory("recycle_bot"),
-                "config",
-                "my_robot_calibration.yaml",
-            ),
+            "use_mock_hardware": "true",
+            "mock_sensor_commands": "true",
             "launch_rviz": "false",
             "initial_joint_controller": "scaled_joint_trajectory_controller",
         }.items()
     )
 
     # =========================================================================
-    # 2. Vision Detection Node (YOLO)
+    # 2. Fake RGBD Publisher (simulates RealSense camera)
+    # =========================================================================
+    fake_camera_node = Node(
+        package="test_suite",
+        executable="fake_rgbd_publisher",
+        name="fake_rgbd_publisher",
+        output="screen",
+    )
+
+    # =========================================================================
+    # 3. Vision Detection Node (YOLO)
     # =========================================================================
     vision_node = Node(
         package="recycle_bot",
@@ -58,7 +64,7 @@ def generate_launch_description():
     )
 
     # =========================================================================
-    # 3. Core Processing Node (3D projection + TF)
+    # 4. Core Processing Node (3D projection + TF)
     # =========================================================================
     core_node = Node(
         package="recycle_bot",
@@ -68,7 +74,7 @@ def generate_launch_description():
     )
 
     # =========================================================================
-    # 4. Control Node (MoveIt planning + execution)
+    # 5. Control Node (MoveIt planning + execution)
     # =========================================================================
     control_node = Node(
         name="moveit_py",
@@ -79,39 +85,22 @@ def generate_launch_description():
     )
 
     # =========================================================================
-    # 5. RealSense Camera
+    # 6. Mock Gripper Service
     # =========================================================================
-    realsense_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(
-                get_package_share_directory("realsense2_camera"),
-                "launch",
-                "rs_launch.py",
-            )
-        ),
-        launch_arguments={"pointcloud.enable": "true"}.items(),
-    )
-
-    # =========================================================================
-    # 6. Gripper
-    # =========================================================================
-    grip_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(
-                get_package_share_directory("grip_command_package"),
-                "launch",
-                "master.launch.py",
-            )
-        )
+    mock_gripper_node = Node(
+        package="test_suite",
+        executable="mock_gripper_service",
+        name="mock_gripper_service",
+        output="screen",
     )
 
     return LaunchDescription(
         [
             ur_robot_driver_launch,
-            realsense_launch,
+            fake_camera_node,
             vision_node,
             core_node,
             control_node,
-            grip_launch,
+            mock_gripper_node,
         ]
     )

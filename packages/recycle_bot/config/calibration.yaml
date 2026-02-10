@@ -1,17 +1,17 @@
 # calibration config for rec_bot_core
 # camera transform and detection filtering parameters
 
-# camera transform: static transform from base_link to camera_link (meters)
+# camera transform: static transform from base to camera_link (meters)
 # used for projecting detections into robot frame
 camera_transform:
-  parent_frame: "base_link"
+  parent_frame: "base"
   child_frame: "camera_link"
-  translation: [-0.384, 0.286, 0.624]  # meters
-  rotation: [-0.999, 0.045, 0.0, 0.0]  # quaternion [x, y, z, w]
+  translation: [0.384, -0.286, 0.624]  # meters
+  rotation: [0.0, 1.0, 0.0, 0.0]  # quaternion [x, y, z, w]
 
 # detection filter thresholds
 # RealSense D415 range: 0.3m - 10m (optimal 0.5m - 3m)
 detection_filter:
-  min_confidence: 0.9   # minimum detection confidence (0.0-1.0)
+  min_confidence: 0.8   # minimum detection confidence (0.0-1.0)
   min_depth_m: 0.1      # rejects objects too close (10cm)
   max_depth_m: 1.5      # rejects objects too far
