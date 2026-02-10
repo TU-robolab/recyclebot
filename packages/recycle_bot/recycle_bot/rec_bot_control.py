@@ -5,7 +5,6 @@ import math
 import time
 
 from collections import deque
-from threading import Event
 
 # ROS2 imports
 import rclpy
@@ -16,6 +15,7 @@ import tf2_geometry_msgs
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.parameter import Parameter
 from tf_transformations import quaternion_from_euler
 from image_geometry import PinholeCameraModel
@@ -35,9 +35,12 @@ try:
         OrientationConstraint,
         CollisionObject,
         AttachedCollisionObject,
+        MoveItErrorCodes,
     )
     from shape_msgs.msg import SolidPrimitive
     MOVEIT_AVAILABLE = True
+    ERROR_CODE_NAMES = {v: k for k, v in vars(MoveItErrorCodes).items()
+                        if isinstance(v, int) and k.isupper()}
 except ImportError:
     MoveItPy = None
     RobotState = None
@@ -47,6 +50,8 @@ except ImportError:
     CollisionObject = None
     AttachedCollisionObject = None
     SolidPrimitive = None
+    MoveItErrorCodes = None
+    ERROR_CODE_NAMES = {}
     MOVEIT_AVAILABLE = False
 
 
@@ -141,12 +146,25 @@ class cobot_control(Node):
             ListControllers, "/controller_manager/list_controllers"
         )
 
-        # gripper service client
-        self.gripper_client = self.create_client(GripCommand, '/gripper_action')
+        # gripper service client — needs its own ReentrantCallbackGroup to avoid
+        # a deadlock: process_tasks (timer) calls gripper_action, which blocks
+        # on done_event.wait().  The executor must process the service response
+        # on another thread to unblock it, but the default
+        # MutuallyExclusiveCallbackGroup forbids concurrent callbacks within the
+        # same group — so the response can't be processed until the timer
+        # finishes, while the timer waits for the response.  A separate group
+        # breaks this circular dependency.
+        self._gripper_cb_group = ReentrantCallbackGroup()
+        self.gripper_client = self.create_client(
+            GripCommand, '/gripper_action', callback_group=self._gripper_cb_group
+        )
         self.gripper_timeout_sec = 5.0
 
-        # Timer for checking and processing tasks
-        self.create_timer(1.0, self.process_tasks)
+        # Timer for checking and processing tasks — use a ReentrantCallbackGroup
+        # so the executor can still process service responses (e.g. gripper)
+        # while this timer's callback is running.
+        self._timer_cb_group = ReentrantCallbackGroup()
+        self.create_timer(1.0, self.process_tasks, callback_group=self._timer_cb_group)
 
         self.get_logger().info("UR16e sorter node initialized")
 
@@ -214,7 +232,7 @@ class cobot_control(Node):
 
         Args:
             table_size: (x, y, z) dimensions in meters, default 1.2x0.8x0.05m
-            table_position: (x, y, z) center position relative to base_link
+            table_position: (x, y, z) center position relative to base
             camera_size: (x, y, z) dimensions in meters, default ~D415 with margin
             camera_position: (x, y, z) position from rec_bot_core.py static transform
 
@@ -237,13 +255,13 @@ class cobot_control(Node):
             #              0.8m
             #
             #   side view:
-            #        ════════════ base_link (z=0)
+            #        ════════════ world (z=0)
             #        ┌──────────┐
             #        │  table   │ 0.05m thick
             #        └──────────┘ z = -0.025m (center)
             #
             table = CollisionObject()
-            table.header.frame_id = "base_link"
+            table.header.frame_id = "world"
             table.header.stamp = self.get_clock().now().to_msg()
             table.id = "table"
             table.operation = CollisionObject.ADD
@@ -273,11 +291,11 @@ class cobot_control(Node):
             #                    │   │
             #                    └───┘
             #                      │
-            #        ═════════════╧════════════ base_link
+            #        ═════════════╧════════════ world
             #              x = -0.384m
             #
             camera = CollisionObject()
-            camera.header.frame_id = "base_link"
+            camera.header.frame_id = "world"
             camera.header.stamp = self.get_clock().now().to_msg()
             camera.id = "camera"
             camera.operation = CollisionObject.ADD
@@ -341,7 +359,7 @@ class cobot_control(Node):
         """Create PoseStamped from dict with position and orientation keys."""
         pose = PoseStamped()
         pose.header.stamp = self.get_clock().now().to_msg()
-        pose.header.frame_id = "base_link"
+        pose.header.frame_id = "base"
 
         pose.pose.position.x = float(pose_dict["position"][0])
         pose.pose.position.y = float(pose_dict["position"][1])
@@ -357,9 +375,9 @@ class cobot_control(Node):
     def vision_callback(self, msg: PoseStamped):
         """Handles incoming object pose from the vision system and queues it."""
         try:
-            # convert from camera frame to robot base_link reference
+            # convert from camera frame to robot base reference
             transform = self.tf_buffer.lookup_transform(
-                "base_link",
+                "base",
                 msg.header.frame_id,
                 rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=self.tf_timeout_sec),
@@ -419,14 +437,15 @@ class cobot_control(Node):
         request = GripCommand.Request()
         request.action = action
 
-        # Avoid spinning here so other callbacks (TF, vision, timers) keep running.
         future = self.gripper_client.call_async(request)
-        done_event = Event()
-        future.add_done_callback(lambda _fut: done_event.set())
 
-        if not done_event.wait(timeout=self.gripper_timeout_sec):
-            self.get_logger().error(f"Gripper {action} call timed out")
-            return False
+        # Poll until the executor resolves the future on another thread.
+        deadline = time.time() + self.gripper_timeout_sec
+        while rclpy.ok() and not future.done():
+            if time.time() > deadline:
+                self.get_logger().error(f"Gripper {action} call timed out")
+                return False
+            time.sleep(0.05)
 
         try:
             result = future.result()
@@ -481,8 +500,24 @@ class cobot_control(Node):
                 return False
 
             self.get_logger().info("Executing joint-space plan")
-            self.execute_trajectory(plan_result.trajectory)
-            return True
+            trajectory = plan_result.trajectory
+            trajectory_retimed = trajectory.apply_totg_time_parameterization(
+                velocity_scaling_factor=self.velocity_scaling,
+                acceleration_scaling_factor=self.acceleration_scaling,
+            )
+            if not trajectory_retimed:
+                self.get_logger().warn("time parameterization failed, executing raw plan")
+
+            exec_result = self.moveit.execute(
+                trajectory, controllers=["scaled_joint_trajectory_controller"]
+            )
+
+            if exec_result:
+                self.get_logger().info("Trajectory execution completed successfully.")
+                return True
+            else:
+                self.get_logger().error("Trajectory execution failed.")
+                return False
         except Exception as e:
             self.get_logger().error(f"Joint motion planning error: {e}")
             return False
@@ -620,8 +655,24 @@ class cobot_control(Node):
                 return False
 
             self.get_logger().info("Executing Cartesian path")
-            self.execute_trajectory(plan_result.trajectory)
-            return True
+            trajectory = plan_result.trajectory
+            trajectory_retimed = trajectory.apply_totg_time_parameterization(
+                velocity_scaling_factor=self.velocity_scaling,
+                acceleration_scaling_factor=self.acceleration_scaling,
+            )
+            if not trajectory_retimed:
+                self.get_logger().warn("time parameterization failed, executing raw plan")
+
+            exec_result = self.moveit.execute(
+                trajectory, controllers=["scaled_joint_trajectory_controller"]
+            )
+
+            if exec_result:
+                self.get_logger().info("Trajectory execution completed successfully.")
+                return True
+            else:
+                self.get_logger().error("Trajectory execution failed.")
+                return False
         except Exception as e:
             self.get_logger().error(f"Error in Cartesian motion: {str(e)}")
             return False
@@ -639,19 +690,56 @@ class cobot_control(Node):
                 return False
 
             self.arm.set_start_state_to_current_state()
-            # Optional debug logging (comment out if too verbose)
             self.log_motion_debug(pose_to_plan)
             self.arm.set_goal_state(pose_stamped_msg=pose_to_plan, pose_link="tool0")
             plan_result = self.arm.plan()
 
-            if not plan_result or not getattr(plan_result, "success", False):
-                status = getattr(plan_result, "status", "unknown")
-                self.get_logger().error(f"Planning failed: {status}")
+            if not plan_result:
+                self.get_logger().error("Planning failed: no plan result returned")
                 return False
 
-            self.get_logger().info("Executing planned pose")
-            self.execute_trajectory(plan_result.trajectory)
-            return True
+            # Support both result variants used by MoveItPy APIs.
+            error_code = getattr(plan_result, "error_code", None)
+            error_code_val = getattr(error_code, "val", None) if error_code else None
+            plan_success = getattr(plan_result, "success", None)
+            trajectory = getattr(plan_result, "trajectory", None)
+
+            if error_code_val is not None:
+                if error_code_val != MoveItErrorCodes.SUCCESS:
+                    name = ERROR_CODE_NAMES.get(error_code_val, "UNKNOWN")
+                    self.get_logger().error(f"Planning failed: {name} ({error_code_val})")
+                    return False
+            elif plan_success is not None:
+                if not plan_success:
+                    status = getattr(plan_result, "status", "unknown")
+                    self.get_logger().error(f"Planning failed: {status}")
+                    return False
+            elif trajectory is None:
+                self.get_logger().error("Planning failed: missing success/error_code and no trajectory")
+                return False
+
+            self.get_logger().info("planning trajectory successful")
+            if trajectory is None:
+                self.get_logger().error("Planning failed: plan result contains no trajectory")
+                return False
+
+            trajectory_retimed = trajectory.apply_totg_time_parameterization(
+                velocity_scaling_factor=self.velocity_scaling,
+                acceleration_scaling_factor=self.acceleration_scaling,
+            )
+            if not trajectory_retimed:
+                self.get_logger().warn("time parameterization failed, executing raw plan")
+
+            exec_result = self.moveit.execute(
+                trajectory, controllers=["scaled_joint_trajectory_controller"]
+            )
+
+            if exec_result:
+                self.get_logger().info("Trajectory execution completed successfully.")
+                return True
+            else:
+                self.get_logger().error("Trajectory execution failed.")
+                return False
 
         except Exception as e:
             self.get_logger().error(f"Motion planning error: {e}")
@@ -697,7 +785,7 @@ class cobot_control(Node):
 
         # header configuration
         pose.header.stamp = self.get_clock().now().to_msg()
-        pose.header.frame_id = "base_link"
+        pose.header.frame_id = "base"
         
         if isinstance(location, dict):
             location_name = next(iter(location.keys()))
@@ -719,17 +807,6 @@ class cobot_control(Node):
         
         return pose
 
-    def execute_trajectory(self, trajectory):
-        """Apply TOTG time parameterization and execute trajectory using scaled controller."""
-        trajectory_retimed = trajectory.apply_totg_time_parameterization(
-            velocity_scaling_factor=self.velocity_scaling,
-            acceleration_scaling_factor=self.acceleration_scaling
-        )
-
-        if not trajectory_retimed:
-            self.get_logger().warn("Time parameterization failed, executing raw trajectory")
-
-        self.moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"])
 
     def attach_object_to_tool(self):
         """Attach a simple collision object to the tool for safer planning."""
@@ -774,11 +851,16 @@ class cobot_control(Node):
         if pose_stamped is None:
             return None
         offset_pose = PoseStamped()
-        offset_pose.header.frame_id = pose_stamped.header.frame_id or "base_link"
+        offset_pose.header.frame_id = pose_stamped.header.frame_id or "base"
         offset_pose.header.stamp = self.get_clock().now().to_msg()
-        offset_pose.pose.position = pose_stamped.pose.position
-        offset_pose.pose.orientation = pose_stamped.pose.orientation
-        offset_pose.pose.position.z += dz
+        # Copy values (not references) so the original pose is not mutated.
+        offset_pose.pose.position.x = pose_stamped.pose.position.x
+        offset_pose.pose.position.y = pose_stamped.pose.position.y
+        offset_pose.pose.position.z = pose_stamped.pose.position.z + dz
+        offset_pose.pose.orientation.x = pose_stamped.pose.orientation.x
+        offset_pose.pose.orientation.y = pose_stamped.pose.orientation.y
+        offset_pose.pose.orientation.z = pose_stamped.pose.orientation.z
+        offset_pose.pose.orientation.w = pose_stamped.pose.orientation.w
         return offset_pose
 
     def normalize_pose_orientation(self, pose):
@@ -803,7 +885,7 @@ class cobot_control(Node):
     def normalize_pose_stamped(self, pose_stamped: PoseStamped):
         """Return a PoseStamped with normalized orientation, logging if invalid."""
         normalized_pose = PoseStamped()
-        normalized_pose.header.frame_id = pose_stamped.header.frame_id or "base_link"
+        normalized_pose.header.frame_id = pose_stamped.header.frame_id or "base"
         normalized_pose.header.stamp = self.get_clock().now().to_msg()
 
         normalized_pose.pose.position = pose_stamped.pose.position
@@ -849,11 +931,12 @@ def main():
     executor = MultiThreadedExecutor()
 
     try:
-        executor.add_node(ur_node)
-        # Defer neutral move until executor is spinning so MoveIt has state.
-        rclpy.spin_once(ur_node, timeout_sec=0.1)
+        # Startup check and neutral move BEFORE adding to executor,
+        # so rclpy.spin_once(self) inside wait_for_startup_ready works
+        # (a node cannot be spun by two executors simultaneously).
         if ur_node.wait_for_startup_ready() and ur_node.move_to_neutral():
             ur_node.get_logger().info("Moved to neutral pose on startup")
+        executor.add_node(ur_node)
         executor.spin()
     except KeyboardInterrupt:
         pass
