@@ -38,7 +38,7 @@ ompl:
       - RRTConnectkConfigDefault
   # Add additional planning pipeline config here
 plan_request_params:
-  planning_attempts: 1
+  planning_attempts: 10
   planning_pipeline: ompl
   planner_id: "RRTConnectkConfigDefault"
   max_velocity_scaling_factor: 0.3

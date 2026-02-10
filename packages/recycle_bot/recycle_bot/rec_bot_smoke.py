@@ -36,12 +36,22 @@ def main():
         
         
         # ------------------------------------------------------------------
-        # log current tool0 pose for debugging
+        # log current tool0 pose as PoseStamped
         # ------------------------------------------------------------------
         psm = moveit.get_planning_scene_monitor()
         with psm.read_only() as scene:
             current = scene.current_state.get_global_link_transform("tool0")
-            log.info(f"Current tool0 transform:\n{current}")
+            current_pose = PoseStamped()
+            current_pose.header.frame_id = moveit.get_robot_model().model_frame
+            current_pose.header.stamp = rclpy.clock.Clock().now().to_msg()
+            current_pose.pose.position.x = current.translation[0]
+            current_pose.pose.position.y = current.translation[1]
+            current_pose.pose.position.z = current.translation[2]
+            current_pose.pose.orientation.x = current.rotation[0]
+            current_pose.pose.orientation.y = current.rotation[1]
+            current_pose.pose.orientation.z = current.rotation[2]
+            current_pose.pose.orientation.w = current.rotation[3]
+            log.info(f"Current tool0 PoseStamped:\n{current_pose}")
 
         # ------------------------------------------------------------------
         # plan cartesian pose target for the tool end ("tool0") in base frame
