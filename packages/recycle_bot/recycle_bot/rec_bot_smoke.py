@@ -121,6 +121,8 @@ def main():
             log.info("Trajectory execution completed successfully.")
         else:
             log.error("Trajectory execution failed.")
+
+
     
     finally:
         if moveit is not None:
