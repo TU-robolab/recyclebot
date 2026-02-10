@@ -112,7 +112,7 @@ def generate_launch_description():
         [
             moveit_exec_file,
             moveit_py_node,
-            static_tf,
+            # static_tf,
             # robot_state_publisher,
             # ros2_control_node,
             # rviz_node,
