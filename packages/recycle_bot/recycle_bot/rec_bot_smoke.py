@@ -48,7 +48,7 @@ def main():
         # ------------------------------------------------------------------
         pose_goal = PoseStamped()
         pose_goal.header.frame_id = "base"     # UR controller coordinate frame
-        pose_goal.header.stamp = moveit.get_node().get_clock().now().to_msg()
+        pose_goal.header.stamp = rclpy.clock.Clock().now().to_msg() 
         pose_goal.pose.position.x = 0.116
         pose_goal.pose.position.y = -0.468
         pose_goal.pose.position.z = 0.874
@@ -115,7 +115,7 @@ def main():
             log.warn("time parameterization failed, executing raw plan")
 
         # execute the trajectory with scaled joint planner (blocking)
-        exec_result = moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"], blocking=True)
+        exec_result = moveit.execute(trajectory, controllers=["scaled_joint_trajectory_controller"])
 
         if exec_result:
             log.info("Trajectory execution completed successfully.")
