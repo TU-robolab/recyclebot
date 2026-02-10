@@ -19,6 +19,7 @@ from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
 from std_srvs.srv import Trigger
 from realsense2_camera_msgs.msg import RGBD
+from ament_index_python.packages import get_package_share_directory
 
 
 # vision imports
@@ -37,7 +38,11 @@ class VisionDetector(Node):
         
 
         # initialize yolo model  (model in pkg_resources location)
-        tmp_model_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "rb-lab-data-hannover-messe-v3-171025.pt" )
+        tmp_model_path = os.path.join(
+            get_package_share_directory("recycle_bot"),
+            "pkg_resources",
+            "rb-lab-data-hannover-messe-v3-171025.pt",
+        )
         self.model = YOLO(tmp_model_path)
 
         # set hardware device for inference
@@ -45,8 +50,11 @@ class VisionDetector(Node):
         self.get_logger().info(f"Using device: {self.device}")
         self.model.to(self.device)
 
-        # used labels
-        self.class_labels = ["bottle_pet","box_pp","bucket","canister","cup_pp-ps","flower_pot","lid_pp-ps","non-food_bottle","other","watering_can"]
+        # use model-provided labels to avoid mismatch
+        if isinstance(self.model.names, dict):
+            self.class_labels = [self.model.names[k] for k in sorted(self.model.names.keys())]
+        else:
+            self.class_labels = list(self.model.names)
         
         # RGBD data (protected by rgbd_lock)
         self.bridge = CvBridge()

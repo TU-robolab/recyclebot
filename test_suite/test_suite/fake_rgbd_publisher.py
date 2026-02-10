@@ -8,10 +8,13 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from sensor_msgs.msg import Image, CameraInfo
+from geometry_msgs.msg import TransformStamped
 from realsense2_camera_msgs.msg import RGBD
 from cv_bridge import CvBridge
 import numpy as np
 import cv2
+import tf2_ros
+from tf_transformations import quaternion_from_euler
 
 
 class FakeRGBDPublisher(Node):
@@ -33,13 +36,47 @@ class FakeRGBDPublisher(Node):
             qos_camera_feed
         )
 
-        # Create timer to publish at 30 Hz (matching RealSense D415 settings)
-        self.timer = self.create_timer(1.0/30.0, self.publish_fake_rgbd)
+        # Simulate RealSense static TFs for optical frames in tests.
+        self.static_tf_broadcaster = tf2_ros.StaticTransformBroadcaster(self)
+        self.publish_static_tfs()
+
+        # Create timer to publish at 6 Hz
+        self.timer = self.create_timer(1.0/6.0, self.publish_fake_rgbd)
 
         self.bridge = CvBridge()
         self.frame_count = 0
 
         self.get_logger().info('Fake RGBD Publisher started - publishing to /camera/camera/rgbd')
+
+    def publish_static_tfs(self):
+        # Publish camera_link -> optical frames to match RealSense conventions.
+        optical_q = quaternion_from_euler(-np.pi / 2.0, 0.0, -np.pi / 2.0)
+
+        color_tf = TransformStamped()
+        color_tf.header.stamp = self.get_clock().now().to_msg()
+        color_tf.header.frame_id = "camera_link"
+        color_tf.child_frame_id = "camera_color_optical_frame"
+        color_tf.transform.translation.x = 0.0
+        color_tf.transform.translation.y = 0.0
+        color_tf.transform.translation.z = 0.0
+        color_tf.transform.rotation.x = optical_q[0]
+        color_tf.transform.rotation.y = optical_q[1]
+        color_tf.transform.rotation.z = optical_q[2]
+        color_tf.transform.rotation.w = optical_q[3]
+
+        depth_tf = TransformStamped()
+        depth_tf.header.stamp = color_tf.header.stamp
+        depth_tf.header.frame_id = "camera_link"
+        depth_tf.child_frame_id = "camera_depth_optical_frame"
+        depth_tf.transform.translation.x = 0.0
+        depth_tf.transform.translation.y = 0.0
+        depth_tf.transform.translation.z = 0.0
+        depth_tf.transform.rotation.x = optical_q[0]
+        depth_tf.transform.rotation.y = optical_q[1]
+        depth_tf.transform.rotation.z = optical_q[2]
+        depth_tf.transform.rotation.w = optical_q[3]
+
+        self.static_tf_broadcaster.sendTransform([color_tf, depth_tf])
 
     def create_fake_image(self):
         """Create a fake RGB image with some shapes that YOLO might detect"""
@@ -70,7 +107,7 @@ class FakeRGBDPublisher(Node):
         D415 specs:
         - Range: 0.3m to ~3m
         - Format: Z16 (16-bit unsigned integer depth values)
-        - Resolution: 1280x720 @ 30fps
+        - Resolution: 1280x720 @ 6fps
 
         DEPTH SCALE:
         - RealSense cameras use a depth_scale factor (typically 0.001 for D415)
@@ -82,29 +119,29 @@ class FakeRGBDPublisher(Node):
         """
         width, height = 1280, 720
 
-        # Initialize with background depth (1500mm = 1.5m)
-        depth = np.full((height, width), 1500, dtype=np.uint16)
+        # Initialize with table depth (from calibration: ~0.624m)
+        depth = np.full((height, width), 624, dtype=np.uint16)
 
         # Add depth values for the objects matching the RGB image positions
-        # Objects closer to camera have lower depth values
+        # Objects closer to camera have lower depth values (5-25 cm above table)
 
-        # Red rectangle (200, 200, 350, 500) - at 800mm
-        depth[200:500, 200:350] = 800
+        # Red rectangle (200, 200, 350, 500) - at 574mm (5 cm above table)
+        depth[200:500, 200:350] = 574
 
-        # Green rectangle (500, 150, 650, 400) - at 1000mm
-        depth[150:400, 500:650] = 1000
+        # Green rectangle (500, 150, 650, 400) - at 554mm (7 cm above table)
+        depth[150:400, 500:650] = 554
 
-        # Blue rectangle (800, 250, 950, 550) - at 1200mm
-        depth[250:550, 800:950] = 1200
+        # Blue rectangle (800, 250, 950, 550) - at 524mm (10 cm above table)
+        depth[250:550, 800:950] = 524
 
-        # Cyan circle at (400, 600) radius 60 - at 700mm
+        # Cyan circle at (400, 600) radius 60 - at 474mm (15 cm above table)
         y, x = np.ogrid[:height, :width]
         mask_cyan = (x - 400)**2 + (y - 600)**2 <= 60**2
-        depth[mask_cyan] = 700
+        depth[mask_cyan] = 474
 
-        # Magenta circle at (900, 600) radius 50 - at 900mm
+        # Magenta circle at (900, 600) radius 50 - at 374mm (25 cm above table)
         mask_magenta = (x - 900)**2 + (y - 600)**2 <= 50**2
-        depth[mask_magenta] = 900
+        depth[mask_magenta] = 374
 
         # Add realistic noise to simulate sensor noise (±2mm standard deviation)
         noise = np.random.normal(0, 2, (height, width)).astype(np.int16)
@@ -158,7 +195,7 @@ class FakeRGBDPublisher(Node):
 
         # Create fake depth image
         depth_img = self.create_fake_depth()
-        depth_msg = self.bridge.cv2_to_imgmsg(depth_img, encoding="passthrough")
+        depth_msg = self.bridge.cv2_to_imgmsg(depth_img, encoding="16UC1")
         depth_msg.header = rgbd_msg.header
         rgbd_msg.depth = depth_msg
 

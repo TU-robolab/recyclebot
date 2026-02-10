@@ -6,8 +6,17 @@
 # neutral pose: safe position above workspace for transit between pick and place
 # robot moves here after gripping before moving to place location
 neutral_pose:
-  position: [0.3, 0.0, 0.4]  # centered, elevated (meters)
-  orientation: [0.0, 1.0, 0.0, 0.0]  # face-down (180° around Y)
+  position: [-0.521, 0.474, 0.344]  # centered, elevated (meters)
+  orientation: [0.691287034033189, 0.7225793866612643, -0.0010909763948931102, 0.000276261350695787]  # face-down (180° around Y)
+
+# joint-space neutral (preferred for safe, deterministic motion)
+# neutral_joint_pose:
+#   shoulder_pan_joint: 0.0
+#   shoulder_lift_joint: -1.57
+#   elbow_joint: 1.57
+#   wrist_1_joint: -1.57
+#   wrist_2_joint: -1.57
+#   wrist_3_joint: 0.0
 
 # sorting bin locations
 sorting_sequence:
@@ -16,3 +25,5 @@ sorting_sequence:
 #  - target_bin_3: { position: [x3, y3, z3], orientation: [qx3, qy3, qz3, qw3] }
 
 cycle: true  # cycle through targets when end is reached
+approach_height_m: 0.10  # meters above pick/place for approach/retreat
+grasped_object_size: [0.05, 0.05, 0.05]  # meters (box attached to tool for planning)
