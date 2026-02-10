@@ -49,26 +49,9 @@ except ImportError:
     SolidPrimitive = None
     MOVEIT_AVAILABLE = False
 
-try:
-    from robodk.robolink import Robolink, ITEM_TYPE_ROBOT
-    from robodk.robomath import Mat
-    ROBODK_AVAILABLE = True
-except ImportError:
-    Robolink = None
-    ITEM_TYPE_ROBOT = None
-    Mat = None
-    ROBODK_AVAILABLE = False
 
 
 class cobot_control(Node):
-    ROBODK_UR_JOINT_ORDER = [
-        "shoulder_pan_joint",
-        "shoulder_lift_joint",
-        "elbow_joint",
-        "wrist_1_joint",
-        "wrist_2_joint",
-        "wrist_3_joint",
-    ]
 
     def __init__(self):
         super().__init__("cobot_control")
@@ -114,41 +97,25 @@ class cobot_control(Node):
         # moveit_config.moveit_cpp(tmp_yaml_path)
         # moveit_config.to_moveit_configs()
 
-        self.motion_backend = str(
-            self.declare_parameter("motion_backend", "moveit").value
-        ).strip().lower()
         self.velocity_scaling = float(self.declare_parameter("velocity_scaling", 0.2).value)
         self.acceleration_scaling = float(
             self.declare_parameter("acceleration_scaling", 0.2).value
         )
-        self.robodk_robot_name = str(
-            self.declare_parameter("robodk_robot_name", "").value
-        ).strip()
-        self.robodk_connect = bool(self.declare_parameter("robodk_connect", False).value)
-        self.robodk_linear = bool(self.declare_parameter("robodk_linear", False).value)
-
         self.moveit = None
         self.arm = None
-        self.robodk = None
-        self.robodk_robot = None
 
-        if self.motion_backend == "robodk":
-            if not self.setup_robodk():
-                raise RuntimeError("RoboDK backend selected but setup failed")
-        else:
-            self.motion_backend = "moveit"
-            if not MOVEIT_AVAILABLE:
-                raise RuntimeError(
-                    "MoveIt Python API unavailable. Use motion_backend:=robodk or install MoveIt Python deps."
-                )
-            self.moveit = MoveItPy(node_name="ur_moveit")
-            self.arm = self.moveit.get_planning_component("ur_arm")
+        if not MOVEIT_AVAILABLE:
+            raise RuntimeError(
+                "MoveIt Python API unavailable. Install MoveIt Python deps."
+            )
+        self.moveit = MoveItPy(node_name="ur_moveit")
+        self.arm = self.moveit.get_planning_component("ur_arm")
 
         self.debug_no_collision_objects = bool(
             self.declare_parameter("debug_no_collision_objects", False).value
         )
         # add collision objects to planning scene unless disabled
-        if self.motion_backend == "moveit" and not self.debug_no_collision_objects:
+        if not self.debug_no_collision_objects:
             self.setup_collision_objects()
 
         # TF2 transform Listener
@@ -181,7 +148,7 @@ class cobot_control(Node):
         # Timer for checking and processing tasks
         self.create_timer(1.0, self.process_tasks)
 
-        self.get_logger().info(f"UR16e sorter node initialized (backend={self.motion_backend})")
+        self.get_logger().info("UR16e sorter node initialized")
 
     def robot_description_callback(self, msg):
         self.robot_description = msg.data
@@ -214,10 +181,6 @@ class cobot_control(Node):
         """Block until joint states are present and scaled controller is active."""
         if self.startup_ready:
             return True
-        if self.motion_backend == "robodk":
-            self.startup_ready = True
-            return True
-
         start_time = time.time()
         last_check = 0.0
         while rclpy.ok() and (time.time() - start_time) < self.startup_wait_timeout_sec:
@@ -239,43 +202,6 @@ class cobot_control(Node):
         )
         return False
 
-    def setup_robodk(self) -> bool:
-        """Initialize RoboDK API and bind to a robot item."""
-        if not ROBODK_AVAILABLE:
-            self.get_logger().error("RoboDK Python API is missing. Install: pip install robodk")
-            return False
-
-        try:
-            self.robodk = Robolink()
-            if self.robodk_robot_name:
-                self.robodk_robot = self.robodk.Item(self.robodk_robot_name, ITEM_TYPE_ROBOT)
-            else:
-                self.robodk_robot = self.robodk.Item("", ITEM_TYPE_ROBOT)
-
-            if not self.robodk_robot or not self.robodk_robot.Valid():
-                self.get_logger().error(
-                    "Could not find a valid RoboDK robot item. Set parameter robodk_robot_name."
-                )
-                return False
-
-            if self.robodk_connect:
-                connect_result = self.robodk_robot.Connect()
-                if connect_result != 1:
-                    self.get_logger().warn(
-                        f"RoboDK Connect() returned {connect_result}; continuing with RoboDK station motion."
-                    )
-
-            self.get_logger().info(
-                f"RoboDK backend ready (robot='{self.robodk_robot.Name()}', linear={self.robodk_linear})"
-            )
-            self.get_logger().warn(
-                "RoboDK active frame/tool must match ROS base_link/tool0 for correct Cartesian pose targets."
-            )
-            return True
-        except Exception as exc:
-            self.get_logger().error(f"RoboDK initialization failed: {exc}")
-            return False
-
     def setup_collision_objects(
         self,
         table_size=(1.2, 0.8, 0.05),
@@ -296,9 +222,6 @@ class cobot_control(Node):
         - table: box underneath robot base where UR16e is mounted
         - camera: box at camera mount position (RealSense D415)
         """
-        if self.motion_backend != "moveit":
-            return
-
         planning_scene_monitor = self.moveit.get_planning_scene_monitor()
 
         with planning_scene_monitor.read_write() as scene:
@@ -523,18 +446,6 @@ class cobot_control(Node):
 
     def move_to_neutral(self) -> bool:
         """Move to neutral pose if configured."""
-        if self.motion_backend == "robodk":
-            if self.neutral_pose is not None:
-                self.neutral_pose.header.stamp = self.get_clock().now().to_msg()
-                if not self.move_to_pose(self.neutral_pose):
-                    self.get_logger().error("Failed to reach neutral pose")
-                    return False
-                return True
-
-            if self.neutral_joint_pose:
-                return self.move_to_joint_positions(self.neutral_joint_pose)
-            return True
-
         if self.neutral_joint_pose:
             return self.move_to_joint_positions(self.neutral_joint_pose)
 
@@ -551,9 +462,6 @@ class cobot_control(Node):
 
     def move_to_joint_positions(self, joint_positions: dict) -> bool:
         """Plan and execute a joint-space goal."""
-        if self.motion_backend == "robodk":
-            return self.robodk_move_to_joint_positions(joint_positions)
-
         try:
             self.arm.set_start_state_to_current_state()
             robot_state = RobotState(self.moveit.get_robot_model())
@@ -579,27 +487,6 @@ class cobot_control(Node):
             self.get_logger().error(f"Joint motion planning error: {e}")
             return False
 
-    def robodk_move_to_joint_positions(self, joint_positions: dict) -> bool:
-        """Execute joint motion in RoboDK. Input joint values are expected in radians."""
-        if not self.robodk_robot or not self.robodk_robot.Valid():
-            self.get_logger().error("RoboDK robot is not initialized")
-            return False
-
-        try:
-            joints_deg = []
-            for joint_name in self.ROBODK_UR_JOINT_ORDER:
-                if joint_name not in joint_positions:
-                    self.get_logger().error(
-                        f"Joint '{joint_name}' missing from neutral_joint_pose for RoboDK"
-                    )
-                    return False
-                joints_deg.append(math.degrees(float(joint_positions[joint_name])))
-            self.robodk_robot.MoveJ(joints_deg, blocking=True)
-            return True
-        except Exception as exc:
-            self.get_logger().error(f"RoboDK joint motion error: {exc}")
-            return False
-
     def process_tasks(self):
         """
         Processes pending sorting tasks if the robot is idle.
@@ -621,9 +508,7 @@ class cobot_control(Node):
                   pre-pick ─► pick ─► grip ─► neutral ─► pre-place ─► place ─► release
         """
         if not self.startup_ready:
-            if self.motion_backend == "robodk":
-                self.startup_ready = True
-            elif self.joint_states_received and self.controller_active("scaled_joint_trajectory_controller"):
+            if self.joint_states_received and self.controller_active("scaled_joint_trajectory_controller"):
                 self.startup_ready = True
             else:
                 return
@@ -704,10 +589,6 @@ class cobot_control(Node):
 
     def move_cartesian(self, waypoints):
         """Move end effector through Cartesian waypoints"""
-        if self.motion_backend != "moveit":
-            self.get_logger().warn("move_cartesian is only supported by the MoveIt backend")
-            return False
-
         try:
             # Set start state to current state
             self.arm.set_start_state_to_current_state()
@@ -751,9 +632,6 @@ class cobot_control(Node):
 
         Note: planning timeout is configured in OMPL settings (moveit_cpp.yaml)
         """
-        if self.motion_backend == "robodk":
-            return self.robodk_move_to_pose(pose)
-
         try:
             pose_to_plan = self.normalize_pose_stamped(pose)
 
@@ -779,66 +657,8 @@ class cobot_control(Node):
             self.get_logger().error(f"Motion planning error: {e}")
             return False
 
-    def robodk_move_to_pose(self, pose: PoseStamped) -> bool:
-        """Execute a pose target in RoboDK."""
-        if not self.robodk_robot or not self.robodk_robot.Valid():
-            self.get_logger().error("RoboDK robot is not initialized")
-            return False
-
-        pose_to_move = self.normalize_pose_stamped(pose)
-        if pose_to_move is None:
-            return False
-
-        try:
-            target_mat = self.pose_stamped_to_robodk_mat(pose_to_move)
-            if self.robodk_linear:
-                self.robodk_robot.MoveL(target_mat, blocking=True)
-            else:
-                self.robodk_robot.MoveJ(target_mat, blocking=True)
-            return True
-        except Exception as exc:
-            self.get_logger().error(f"RoboDK pose motion error: {exc}")
-            return False
-
-    def pose_stamped_to_robodk_mat(self, pose_stamped: PoseStamped):
-        """Convert ROS PoseStamped (m + quaternion) into RoboDK Mat (mm)."""
-        p = pose_stamped.pose.position
-        q = pose_stamped.pose.orientation
-
-        xx = q.x * q.x
-        yy = q.y * q.y
-        zz = q.z * q.z
-        xy = q.x * q.y
-        xz = q.x * q.z
-        yz = q.y * q.z
-        wx = q.w * q.x
-        wy = q.w * q.y
-        wz = q.w * q.z
-
-        r11 = 1.0 - 2.0 * (yy + zz)
-        r12 = 2.0 * (xy - wz)
-        r13 = 2.0 * (xz + wy)
-        r21 = 2.0 * (xy + wz)
-        r22 = 1.0 - 2.0 * (xx + zz)
-        r23 = 2.0 * (yz - wx)
-        r31 = 2.0 * (xz - wy)
-        r32 = 2.0 * (yz + wx)
-        r33 = 1.0 - 2.0 * (xx + yy)
-
-        return Mat(
-            [
-                [r11, r12, r13, p.x * 1000.0],
-                [r21, r22, r23, p.y * 1000.0],
-                [r31, r32, r33, p.z * 1000.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ]
-        )
-
     def log_motion_debug(self, target_pose: PoseStamped):
         """Log planning context and collision status (debug helper)."""
-        if self.motion_backend != "moveit":
-            return
-
         try:
             planning_scene_monitor = self.moveit.get_planning_scene_monitor()
             with planning_scene_monitor.read_only() as scene:
@@ -901,10 +721,6 @@ class cobot_control(Node):
 
     def execute_trajectory(self, trajectory):
         """Apply TOTG time parameterization and execute trajectory using scaled controller."""
-        if self.motion_backend != "moveit":
-            self.get_logger().warn("execute_trajectory called with non-MoveIt backend")
-            return
-
         trajectory_retimed = trajectory.apply_totg_time_parameterization(
             velocity_scaling_factor=self.velocity_scaling,
             acceleration_scaling_factor=self.acceleration_scaling
@@ -917,9 +733,6 @@ class cobot_control(Node):
 
     def attach_object_to_tool(self):
         """Attach a simple collision object to the tool for safer planning."""
-        if self.motion_backend != "moveit":
-            return
-
         try:
             aco = AttachedCollisionObject()
             aco.link_name = "tool0"
@@ -949,9 +762,6 @@ class cobot_control(Node):
 
     def detach_object_from_tool(self):
         """Detach the collision object from the tool."""
-        if self.motion_backend != "moveit":
-            return
-
         try:
             planning_scene_monitor = self.moveit.get_planning_scene_monitor()
             with planning_scene_monitor.read_write() as scene:

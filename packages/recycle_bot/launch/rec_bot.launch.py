@@ -31,41 +31,12 @@ def generate_launch_description():
         default_value="rec_bot_control",
         description="Python executable to run from recycle_bot package",
     )
-    motion_backend = DeclareLaunchArgument(
-        "motion_backend",
-        default_value="moveit",
-        description="Motion backend: moveit or robodk",
-    )
-    robodk_robot_name = DeclareLaunchArgument(
-        "robodk_robot_name",
-        default_value="",
-        description="RoboDK robot item name (empty uses first robot item)",
-    )
-    robodk_connect = DeclareLaunchArgument(
-        "robodk_connect",
-        default_value="false",
-        description="If true, call RoboDK Connect() to connect to a real robot driver",
-    )
-    robodk_linear = DeclareLaunchArgument(
-        "robodk_linear",
-        default_value="false",
-        description="If true, use linear MoveL for pose goals (else MoveJ)",
-    )
-
     moveit_py_node = Node(
         name="moveit_py",
         package="recycle_bot",
         executable=LaunchConfiguration("moveit_exec_file"),
         output="both",
-        parameters=[
-            moveit_config.to_dict(),
-            {
-                "motion_backend": LaunchConfiguration("motion_backend"),
-                "robodk_robot_name": LaunchConfiguration("robodk_robot_name"),
-                "robodk_connect": LaunchConfiguration("robodk_connect"),
-                "robodk_linear": LaunchConfiguration("robodk_linear"),
-            },
-        ],
+        parameters=[moveit_config.to_dict()],
     )
 
     realsense_launch = IncludeLaunchDescription(
@@ -92,10 +63,6 @@ def generate_launch_description():
     return LaunchDescription(
         [
             moveit_exec_file,
-            motion_backend,
-            robodk_robot_name,
-            robodk_connect,
-            robodk_linear,
             moveit_py_node,
             realsense_launch,
             grip_launch,
