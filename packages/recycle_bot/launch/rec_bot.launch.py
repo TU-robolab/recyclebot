@@ -6,6 +6,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
+from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
 
@@ -26,19 +27,60 @@ def generate_launch_description():
         .to_moveit_configs()
     )
 
-    moveit_exec_file = DeclareLaunchArgument(
-        "moveit_exec_file",
-        default_value="rec_bot_control",
-        description="Python executable to run from recycle_bot package",
+    # =========================================================================
+    # 1. UR Robot Driver (real hardware)
+    # =========================================================================
+    ur_robot_driver_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            FindPackageShare("ur_robot_driver"), "/launch/ur_control.launch.py"
+        ]),
+        launch_arguments={
+            "ur_type": "ur16e",
+            "robot_ip": "192.168.1.102",
+            "kinematics_params_file": os.path.join(
+                get_package_share_directory("recycle_bot"),
+                "config",
+                "my_robot_calibration.yaml",
+            ),
+            "launch_rviz": "false",
+            "initial_joint_controller": "scaled_joint_trajectory_controller",
+        }.items()
     )
-    moveit_py_node = Node(
+
+    # =========================================================================
+    # 2. Vision Detection Node (YOLO)
+    # =========================================================================
+    vision_node = Node(
+        package="recycle_bot",
+        executable="rec_bot_vision",
+        name="rec_bot_vision",
+        output="screen",
+    )
+
+    # =========================================================================
+    # 3. Core Processing Node (3D projection + TF)
+    # =========================================================================
+    core_node = Node(
+        package="recycle_bot",
+        executable="rec_bot_core",
+        name="rec_bot_core",
+        output="screen",
+    )
+
+    # =========================================================================
+    # 4. Control Node (MoveIt planning + execution)
+    # =========================================================================
+    control_node = Node(
         name="moveit_py",
         package="recycle_bot",
-        executable=LaunchConfiguration("moveit_exec_file"),
+        executable="rec_bot_control",
         output="both",
         parameters=[moveit_config.to_dict()],
     )
 
+    # =========================================================================
+    # 5. RealSense Camera
+    # =========================================================================
     realsense_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -50,6 +92,9 @@ def generate_launch_description():
         launch_arguments={"pointcloud.enable": "true"}.items(),
     )
 
+    # =========================================================================
+    # 6. Gripper
+    # =========================================================================
     grip_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -62,9 +107,11 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            moveit_exec_file,
-            moveit_py_node,
+            ur_robot_driver_launch,
             realsense_launch,
+            vision_node,
+            core_node,
+            control_node,
             grip_launch,
         ]
     )
