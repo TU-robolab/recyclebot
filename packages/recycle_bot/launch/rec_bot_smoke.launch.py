@@ -2,7 +2,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
@@ -33,6 +34,13 @@ def generate_launch_description():
         description="Python API smoke file name",
     )
 
+    # Kill leftover ROS processes to avoid controller conflicts
+    cleanup = ExecuteProcess(
+        cmd=["bash", "-c",
+             "pkill -INT -f 'ros2_control_node|controller_manager' 2>/dev/null; sleep 1; echo '[cleanup] Done'"],
+        output="screen",
+    )
+
     # UR Robot Driver with real hardware
     ur_robot_driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -48,6 +56,14 @@ def generate_launch_description():
             ),
             "launch_rviz": "false",
             "initial_joint_controller": "scaled_joint_trajectory_controller",
+            "use_tool_communication": "true",
+            "tool_device_name": "/tmp/ttyUR",
+            "tool_voltage": "24",
+            "tool_parity": "0",
+            "tool_baud_rate": "115200",
+            "tool_stop_bits": "1",
+            "tool_rx_idle_chars": "1.5",
+            "tool_tx_idle_chars": "3.5",
         }.items()
     )
 
@@ -58,23 +74,6 @@ def generate_launch_description():
         output="both",
         parameters=[moveit_config.to_dict()],
     )
-
-    # rviz_config_file = os.path.join(
-    #     get_package_share_directory("ur16e_moveit_config"),
-    #     "config",
-    #     "moveit.rviz",
-    # )
-
-    # rviz_node = Node(
-    #     package="rviz2",
-    #     executable="rviz2",
-    #     output="log",
-    #     arguments=["-d", rviz_config_file],
-    #     parameters=[
-    #         moveit_config.robot_description,
-    #         moveit_config.robot_description_semantic,
-    #     ],
-    # )
 
     # Publish world -> base_link identity transform. The UR driver's RSP
     # may also publish this (from the URDF), but MoveIt needs it available
@@ -96,51 +95,22 @@ def generate_launch_description():
         ],
     )
 
-    # robot_state_publisher = Node(
-    #     package="robot_state_publisher",
-    #     executable="robot_state_publisher",
-    #     name="robot_state_publisher",
-    #     output="log",
-    #     parameters=[moveit_config.robot_description],
-    # )
-
-    # ros2_controllers_path = os.path.join(
-    #     get_package_share_directory("ur16e_moveit_config"),
-    #     "config",
-    #     "ros2_controllers.yaml",
-    # )
-    # ros2_control_node = Node(
-    #     package="controller_manager",
-    #     executable="ros2_control_node",
-    #     parameters=[ros2_controllers_path],
-    #     remappings=[
-    #         ("/controller_manager/robot_description", "/robot_description"),
-    #     ],
-    #     output="log",
-    # )
-
-    # load_controllers = []
-    # for controller in [
-    #     "ur_arm_controller",
-    #     "joint_state_broadcaster",
-    # ]:
-    #     load_controllers += [
-    #         ExecuteProcess(
-    #             cmd=["ros2 run controller_manager spawner {}".format(controller)],
-    #             shell=True,
-    #             output="log",
-    #         )
-    #     ]
+    # Start everything else only after cleanup finishes
+    start_after_cleanup = RegisterEventHandler(
+        OnProcessExit(
+            target_action=cleanup,
+            on_exit=[
+                ur_robot_driver_launch,
+                moveit_py_node,
+                # static_tf,
+            ],
+        )
+    )
 
     return LaunchDescription(
         [
             moveit_exec_file,
-            ur_robot_driver_launch,
-            moveit_py_node,
-            # static_tf,
-            # robot_state_publisher,
-            # ros2_control_node,
-            # rviz_node,
+            cleanup,
+            start_after_cleanup,
         ]
-        # + load_controllers
     )

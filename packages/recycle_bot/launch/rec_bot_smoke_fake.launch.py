@@ -2,7 +2,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
@@ -33,6 +34,13 @@ def generate_launch_description():
         description="Python API smoke file name",
     )
 
+    # Kill leftover ROS processes to avoid controller conflicts
+    cleanup = ExecuteProcess(
+        cmd=["bash", "-c",
+             "pkill -INT -f 'ros2_control_node|controller_manager' 2>/dev/null; sleep 1; echo '[cleanup] Done'"],
+        output="screen",
+    )
+
     # UR Robot Driver with virtual robot (fake hardware)
     ur_robot_driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -41,6 +49,11 @@ def generate_launch_description():
         launch_arguments={
             "ur_type": "ur16e",
             "robot_ip": "192.168.1.102",
+            "kinematics_params_file": os.path.join(
+                get_package_share_directory("recycle_bot"),
+                "config",
+                "my_robot_calibration.yaml",
+            ),
             "use_mock_hardware": "true",
             "mock_sensor_commands": "true",
             "launch_rviz": "false",
@@ -56,10 +69,21 @@ def generate_launch_description():
         parameters=[moveit_config.to_dict()],
     )
 
+    # Start everything else only after cleanup finishes
+    start_after_cleanup = RegisterEventHandler(
+        OnProcessExit(
+            target_action=cleanup,
+            on_exit=[
+                ur_robot_driver_launch,
+                moveit_py_node,
+            ],
+        )
+    )
+
     return LaunchDescription(
         [
             moveit_exec_file,
-            ur_robot_driver_launch,
-            moveit_py_node,
+            cleanup,
+            start_after_cleanup,
         ]
     )

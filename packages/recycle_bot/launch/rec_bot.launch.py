@@ -2,10 +2,10 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
-from launch.substitutions import LaunchConfiguration
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
@@ -28,6 +28,15 @@ def generate_launch_description():
     )
 
     # =========================================================================
+    # 0. Kill leftover ROS processes to avoid controller conflicts
+    # =========================================================================
+    cleanup = ExecuteProcess(
+        cmd=["bash", "-c",
+             "pkill -INT -f 'ros2_control_node|controller_manager' 2>/dev/null; sleep 1; echo '[cleanup] Done'"],
+        output="screen",
+    )
+
+    # =========================================================================
     # 1. UR Robot Driver (real hardware)
     # =========================================================================
     ur_robot_driver_launch = IncludeLaunchDescription(
@@ -44,6 +53,14 @@ def generate_launch_description():
             ),
             "launch_rviz": "false",
             "initial_joint_controller": "scaled_joint_trajectory_controller",
+            "use_tool_communication": "true",
+            "tool_device_name": "/tmp/ttyUR",
+            "tool_voltage": "24",
+            "tool_parity": "0",
+            "tool_baud_rate": "115200",
+            "tool_stop_bits": "1",
+            "tool_rx_idle_chars": "1.5",
+            "tool_tx_idle_chars": "3.5",
         }.items()
     )
 
@@ -89,7 +106,13 @@ def generate_launch_description():
                 "rs_launch.py",
             )
         ),
-        launch_arguments={"pointcloud.enable": "true"}.items(),
+        launch_arguments={
+            "enable_rgbd": "true",
+            "enable_sync": "true",
+            "align_depth.enable": "true",
+            "enable_color": "true",
+            "enable_depth": "true",
+        }.items(),
     )
 
     # =========================================================================
@@ -105,13 +128,24 @@ def generate_launch_description():
         )
     )
 
+    # Start everything else only after cleanup finishes
+    start_after_cleanup = RegisterEventHandler(
+        OnProcessExit(
+            target_action=cleanup,
+            on_exit=[
+                ur_robot_driver_launch,
+                realsense_launch,
+                vision_node,
+                core_node,
+                control_node,
+                grip_launch,
+            ],
+        )
+    )
+
     return LaunchDescription(
         [
-            ur_robot_driver_launch,
-            realsense_launch,
-            vision_node,
-            core_node,
-            control_node,
-            grip_launch,
+            cleanup,
+            start_after_cleanup,
         ]
     )

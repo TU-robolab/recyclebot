@@ -2,7 +2,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -27,6 +28,15 @@ def generate_launch_description():
     )
 
     # =========================================================================
+    # 0. Kill leftover ROS processes to avoid controller conflicts
+    # =========================================================================
+    cleanup = ExecuteProcess(
+        cmd=["bash", "-c",
+             "pkill -INT -f 'ros2_control_node|controller_manager' 2>/dev/null; sleep 1; echo '[cleanup] Done'"],
+        output="screen",
+    )
+
+    # =========================================================================
     # 1. UR Robot Driver (mock hardware)
     # =========================================================================
     ur_robot_driver_launch = IncludeLaunchDescription(
@@ -36,6 +46,11 @@ def generate_launch_description():
         launch_arguments={
             "ur_type": "ur16e",
             "robot_ip": "192.168.1.102",
+            "kinematics_params_file": os.path.join(
+                get_package_share_directory("recycle_bot"),
+                "config",
+                "my_robot_calibration.yaml",
+            ),
             "use_mock_hardware": "true",
             "mock_sensor_commands": "true",
             "launch_rviz": "false",
@@ -94,13 +109,24 @@ def generate_launch_description():
         output="screen",
     )
 
+    # Start everything else only after cleanup finishes
+    start_after_cleanup = RegisterEventHandler(
+        OnProcessExit(
+            target_action=cleanup,
+            on_exit=[
+                ur_robot_driver_launch,
+                fake_camera_node,
+                vision_node,
+                core_node,
+                control_node,
+                mock_gripper_node,
+            ],
+        )
+    )
+
     return LaunchDescription(
         [
-            ur_robot_driver_launch,
-            fake_camera_node,
-            vision_node,
-            core_node,
-            control_node,
-            mock_gripper_node,
+            cleanup,
+            start_after_cleanup,
         ]
     )
