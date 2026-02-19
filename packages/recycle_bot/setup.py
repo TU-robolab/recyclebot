@@ -44,7 +44,8 @@ setup(
             'rec_bot_core = recycle_bot.rec_bot_core:main',
             'rec_bot_control = recycle_bot.rec_bot_control:main',
             'rec_bot_vision = recycle_bot.rec_bot_vision:main',
-            'rec_bot_smoke = recycle_bot.rec_bot_smoke:main'
+            'rec_bot_smoke = recycle_bot.rec_bot_smoke:main',
+            'launch_gate = recycle_bot.launch_gate:main'
         ],
     },
 )
