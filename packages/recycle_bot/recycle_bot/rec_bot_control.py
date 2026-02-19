@@ -102,9 +102,9 @@ class cobot_control(Node):
         # moveit_config.moveit_cpp(tmp_yaml_path)
         # moveit_config.to_moveit_configs()
 
-        self.velocity_scaling = float(self.declare_parameter("velocity_scaling", 0.05).value)
+        self.velocity_scaling = float(self.declare_parameter("velocity_scaling", 0.1).value)
         self.acceleration_scaling = float(
-            self.declare_parameter("acceleration_scaling", 0.05).value
+            self.declare_parameter("acceleration_scaling", 0.1).value
         )
         self.moveit = None
         self.arm = None
