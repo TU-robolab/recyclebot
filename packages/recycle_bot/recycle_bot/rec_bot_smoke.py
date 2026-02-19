@@ -107,8 +107,8 @@ def main():
         
         # per plan speed scaling with TOTG (https://moveit.picknik.ai/main/doc/api/python_api/_autosummary/moveit.core.robot_trajectory.html)
         trajectory_retimed = trajectory.apply_totg_time_parameterization(
-            velocity_scaling_factor=0.2,      
-            acceleration_scaling_factor=0.2   
+            velocity_scaling_factor=0.05,
+            acceleration_scaling_factor=0.05
         ) 
         
         if not trajectory_retimed:
