@@ -48,3 +48,5 @@ ros-${ROS_DISTRO}-moveit-py
 # RViz / MoveIt visualization plugins
 ros-${ROS_DISTRO}-moveit-ros-visualization
 ros-${ROS_DISTRO}-image-geometry
+# gripper packge 
+ros-${ROS_DISTRO}-remote-serial
