@@ -2,9 +2,15 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    RegisterEventHandler,
+)
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -27,8 +33,15 @@ def generate_launch_description():
         .to_moveit_configs()
     )
 
+    # Launch argument: seconds to wait for teach pendant before auto-continuing
+    wait_timeout_arg = DeclareLaunchArgument(
+        "wait_timeout",
+        default_value="30.0",
+        description="Seconds to wait for External Control URCap before launching remaining nodes",
+    )
+
     # =========================================================================
-    # 0. Kill leftover ROS processes to avoid controller conflicts
+    # Stage 1: Kill leftover ROS processes to avoid controller conflicts
     # =========================================================================
     cleanup = ExecuteProcess(
         cmd=["bash", "-c",
@@ -37,7 +50,7 @@ def generate_launch_description():
     )
 
     # =========================================================================
-    # 1. UR Robot Driver (real hardware)
+    # Stage 2a: UR Robot Driver (real hardware)
     # =========================================================================
     ur_robot_driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -65,7 +78,21 @@ def generate_launch_description():
     )
 
     # =========================================================================
-    # 2. Vision Detection Node (YOLO)
+    # Stage 2b: Wait gate — operator enables External Control URCap
+    #   Waits for:
+    #     ros2 service call /launch_gate std_srvs/srv/Trigger   (instant)
+    #   OR timeout (default wait_timeout seconds, configurable via launch arg)
+    # =========================================================================
+    wait_gate = Node(
+        package="recycle_bot",
+        executable="launch_gate",
+        name="launch_gate",
+        output="screen",
+        parameters=[{"timeout_sec": LaunchConfiguration("wait_timeout")}],
+    )
+
+    # =========================================================================
+    # Stage 3: Remaining nodes (after gate)
     # =========================================================================
     vision_node = Node(
         package="recycle_bot",
@@ -74,9 +101,6 @@ def generate_launch_description():
         output="screen",
     )
 
-    # =========================================================================
-    # 3. Core Processing Node (3D projection + TF)
-    # =========================================================================
     core_node = Node(
         package="recycle_bot",
         executable="rec_bot_core",
@@ -84,9 +108,6 @@ def generate_launch_description():
         output="screen",
     )
 
-    # =========================================================================
-    # 4. Control Node (MoveIt planning + execution)
-    # =========================================================================
     control_node = Node(
         name="moveit_py",
         package="recycle_bot",
@@ -95,9 +116,6 @@ def generate_launch_description():
         parameters=[moveit_config.to_dict()],
     )
 
-    # =========================================================================
-    # 5. RealSense Camera
-    # =========================================================================
     realsense_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -115,9 +133,6 @@ def generate_launch_description():
         }.items(),
     )
 
-    # =========================================================================
-    # 6. Gripper
-    # =========================================================================
     grip_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -128,12 +143,22 @@ def generate_launch_description():
         )
     )
 
-    # Start everything else only after cleanup finishes
+    # Stage 2: after cleanup → start UR driver + wait gate
     start_after_cleanup = RegisterEventHandler(
         OnProcessExit(
             target_action=cleanup,
             on_exit=[
                 ur_robot_driver_launch,
+                wait_gate,
+            ],
+        )
+    )
+
+    # Stage 3: after gate exits → start remaining nodes
+    start_after_gate = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wait_gate,
+            on_exit=[
                 realsense_launch,
                 vision_node,
                 core_node,
@@ -145,7 +170,9 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            wait_timeout_arg,
             cleanup,
             start_after_cleanup,
+            start_after_gate,
         ]
     )

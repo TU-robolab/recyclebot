@@ -2,11 +2,16 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, RegisterEventHandler
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    RegisterEventHandler,
+)
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch_ros.actions import Node
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
 
@@ -34,14 +39,24 @@ def generate_launch_description():
         description="Python API smoke file name",
     )
 
-    # Kill leftover ROS processes to avoid controller conflicts
+    wait_timeout_arg = DeclareLaunchArgument(
+        "wait_timeout",
+        default_value="30.0",
+        description="Seconds to wait for External Control URCap before launching remaining nodes",
+    )
+
+    # =========================================================================
+    # Stage 1: Kill leftover ROS processes to avoid controller conflicts
+    # =========================================================================
     cleanup = ExecuteProcess(
         cmd=["bash", "-c",
              "pkill -INT -f 'ros2_control_node|controller_manager' 2>/dev/null; sleep 1; echo '[cleanup] Done'"],
         output="screen",
     )
 
-    # UR Robot Driver with real hardware
+    # =========================================================================
+    # Stage 2a: UR Robot Driver (real hardware)
+    # =========================================================================
     ur_robot_driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             FindPackageShare("ur_robot_driver"), "/launch/ur_control.launch.py"
@@ -67,6 +82,20 @@ def generate_launch_description():
         }.items()
     )
 
+    # =========================================================================
+    # Stage 2b: Wait gate — operator enables External Control URCap
+    # =========================================================================
+    wait_gate = Node(
+        package="recycle_bot",
+        executable="launch_gate",
+        name="launch_gate",
+        output="screen",
+        parameters=[{"timeout_sec": LaunchConfiguration("wait_timeout")}],
+    )
+
+    # =========================================================================
+    # Stage 3: Smoke test node (after gate)
+    # =========================================================================
     moveit_py_node = Node(
         name="moveit_py",
         package="recycle_bot",
@@ -75,34 +104,23 @@ def generate_launch_description():
         parameters=[moveit_config.to_dict()],
     )
 
-    # Publish world -> base_link identity transform. The UR driver's RSP
-    # may also publish this (from the URDF), but MoveIt needs it available
-    # immediately — this ensures 'world' exists in TF before planning starts.
-    static_tf = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="static_transform_publisher",
-        output="log",
-        arguments=[
-            "--x", "0.0",
-            "--y", "0.0",
-            "--z", "0.0",
-            "--roll", "0.0",
-            "--pitch", "0.0",
-            "--yaw", "0.0",
-            "--frame-id", "world",
-            "--child-frame-id", "base",
-        ],
-    )
-
-    # Start everything else only after cleanup finishes
+    # Stage 2: after cleanup → start UR driver + wait gate
     start_after_cleanup = RegisterEventHandler(
         OnProcessExit(
             target_action=cleanup,
             on_exit=[
                 ur_robot_driver_launch,
+                wait_gate,
+            ],
+        )
+    )
+
+    # Stage 3: after gate exits → start smoke node
+    start_after_gate = RegisterEventHandler(
+        OnProcessExit(
+            target_action=wait_gate,
+            on_exit=[
                 moveit_py_node,
-                # static_tf,
             ],
         )
     )
@@ -110,7 +128,9 @@ def generate_launch_description():
     return LaunchDescription(
         [
             moveit_exec_file,
+            wait_timeout_arg,
             cleanup,
             start_after_cleanup,
+            start_after_gate,
         ]
     )
