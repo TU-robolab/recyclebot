@@ -163,7 +163,7 @@ def generate_launch_description():
                 vision_node,
                 core_node,
                 control_node,
-                grip_launch,
+                #grip_launch,
             ],
         )
     )
