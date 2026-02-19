@@ -81,22 +81,16 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
 
-# build the ROS2 workspace
-# Cache mounts persist rosdep dependency downloads across builds
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    cd ${ROS2_WS}/src \
+# build third-party ROS packages and install into the system ROS path
+# so they survive the bind mount of packages/ → src/ at runtime
+RUN mkdir -p /tmp/third_party_ws/src \
+    && cd /tmp/third_party_ws/src \
     && git clone https://github.com/openvmp/serial.git \
     && git clone https://github.com/giuschio/ros2_handeye_calibration.git \
-    && apt-get update \
     && . /opt/ros/${ROS_DISTRO}/setup.bash \
-    && cd .. \
-    && rosdep update && rosdep install --from-paths src --ignore-src -r -y --rosdistro ${ROS_DISTRO} \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    && colcon build --symlink-install \
-    && chown -R ${USER_NAME}:${USER_NAME} ${ROS2_WS} 
-    # colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
+    && cd /tmp/third_party_ws \
+    && colcon build --merge-install --install-base /opt/ros/${ROS_DISTRO} \
+    && rm -rf /tmp/third_party_ws
 
 # keep using system python that ROS uses
 ENV PYTHONNOUSERSITE=1 \
