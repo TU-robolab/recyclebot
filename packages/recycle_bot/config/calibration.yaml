@@ -6,8 +6,8 @@
 camera_transform:
   parent_frame: "base"
   child_frame: "camera_link"
-  translation: [0.384, -0.286, 0.624]  # meters
-  rotation: [0.0, 1.0, 0.0, 0.0]  # quaternion [x, y, z, w]
+  translation: [-0.3795, 0.3011, 0.6262]  # meters (measured with UR tool)
+  rotation: [0.69641, 0.71764, 0.0, 0.0]  # quaternion [x, y, z, w] (measured with UR tool)
 
 # detection filter thresholds
 # RealSense D415 range: 0.3m - 10m (optimal 0.5m - 3m)
