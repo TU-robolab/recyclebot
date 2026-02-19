@@ -164,7 +164,7 @@ class cobot_control(Node):
         # so the executor can still process service responses (e.g. gripper)
         # while this timer's callback is running.
         self._timer_cb_group = ReentrantCallbackGroup()
-        self.create_timer(1.0, self.process_tasks, callback_group=self._timer_cb_group)
+        self.create_timer(10.0, self.process_tasks, callback_group=self._timer_cb_group)
 
         self.get_logger().info("UR16e sorter node initialized")
 
