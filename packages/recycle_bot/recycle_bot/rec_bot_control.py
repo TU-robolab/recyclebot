@@ -375,12 +375,26 @@ class cobot_control(Node):
     def vision_callback(self, msg: PoseStamped):
         """Handles incoming object pose from the vision system and queues it."""
         try:
-            # convert from camera frame to robot base reference
+            # check if transform is available at the message timestamp
+            stamp = rclpy.time.Time.from_msg(msg.header.stamp)
+            if not self.tf_buffer.can_transform(
+                "base",
+                msg.header.frame_id,
+                stamp,
+                timeout=rclpy.duration.Duration(seconds=self.tf_timeout_sec),
+            ):
+                raw = msg.header.stamp
+                self.get_logger().warn(
+                    f"TF not available: 'base' <- '{msg.header.frame_id}' at stamp "
+                    f"{raw.sec}.{raw.nanosec}"
+                )
+                return
+
+            # convert from camera frame to robot base reference using message timestamp
             transform = self.tf_buffer.lookup_transform(
                 "base",
                 msg.header.frame_id,
-                rclpy.time.Time(),
-                timeout=rclpy.duration.Duration(seconds=self.tf_timeout_sec),
+                stamp,
             )
             transformed_pose = tf2_geometry_msgs.do_transform_pose_stamped(msg, transform)
 
