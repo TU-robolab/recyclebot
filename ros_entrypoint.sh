@@ -10,8 +10,12 @@ set -e
 # trap error_handler ERR  # Catch errors and invoke error_handler()
 
 . "/opt/ros/${ROS_DISTRO}/setup.bash"
-. "${ROS2_WS}/install/setup.bash"
-echo "ROS2 and ROS2_WS environment setup completed."
+if [ -f "${ROS2_WS}/install/setup.bash" ]; then
+    . "${ROS2_WS}/install/setup.bash"
+    echo "ROS2 and ROS2_WS environment setup completed."
+else
+    echo "ROS2 environment setup completed (workspace not yet built)."
+fi
 
 # activate Python virtual environment (if it exists)
 # if [ -d "/venv" ]; then
