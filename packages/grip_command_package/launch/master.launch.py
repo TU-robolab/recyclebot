@@ -69,13 +69,13 @@ def generate_launch_description():
                 ),  
 
                 #ros2 run tf2_ros static_transform_publisher 0.289, -0.294, 0.624 0.001, 1.000, 0.000, 0.001  base_link camera_link
-                Node(
-                    package='tf2_ros',
-                    executable='static_transform_publisher',
-                    name='static_transform_publisher',
-                    output='screen',
-                    arguments=['0.289', '-0.294', '0.624', '0.001', '1.000', '0.000', '0.001', 'base_link', 'camera_link']
-                )
+                # Node(
+                #     package='tf2_ros',
+                #     executable='static_transform_publisher',
+                #     name='static_transform_publisher',
+                #     output='screen',
+                #     arguments=['0.289', '-0.294', '0.624', '0.001', '1.000', '0.000', '0.001', 'base_link', 'camera_link']
+                # )
 
 
             ]
