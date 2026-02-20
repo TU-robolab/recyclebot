@@ -9,13 +9,12 @@ planning_scene_monitor_options:
 
 planning_pipelines:
   #namespace: "moveit_cpp"  # optional, default is ~
-  pipeline_names: ["ompl"]
+  pipeline_names: ["ompl", "pilz_industrial_motion_planner", "chomp"]
+
 ompl:
   planning_plugin: ompl_interface/OMPLPlanner
   planning_plugins:
     - ompl_interface/OMPLPlanner
-  # To optionally use Ruckig for jerk-limited smoothing, add this line to the request adapters below
-  # default_planning_request_adapters/AddRuckigTrajectorySmoothing
   request_adapters:
     - default_planning_request_adapters/ResolveConstraintFrames
     - default_planning_request_adapters/ValidateWorkspaceBounds
@@ -30,16 +29,75 @@ ompl:
       type: geometric::PRMstar
     RRTConnectkConfigDefault:
       type: geometric::RRTConnect
-      
-  # Define planner(s) for each move_group
   ur_arm:
     planner_configs:
       - PRMstarkConfigDefault
       - RRTConnectkConfigDefault
-  # Add additional planning pipeline config here
+
+pilz_industrial_motion_planner:
+  planning_plugin: pilz_industrial_motion_planner/CommandPlanner
+  planning_plugins:
+    - pilz_industrial_motion_planner/CommandPlanner
+  request_adapters:
+    - default_planning_request_adapters/ResolveConstraintFrames
+  response_adapters:
+    - default_planning_response_adapters/ValidateSolution
+    - default_planning_response_adapters/DisplayMotionPath
+
+chomp:
+  planning_plugin: chomp_interface/CHOMPPlanner
+  planning_plugins:
+    - chomp_interface/CHOMPPlanner
+  request_adapters:
+    - default_planning_request_adapters/ResolveConstraintFrames
+    - default_planning_request_adapters/ValidateWorkspaceBounds
+    - default_planning_request_adapters/CheckStartStateBounds
+    - default_planning_request_adapters/CheckStartStateCollision
+  response_adapters:
+    - default_planning_response_adapters/AddTimeOptimalParameterization
+    - default_planning_response_adapters/ValidateSolution
+    - default_planning_response_adapters/DisplayMotionPath
+
+# Default plan request (used by rec_bot_control)
 plan_request_params:
   planning_attempts: 10
   planning_pipeline: ompl
   planner_id: "RRTConnectkConfigDefault"
   max_velocity_scaling_factor: 0.3
   max_acceleration_scaling_factor: 0.3
+
+# Named plan request configs for each planner
+ompl_rrtc:
+  plan_request_params:
+    planning_attempts: 10
+    planning_pipeline: ompl
+    planner_id: "RRTConnectkConfigDefault"
+    max_velocity_scaling_factor: 0.3
+    max_acceleration_scaling_factor: 0.3
+    planning_time: 5.0
+
+pilz_ptp:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: pilz_industrial_motion_planner
+    planner_id: "PTP"
+    max_velocity_scaling_factor: 0.3
+    max_acceleration_scaling_factor: 0.3
+    planning_time: 0.8
+
+pilz_lin:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: pilz_industrial_motion_planner
+    planner_id: "LIN"
+    max_velocity_scaling_factor: 0.3
+    max_acceleration_scaling_factor: 0.3
+    planning_time: 0.8
+
+chomp_planner:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: chomp
+    max_velocity_scaling_factor: 0.3
+    max_acceleration_scaling_factor: 0.3
+    planning_time: 1.5
