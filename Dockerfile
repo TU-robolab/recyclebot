@@ -81,15 +81,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
 
-# build third-party ROS packages and install into the system ROS path
-# so they survive the bind mount of packages/ → src/ at runtime
+# build third-party ROS packages into a separate prefix so we don't
+# overwrite the distro setup.bash; survives bind mount of packages/ → src/
 RUN mkdir -p /tmp/third_party_ws/src \
     && cd /tmp/third_party_ws/src \
     && git clone https://github.com/openvmp/serial.git \
     && git clone https://github.com/giuschio/ros2_handeye_calibration.git \
     && . /opt/ros/${ROS_DISTRO}/setup.bash \
     && cd /tmp/third_party_ws \
-    && colcon build --merge-install --install-base /opt/ros/${ROS_DISTRO} \
+    && colcon build --merge-install --install-base /opt/third_party \
     && rm -rf /tmp/third_party_ws
 
 # keep using system python that ROS uses
@@ -133,6 +133,7 @@ USER ${USER_NAME}
 
 # source ROS workspace automatically when new terminal is opened
 RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${USER_NAME}/.bashrc \
+    && echo ". /opt/third_party/setup.bash" >> /home/${USER_NAME}/.bashrc \
     && echo ". ${ROS2_WS}/install/setup.bash" >> /home/${USER_NAME}/.bashrc \
     && echo "alias ros='ros2'" >> /home/${USER_NAME}/.bashrc
 
