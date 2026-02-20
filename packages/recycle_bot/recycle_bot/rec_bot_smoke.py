@@ -71,6 +71,29 @@ def main():
         q.w /= norm 
         pose_goal.pose.orientation = q
         
+        # ------------------------------------------------------------------
+        # Planner selection (see moveit_cpp.yaml for named configs)
+        # ------------------------------------------------------------------
+        # Default: arm.plan() uses plan_request_params from yaml (OMPL/RRTConnect)
+        #
+        # Single planner — use a named config from moveit_cpp.yaml:
+        #   from moveit.planning import PlanRequestParameters
+        #   params = PlanRequestParameters(moveit, "ompl_rrtc")    # OMPL RRTConnect
+        #   params = PlanRequestParameters(moveit, "pilz_ptp")     # Pilz point-to-point (joint space)
+        #   params = PlanRequestParameters(moveit, "pilz_lin")     # Pilz linear (straight-line cartesian)
+        #   params = PlanRequestParameters(moveit, "chomp_planner")# CHOMP
+        #   plan_result = arm.plan(single_plan_parameters=params)
+        #
+        # Multi-pipeline — race planners in parallel, pick best:
+        #   from moveit.planning import MultiPipelinePlanRequestParameters
+        #   multi = MultiPipelinePlanRequestParameters(
+        #       moveit, ["ompl_rrtc", "pilz_ptp", "chomp_planner"]
+        #   )
+        #   plan_result = arm.plan(multi_plan_parameters=multi)
+        #
+        # Ref: https://moveit.picknik.ai/main/doc/examples/motion_planning_python_api/motion_planning_python_api_tutorial.html
+        # ------------------------------------------------------------------
+
         # use current state as the start and the pose_goal as the target, start plan
         arm.set_start_state_to_current_state()
         arm.set_goal_state(pose_stamped_msg=pose_goal, pose_link="tool0")       # tool0 = UR16e TCP link
