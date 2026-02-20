@@ -1,7 +1,11 @@
 .env
 *.pyc
+__pycache__/
+.pycache_tmp/
+.pytest_cache/
 .vscode
 .DS_Store
+path/to/venv/
 ./packages/serial/
 
 # Test suite generated visualization files
