@@ -10,6 +10,10 @@ set -e
 # trap error_handler ERR  # Catch errors and invoke error_handler()
 
 . "/opt/ros/${ROS_DISTRO}/setup.bash"
+# third-party packages built at image time (serial, handeye_calibration)
+if [ -f /opt/third_party/setup.bash ]; then
+    . /opt/third_party/setup.bash
+fi
 if [ -f "${ROS2_WS}/install/setup.bash" ]; then
     . "${ROS2_WS}/install/setup.bash"
     echo "ROS2 and ROS2_WS environment setup completed."
