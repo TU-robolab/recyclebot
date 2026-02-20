@@ -20,7 +20,7 @@ neutral_pose:
 
 # sorting bin locations
 sorting_sequence:
-  - target_bin_1: { position: [0.39343, -0.24756, 0.10], orientation: [0.187876, -0.6345103, -0.7318231, 0.1628935] }
+  - target_bin_1: { position: [-0.2, 0.5, 0.35], orientation: [0.691287034033189, 0.7225793866612643, -0.0010909763948931102, 0.000276261350695787] }
 #  - target_bin_2: { position: [x2, y2, z2], orientation: [qx2, qy2, qz2, qw2] }
 #  - target_bin_3: { position: [x3, y3, z3], orientation: [qx3, qy3, qz3, qw3] }
 
