@@ -27,7 +27,7 @@ from sensor_msgs.msg import JointState
 from controller_manager_msgs.srv import ListControllers
 
 try:
-    from moveit.planning import MoveItPy
+    from moveit.planning import MoveItPy, PlanRequestParameters
     from moveit.core.robot_state import RobotState
     from moveit.core.kinematic_constraints import construct_joint_constraint
     from moveit_msgs.msg import (
@@ -43,6 +43,7 @@ try:
                         if isinstance(v, int) and k.isupper()}
 except ImportError:
     MoveItPy = None
+    PlanRequestParameters = None
     RobotState = None
     construct_joint_constraint = None
     Constraints = None
@@ -231,7 +232,7 @@ class cobot_control(Node):
         Add collision objects to planning scene for safe motion planning.
 
         Args:
-            table_size: (x, y, z) dimensions in meters, default 1.2x0.8x0.05m
+            table_size: (x, y, z) dimensions in meters, default 0.4x0.4x0.05m
             table_position: (x, y, z) center position relative to base
             camera_size: (x, y, z) dimensions in meters, default ~D415 with margin
             camera_position: (x, y, z) position from rec_bot_core.py static transform
@@ -248,7 +249,7 @@ class cobot_control(Node):
             #   top view:
             #        ┌─────────────────────┐
             #        │                     │
-            #        │    table (1.2m)     │
+            #        │    table (0.4m)     │
             #        │         ·──────────── UR base at center
             #        │                     │
             #        └─────────────────────┘
@@ -477,10 +478,10 @@ class cobot_control(Node):
 
         return result.success
 
-    def move_to_neutral(self) -> bool:
+    def move_to_neutral(self, planner: str = None) -> bool:
         """Move to neutral pose if configured."""
         if self.neutral_joint_pose:
-            return self.move_to_joint_positions(self.neutral_joint_pose)
+            return self.move_to_joint_positions(self.neutral_joint_pose, planner=planner)
 
         if self.neutral_pose is None:
             return True  # skip if not configured
@@ -488,12 +489,12 @@ class cobot_control(Node):
         # refresh timestamp
         self.neutral_pose.header.stamp = self.get_clock().now().to_msg()
 
-        if not self.move_to_pose(self.neutral_pose):
+        if not self.move_to_pose(self.neutral_pose, planner=planner):
             self.get_logger().error("Failed to reach neutral pose")
             return False
         return True
 
-    def move_to_joint_positions(self, joint_positions: dict) -> bool:
+    def move_to_joint_positions(self, joint_positions: dict, planner: str = None) -> bool:
         """Plan and execute a joint-space goal."""
         try:
             self.arm.set_start_state_to_current_state()
@@ -506,7 +507,10 @@ class cobot_control(Node):
                 ),
             )
             self.arm.set_goal_state(motion_plan_constraints=[joint_constraint])
-            plan_result = self.arm.plan()
+            plan_args = {}
+            if planner:
+                plan_args["single_plan_parameters"] = PlanRequestParameters(self.moveit, planner)
+            plan_result = self.arm.plan(**plan_args)
 
             if not plan_result or not getattr(plan_result, "success", False):
                 status = getattr(plan_result, "status", "unknown")
@@ -541,20 +545,21 @@ class cobot_control(Node):
         Processes pending sorting tasks if the robot is idle.
 
         Task sequence:
-            1. move to neutral (safe start)
-            2. move to pre-pick pose (approach)
-            3. move to pick pose
-            4. grip object
-            5. move to neutral (safe transit with object)
-            6. move to pre-place pose (approach)
-            7. move to place pose
-            8. release object
-            9. move to neutral (safe end)
+            1.  move to neutral (safe start)
+            2.  move to pre-pick pose (approach)
+            3.  move to pick pose (LIN)
+            4.  grip object
+            5.  retreat to pre-pick (LIN) — clear table before attaching collision
+            6.  move to neutral (safe transit with object)
+            7.  move to pre-place pose (approach)
+            8.  move to place pose (LIN)
+            9.  release object
+            10. move to neutral (safe end)
 
-                 neutral ←──────────────────────┐
-                    │                           │
-                    ▼                           │
-                  pre-pick ─► pick ─► grip ─► neutral ─► pre-place ─► place ─► release
+                 neutral ←─────────────────────────────────────────┐
+                    │                                              │
+                    ▼                                              │
+                  pre-pick ─► pick ─► grip ─► pre-pick ─► neutral ─► pre-place ─► place ─► release
         """
         if not self.startup_ready:
             if self.joint_states_received and self.controller_active("scaled_joint_trajectory_controller"):
@@ -568,70 +573,88 @@ class cobot_control(Node):
         pick_pose, place_pose = self.task_queue.popleft()
 
         # 1. start from neutral
-        if not self.move_to_neutral():
+        self.get_logger().info("Step 1/10: Moving to neutral (safe start)")
+        if not self.move_to_neutral(planner="pilz_ptp"):
             self.get_logger().error("Failed to reach neutral, aborting task")
             self.executing_task = False
             return
 
         # 2. move to pre-pick (approach)
+        self.get_logger().info("Step 2/10: Moving to pre-pick (approach)")
         pre_pick = self.offset_pose_z(pick_pose, self.approach_height_m)
-        if pre_pick is not None and not self.move_to_pose(pre_pick):
+        if pre_pick is not None and not self.move_to_pose(pre_pick, planner="pilz_ptp"):
             self.get_logger().error("Failed to reach pre-pick pose, returning to neutral")
-            self.move_to_neutral()
+            self.move_to_neutral(planner="pilz_ptp")
             self.executing_task = False
             return
 
         # 3. move to pick
-        if not self.move_to_pose(pick_pose):
+        self.get_logger().info("Step 3/10: Moving to pick pose (LIN)")
+        if not self.move_to_pose(pick_pose, planner="pilz_lin"):
             self.get_logger().error("Failed to reach pick pose, returning to neutral")
-            self.move_to_neutral()
+            self.move_to_neutral(planner="pilz_ptp")
             self.executing_task = False
             return
 
         # 4. grip
+        self.get_logger().info("Step 4/10: Gripping object")
         if not self.gripper_action("grip"):
             self.get_logger().error("Failed to grip object, returning to neutral")
-            self.move_to_neutral()
+            self.move_to_neutral(planner="pilz_ptp")
             self.executing_task = False
             return
+
+        # 4b. LIN retreat to pre-pick before attaching collision object
+        #     (attaching at pick height would collide with table)
+        self.get_logger().info("Step 5/10: Retreating to pre-pick height")
+        if pre_pick is not None and not self.move_to_pose(pre_pick, planner="pilz_lin"):
+            self.get_logger().error("Failed to retreat to pre-pick, returning to neutral")
+            self.gripper_action("release")
+            self.move_to_neutral(planner="pilz_ptp")
+            self.executing_task = False
+            return
+
         self.attach_object_to_tool()
 
-        self.get_logger().info("Object gripped, lifting to neutral")
+        self.get_logger().info("Step 6/10: Lifting to neutral (safe transit with object)")
 
-        # 4. lift to neutral (safe transit with object)
-        if not self.move_to_neutral():
+        # 6. lift to neutral (safe transit with object)
+        if not self.move_to_neutral(planner="pilz_ptp"):
             self.get_logger().error("Failed to lift to neutral, releasing object")
             self.gripper_action("release")
             self.executing_task = False
             return
 
-        # 6. move to pre-place (approach)
+        # 7. move to pre-place (approach)
+        self.get_logger().info("Step 7/10: Moving to pre-place (approach)")
         pre_place = self.offset_pose_z(place_pose, self.approach_height_m)
-        if pre_place is not None and not self.move_to_pose(pre_place):
+        if pre_place is not None and not self.move_to_pose(pre_place, planner="pilz_ptp"):
             self.get_logger().error("Failed to reach pre-place pose, releasing and returning to neutral")
             self.gripper_action("release")
-            self.move_to_neutral()
+            self.move_to_neutral(planner="pilz_ptp")
             self.executing_task = False
             return
 
-        # 7. move to place
-        if not self.move_to_pose(place_pose):
+        # 8. move to place
+        self.get_logger().info("Step 8/10: Moving to place pose (LIN)")
+        if not self.move_to_pose(place_pose, planner="pilz_lin"):
             self.get_logger().error("Failed to reach place pose, releasing and returning to neutral")
             self.gripper_action("release")
-            self.move_to_neutral()
+            self.move_to_neutral(planner="pilz_ptp")
             self.executing_task = False
             return
 
-        # 8. release
+        # 9. release
+        self.get_logger().info("Step 9/10: Releasing object")
         if not self.gripper_action("release"):
             self.get_logger().warn("Failed to release object")
         else:
             self.detach_object_from_tool()
 
-        self.get_logger().info("Object released, returning to neutral")
+        self.get_logger().info("Step 10/10: Returning to neutral")
 
-        # 9. return to neutral
-        self.move_to_neutral()
+        # 10. return to neutral
+        self.move_to_neutral(planner="pilz_ptp")
 
         self.get_logger().info("Sorting task completed")
         self.executing_task = False
@@ -691,7 +714,7 @@ class cobot_control(Node):
             self.get_logger().error(f"Error in Cartesian motion: {str(e)}")
             return False
 
-    def move_to_pose(self, pose: PoseStamped) -> bool:
+    def move_to_pose(self, pose: PoseStamped, planner: str = None) -> bool:
         """
         Plans and executes motion to the given pose.
 
@@ -706,7 +729,10 @@ class cobot_control(Node):
             self.arm.set_start_state_to_current_state()
             self.log_motion_debug(pose_to_plan)
             self.arm.set_goal_state(pose_stamped_msg=pose_to_plan, pose_link="tool0")
-            plan_result = self.arm.plan()
+            plan_args = {}
+            if planner:
+                plan_args["single_plan_parameters"] = PlanRequestParameters(self.moveit, planner)
+            plan_result = self.arm.plan(**plan_args)
 
             if not plan_result:
                 self.get_logger().error("Planning failed: no plan result returned")
@@ -847,16 +873,23 @@ class cobot_control(Node):
 
             planning_scene_monitor = self.moveit.get_planning_scene_monitor()
             with planning_scene_monitor.read_write() as scene:
-                scene.apply_attached_collision_object(aco)
+                scene.process_attached_collision_object(aco)
         except Exception as exc:
             self.get_logger().warn(f"Failed to attach collision object: {exc}")
 
     def detach_object_from_tool(self):
         """Detach the collision object from the tool."""
         try:
+            aco = AttachedCollisionObject()
+            aco.link_name = "tool0"
+            aco.object = CollisionObject()
+            aco.object.id = "grasped_object"
+            aco.object.header.frame_id = "tool0"
+            aco.object.operation = CollisionObject.REMOVE
+
             planning_scene_monitor = self.moveit.get_planning_scene_monitor()
             with planning_scene_monitor.read_write() as scene:
-                scene.remove_attached_collision_object("grasped_object")
+                scene.process_attached_collision_object(aco)
         except Exception as exc:
             self.get_logger().warn(f"Failed to detach collision object: {exc}")
 
@@ -948,7 +981,7 @@ def main():
         # Startup check and neutral move BEFORE adding to executor,
         # so rclpy.spin_once(self) inside wait_for_startup_ready works
         # (a node cannot be spun by two executors simultaneously).
-        if ur_node.wait_for_startup_ready() and ur_node.move_to_neutral():
+        if ur_node.wait_for_startup_ready() and ur_node.move_to_neutral(planner="pilz_ptp"):
             ur_node.get_logger().info("Moved to neutral pose on startup")
         executor.add_node(ur_node)
         executor.spin()
