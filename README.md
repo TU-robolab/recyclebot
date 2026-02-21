@@ -114,14 +114,6 @@ colcon build --cmake-clean-first
 source install/setup.bash
 ```
 
-**Expected output after build:**
-
-![Build output](resources/image-20250119211628872.png)
-
-**Container running:**
-
-![Container running](resources/image-20250119211726811.png)
-
 ---
 
 ## Subsystems
@@ -206,9 +198,9 @@ See [test_suite/README.md](test_suite/README.md) for full documentation.
 
 | Test Suite | Command | Description |
 |------------|---------|-------------|
-| Vision Workflow | `ros2 launch test_suite test_vision_workflow.launch.py` | 6 tests with fake camera |
-| E2E Pipeline | `ros2 launch test_suite test_e2e_pipeline.launch.py` | 8 tests: vision → core → gripper |
-| **E2E Robot Motion** | `ros2 launch test_suite test_control_robot_motion.launch.py` | **8 tests: camera → vision → control → MoveIt → UR virtual robot** |
+| Vision Workflow | `ros2 launch test_suite test_vision_workflow.launch.py` | 7 tests with fake camera |
+| E2E Pipeline | `ros2 launch test_suite test_e2e_pipeline.launch.py` | 13 tests: vision → core → gripper → MoveIt |
+| **Real Robot Motion** | `ros2 launch test_suite test_real_control_robot_motion.launch.py` | **4 tests: pick-place with real UR virtual robot** |
 | Real Camera | `ros2 launch test_suite test_vision_real_camera.launch.py` | Vision tests with RealSense D415 |
 
 ### Quick Test
@@ -217,11 +209,11 @@ See [test_suite/README.md](test_suite/README.md) for full documentation.
 # Build test packages
 colcon build --packages-select test_suite recycle_bot
 
-# Run basic E2E tests (vision → core → gripper)
+# Run E2E pipeline tests (vision → core → gripper → MoveIt)
 ros2 launch test_suite test_e2e_pipeline.launch.py
 
-# Run full E2E tests with robot motion (NEW)
-ros2 launch test_suite test_control_robot_motion.launch.py
+# Run real robot motion tests (pick-place with UR virtual robot)
+ros2 launch test_suite test_real_control_robot_motion.launch.py
 ```
 
 **Test outputs:**
@@ -229,27 +221,41 @@ ros2 launch test_suite test_control_robot_motion.launch.py
 - `/tmp/vision_workflow_test_report.txt`
 - `/tmp/rgbd_frame_*_combined.png` (RGB + depth visualization)
 
-### E2E Robot Motion Test Details
+### E2E Pipeline Test Details
 
-The new `test_control_robot_motion` test validates the complete system:
+The `test_e2e_pipeline` suite validates the complete system end-to-end with 13 tests:
 
-**Pipeline**: fake_rgbd → YOLO detection → 3D projection → MoveIt planning → UR virtual robot execution
+**Pipeline**: fake_rgbd → YOLO detection → 3D projection → MoveIt planning → mock gripper
 
-**Key Features**:
-- Uses UR's **virtual robot** (`use_mock_hardware:=true`) - no hardware needed
-- Tests full sorting sequence: neutral → pick → grip → neutral → place → release → neutral
-- Validates MoveIt planning, trajectory execution, task queueing
-- **Duration**: ~5 minutes (30s warmup, 4min tests)
-
-**8 Test Cases**:
+**13 Test Cases**:
 1. RGBD frames published
 2. Vision service available
-3. Detections → poses pipeline
-4. Initial joint states
-5. Single pick motion
-6. Full pick-place sequence
-7. Multiple detections sequential
-8. Joint states update
+3. Trigger detection
+4. Detection format validation
+5. Pose published (3D projection)
+6. TF available
+7. Initial joint states
+8. Gripper service available
+9. Gripper grip command
+10. Gripper release command
+11. Full pipeline flow (detection → pose → control)
+12. RGBD data validation
+13. Depth channel validation
+
+### Pick-Place Sequence
+
+The control node executes a **10-step pick-place cycle** using **Pilz PTP/LIN planners** with collision object management:
+
+1. Add table collision object
+2. Move to approach pose (PTP)
+3. Move to pick pose (LIN)
+4. Close gripper
+5. Retreat from pick (LIN)
+6. Move to neutral (PTP)
+7. Move to bin approach (PTP)
+8. Move to bin place (LIN)
+9. Open gripper
+10. Return to neutral (PTP)
 
 See `test_suite/README.md` for detailed documentation.
 
