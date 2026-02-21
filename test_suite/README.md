@@ -750,13 +750,18 @@ test_suite/
 │   ├── fake_rgbd_publisher.py      # Fake camera simulator
 │   └── fake_joint_state_publisher.py # Fake joint state publisher
 ├── test/
-│   └── test_vision_workflow.py     # Main test suite
-├── test_suite/                      # Python package
+│   ├── test_vision_workflow.py          # Vision workflow tests (7 tests)
+│   ├── test_e2e_pipeline.py             # E2E pipeline tests (13 tests)
+│   └── test_real_control_robot_motion.py # Robot motion tests (4 tests)
+├── test_suite/                           # Python package
 │   ├── __init__.py
 │   ├── fake_rgbd_publisher.py
 │   └── fake_joint_state_publisher.py
 └── launch/
-    └── test_vision_workflow.launch.py # ROS2 launch file (alternative)
+    ├── test_vision_workflow.launch.py
+    ├── test_e2e_pipeline.launch.py
+    ├── test_real_control_robot_motion.launch.py
+    └── test_vision_real_camera.launch.py
 ```
 
 ### Building the Package
