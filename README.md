@@ -329,8 +329,15 @@ docker rm -f $(docker ps -aq)
 
 ### Container Architecture
 
-- **Base image:** ROS2 Jazzy packages
-- **Dev image:** RecycleBot packages for vision, sim, and control
+Three Docker Compose layers stack via `extends`:
+
+| File | Target | Purpose |
+|------|--------|---------|
+| `docker-compose.base.yml` | `ros2_base` | ROS 2 Jazzy desktop, display/GPU env vars |
+| `docker-compose.dev.yml` | `ros2_dev` | User mapping, host networking, device access, bind-mounts for `packages/` and `test_suite/` |
+| `docker-compose.mac.yml` | `ros2_mac` | macOS: `platform: linux/amd64`, SSH mount, simplified volumes |
+
+Linux uses `base + dev`; macOS uses `mac` (which inherits both). `export_env.sh` generates the `.env` file consumed by all three (user/group IDs, display vars, robot IP `192.168.1.102`) and exports `DOCKER_BUILDKIT=1` / `COMPOSE_BAKE=true`.
 
 ### Development vs Deployment
 
@@ -340,12 +347,37 @@ docker rm -f $(docker ps -aq)
 | Build cache | Persistent volume | None |
 | Flexibility | Edit without rebuild | Immutable |
 
+### MoveIt Configuration
+
+All MoveIt config lives in `packages/ur16e_moveit_config/config/`:
+
+| File | Purpose |
+|------|---------|
+| `moveit_cpp.yaml` | Planner pipelines (OMPL, Pilz, CHOMP), velocity/acceleration limits, plan request presets |
+| `joint_limits.yaml` | Per-joint position, velocity, and acceleration limits |
+| `kinematics.yaml` | IK solver plugin and search parameters |
+| `pilz_cartesian_limits.yaml` | Max Cartesian velocity/acceleration for Pilz LIN/CIRC |
+| `ros2_controllers.yaml` | Joint trajectory controller configuration |
+| `moveit_controllers.yaml` | MoveIt controller manager mapping |
+| `ompl_planning.yaml` | OMPL planner algorithm configs (RRTConnect) |
+| `initial_positions.yaml` | Default joint positions for startup |
+
+Application config lives in `packages/recycle_bot/config/`:
+
+| File | Purpose |
+|------|---------|
+| `calibration.yaml` | Camera-to-base static TF, detection filter thresholds (confidence, depth range) |
+| `sorting_sequence.yaml` | Neutral pose, bin target poses, approach height, grasped object size |
+| `my_robot_calibration.yaml` | UR kinematics calibration from teach pendant (unique per robot) |
+
 ### Key Files
 
-- `Dockerfile` - Container build instructions
-- `docker-compose*.yml` - Service configuration
-- `devcontainer.json` - VS Code integration
-- `apt-*-packages` - Package lists per build phase
+- `Dockerfile` — Two-stage build (`ros2_base` → `ros2_dev`)
+- `docker-compose*.yml` — Service configuration (see [Container Architecture](#container-architecture))
+- `export_env.sh` — Generates `.env` and exports BuildKit vars
+- `ros_entrypoint.sh` — Sources ROS 2, third-party deps (`/opt/third_party`), and workspace
+- `devcontainer.json` — VS Code integration
+- `apt-*-packages` — Package lists per build phase
 
 ---
 
