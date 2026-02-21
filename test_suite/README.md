@@ -225,7 +225,7 @@ colcon build --packages-select test_suite --symlink-install
 source install/setup.bash
 
 # Run full pipeline test
-ros2 launch test_suite test_control_robot_motion.launch.py
+ros2 launch test_suite test_real_control_robot_motion.launch.py
 ```
 
 **What it tests:**
@@ -233,15 +233,11 @@ ros2 launch test_suite test_control_robot_motion.launch.py
 fake_rgbd → rec_bot_vision (YOLO) → rec_bot_core (3D projection) → rec_bot_control (MoveIt) → UR Virtual Robot
 ```
 
-**Test Coverage (8 tests):**
-1. ✓ RGBD frames published from fake camera
-2. ✓ Vision service `/capture_detections` available
-3. ✓ Detections → 3D poses pipeline working
-4. ✓ Initial joint states published
-5. ✓ Single pick motion (neutral → pick)
-6. ✓ Full pick-place sequence (neutral → pick → grip → neutral → place → release → neutral)
-7. ✓ Multiple detections queue sequentially
-8. ✓ Joint states update during execution
+**Test Coverage (4 tests):**
+1. ✓ Single pick motion (detection → robot moves to pick position)
+2. ✓ Full pick-place sequence (neutral → pick → grip → neutral → place → release → neutral)
+3. ✓ Multiple detections queued sequentially
+4. ✓ Joint states update during execution
 
 **Key Features:**
 - Uses UR's **virtual robot** (`use_mock_hardware:=true`) - no custom mocks needed
@@ -257,8 +253,8 @@ fake_rgbd → rec_bot_vision (YOLO) → rec_bot_core (3D projection) → rec_bot
 - `rec_bot_control` - MoveIt + control logic
 - `mock_gripper_service` - Gripper simulation
 
-**Test file**: `test/test_control_robot_motion.py`
-**Launch file**: `launch/test_control_robot_motion.launch.py`
+**Test file**: `test/test_real_control_robot_motion.py`
+**Launch file**: `launch/test_real_control_robot_motion.launch.py`
 
 ---
 
