@@ -39,6 +39,8 @@ It uses **Docker Compose** for version-consistent, portable deployments.
 - **git-lfs** for large files
 - (optional) **Real-time kernel** for UR control
 
+> **macOS users:** See [DOCKER_QUICKSTART.md](DOCKER_QUICKSTART.md) for Docker Desktop setup.
+
 ---
 
 ## Setup & Run
@@ -81,7 +83,7 @@ git clone https://github.com/TU-robolab/recyclebot.git
 cd recyclebot
 git lfs pull
 
-# Configure environment (source to export DOCKER_BUILDKIT to current shell)
+# Generate .env file (user/group IDs, display, robot IP) and export BuildKit vars
 source ./export_env.sh
 
 # Allow Docker display access
@@ -133,6 +135,11 @@ ros2 launch ur_robot_driver ur_control.launch.py \
 ```bash
 ros2 launch recycle_bot rec_bot_smoke.launch.py
 ```
+
+**Configuration notes:**
+- Robot IP (`192.168.1.102`) is set in `export_env.sh` and mapped via Docker's `extra_hosts` as hostname `ur`
+- `my_robot_calibration.yaml` — UR kinematics calibration exported from the teach pendant (unique per robot)
+- `calibration.yaml` — camera-to-base TF measured with the UR tool tip
 
 ---
 
@@ -201,7 +208,7 @@ See [test_suite/README.md](test_suite/README.md) for full documentation.
 | Vision Workflow | `ros2 launch test_suite test_vision_workflow.launch.py` | 7 tests with fake camera |
 | E2E Pipeline | `ros2 launch test_suite test_e2e_pipeline.launch.py` | 13 tests: vision → core → gripper → MoveIt |
 | **Real Robot Motion** | `ros2 launch test_suite test_real_control_robot_motion.launch.py` | **4 tests: pick-place with real UR virtual robot** |
-| Real Camera | `ros2 launch test_suite test_vision_real_camera.launch.py` | Vision tests with RealSense D415 |
+| Real Camera | `ros2 launch test_suite test_vision_real_camera.launch.py` | Vision tests with physical RealSense D415 (requires connected camera) |
 
 ### Quick Test
 
@@ -219,7 +226,14 @@ ros2 launch test_suite test_real_control_robot_motion.launch.py
 **Test outputs:**
 - Console report with pass/fail status
 - `/tmp/vision_workflow_test_report.txt`
+- `/tmp/e2e_pipeline_test_report.txt`
 - `/tmp/rgbd_frame_*_combined.png` (RGB + depth visualization)
+
+**Extracting reports from Docker:**
+```bash
+docker exec <container> cat /tmp/e2e_pipeline_test_report.txt
+docker cp <container>:/tmp/e2e_pipeline_test_report.txt ./
+```
 
 ### E2E Pipeline Test Details
 
