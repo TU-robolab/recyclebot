@@ -273,6 +273,19 @@ The control node executes a **10-step pick-place cycle** using **Pilz PTP/LIN pl
 
 See `test_suite/README.md` for detailed documentation.
 
+### Motion Planners
+
+The control node uses MoveIt planners configured in `packages/ur16e_moveit_config/config/moveit_cpp.yaml`:
+
+| Planner | Use in pick-place | Behavior |
+|---------|-------------------|----------|
+| **Pilz PTP** | Free-space moves (to approach, neutral, bin) | Point-to-point joint interpolation, deterministic |
+| **Pilz LIN** | Cartesian moves (approach→pick, retreat, approach→place) | Straight-line Cartesian path |
+| **OMPL RRTConnect** | Fallback / default | Sampling-based, non-deterministic |
+| **CHOMP** | Available, not used in default sequence | Gradient-based trajectory optimization |
+
+Velocity/acceleration scaling defaults to 0.3 for all planners.
+
 ---
 
 ## Troubleshooting
