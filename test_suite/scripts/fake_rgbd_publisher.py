@@ -107,7 +107,7 @@ class FakeRGBDPublisher(Node):
         D415 specs:
         - Range: 0.3m to ~3m
         - Format: Z16 (16-bit unsigned integer depth values)
-        - Resolution: 1280x720 @ 6fps
+        - Resolution: 1280x720 @ 6 Hz
 
         DEPTH SCALE:
         - RealSense cameras use a depth_scale factor (typically 0.001 for D415)
