@@ -62,22 +62,6 @@ class cobot_control(Node):
     def __init__(self):
         super().__init__("cobot_control")
         
-        # self.robot_description = None
-        # self.create_subscription(
-        #     String,
-        #     "/robot_description",
-        #     self.robot_description_callback,
-        #     10
-        # )
-
-        # setup ROS quality of service for moves
-        # qos_moves_objects = QoSProfile(
-        #     history=HistoryPolicy.KEEP_LAST,  # store recent messages
-        #     depth=10,  # buffer up to 10 movements
-        #     reliability=ReliabilityPolicy.RELIABLE,  # ensure all detections arrive
-        #     durability=DurabilityPolicy.VOLATILE  # no need to retain past detections
-        # )
-        
         # load config from YAML file
         (
             self.sorting_sequence,
@@ -91,18 +75,6 @@ class cobot_control(Node):
         self.executing_task = False
 
         # MoveIt2 Interface
-        # wait for robot description to be available
-        # while self.robot_description is None:
-        #     self.get_logger().info("Waiting for robot description...")
-        #     rclpy.spin_once(self, timeout_sec=1.0)
-
-        # moveit_config = MoveItConfigsBuilder("ur16e", package_name="ur_moveit_config")
-        # tmp_yaml_path = os.path.join(os.path.expanduser("~"), "ros2_ws/src/recycle_bot/pkg_resources", "moveit_params.yaml" )
-
-        # #moveit_config.robot_description(self.robot_description)
-        # moveit_config.moveit_cpp(tmp_yaml_path)
-        # moveit_config.to_moveit_configs()
-
         self.velocity_scaling = float(self.declare_parameter("velocity_scaling", 0.1).value)
         self.acceleration_scaling = float(
             self.declare_parameter("acceleration_scaling", 0.1).value
@@ -120,9 +92,12 @@ class cobot_control(Node):
         self.debug_no_collision_objects = bool(
             self.declare_parameter("debug_no_collision_objects", False).value
         )
+        # load camera position from calibration config for collision object
+        camera_position = self.load_camera_position()
+
         # add collision objects to planning scene unless disabled
         if not self.debug_no_collision_objects:
-            self.setup_collision_objects()
+            self.setup_collision_objects(camera_position=camera_position)
 
         # TF2 transform Listener
         self.tf_buffer = tf2_ros.Buffer()
@@ -226,7 +201,7 @@ class cobot_control(Node):
         table_size=(1.2, 0.8, 0.05),
         table_position=(0.0, 0.0, -0.025),
         camera_size=(0.10, 0.03, 0.03),
-        camera_position=(-0.384, 0.286, 0.624)
+        camera_position=(-0.3795, 0.3011, 0.6262)  # keep in sync with config/calibration.yaml
     ):
         """
         Add collision objects to planning scene for safe motion planning.
@@ -316,6 +291,23 @@ class cobot_control(Node):
 
             scene.apply_collision_object(camera)
             self.get_logger().info("Added camera collision object")
+
+    def load_camera_position(self):
+        """Load camera translation from calibration.yaml for collision object placement."""
+        default = (-0.3795, 0.3011, 0.6262)
+        yaml_path = os.path.join(
+            get_package_share_directory("recycle_bot"), "config", "calibration.yaml"
+        )
+        try:
+            with open(yaml_path, 'r') as f:
+                data = yaml.safe_load(f)
+            t = data.get("camera_transform", {}).get("translation", list(default))
+            pos = tuple(float(v) for v in t)
+            self.get_logger().info(f"Camera collision position from calibration: {pos}")
+            return pos
+        except Exception as e:
+            self.get_logger().warn(f"Failed to load camera position from calibration: {e}, using default")
+            return default
 
     def load_config(self):
         """Load sorting sequence, neutral pose, and cycle setting from YAML config."""
