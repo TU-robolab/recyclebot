@@ -15,11 +15,11 @@ ERROR_CODE_NAMES = {v: k for k, v in vars(MoveItErrorCodes).items()
 def main():
     rclpy.init()
     # https://docs.ros.org/en/rolling/p/rclpy/rclpy.logging.html
-    log = get_logger("ur16e_move_client")
+    log = get_logger("rec_bot_smoke")
     moveit = None
 
-    try:    
-        moveit = MoveItPy(node_name="ur16e_move_client")
+    try:
+        moveit = MoveItPy(node_name="moveit_py")
         
         # obtain a PlanningComponent for the manipulator group
         arm = moveit.get_planning_component("ur_arm")
