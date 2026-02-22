@@ -9,6 +9,7 @@ CV based pick-and-place system for trash sorting using ROS2 Jazzy inside a conta
 - [Overview](#overview)
 - [System Requirements](#system-requirements)
 - [Setup & Run](#setup--run)
+- [macOS Docker Quickstart](#macos-docker-quickstart)
 - [Subsystems](#subsystems)
   - [Robot (UR)](#robot-ur)
   - [Camera (RealSense)](#camera-realsense)
@@ -39,7 +40,7 @@ It uses **Docker Compose** for version-consistent, portable deployments.
 - **git-lfs** for large files
 - (optional) **Real-time kernel** for UR control
 
-> **macOS users:** See [DOCKER_QUICKSTART.md](DOCKER_QUICKSTART.md) for Docker Desktop setup.
+> **macOS users:** See [macOS Docker Quickstart](#macos-docker-quickstart) below.
 
 ---
 
@@ -115,6 +116,85 @@ source /ros_entrypoint.sh
 colcon build --cmake-clean-first
 source install/setup.bash
 ```
+
+---
+
+## macOS Docker Quickstart
+
+Build and run on macOS using x86_64 platform emulation.
+
+**Prerequisites:** Docker Desktop for Mac with Rosetta emulation enabled (recommended).
+
+### Build
+
+```bash
+cd ~/.../recyclebot
+./export_env.sh
+docker compose --env-file .env -f docker-compose.mac.yml build
+```
+
+### Start Container
+
+```bash
+# Recommended
+docker compose --env-file .env -f docker-compose.mac.yml up -d
+
+# Manual alternative
+docker run -d \
+  --name recyclebot-mac-1 \
+  --platform linux/amd64 \
+  -v "$(pwd)/packages:/home/${USER}/ros2_ws/src:rw" \
+  -v "$(pwd)/test_suite:/home/${USER}/test_suite:rw" \
+  ros2_mac \
+  bash -c "while true; do sleep 3600; done"
+```
+
+### Access Container & Build
+
+```bash
+docker exec -it recyclebot-mac-1 /ros_entrypoint.sh bash
+
+# Build ROS2 packages
+cd ~/ros2_ws
+colcon build --symlink-install
+source ~/ros2_ws/install/setup.bash
+```
+
+### Testing with Fake Publishers
+
+**Vision node with fake camera:**
+```bash
+# Terminal 1 — fake RGBD
+ros2 run test_suite fake_rgbd_publisher
+
+# Terminal 2 — vision node
+ros2 run recycle_bot rec_bot_vision
+
+# Terminal 3 — trigger detection
+ros2 service call /capture_detections std_srvs/srv/Trigger
+
+# Monitor detections
+ros2 topic echo /object_detections
+```
+
+**Robot control with fake joint states:**
+```bash
+ros2 run test_suite fake_joint_state_publisher
+ros2 topic echo /joint_states
+```
+
+### Stop Container
+
+```bash
+docker compose -f docker-compose.mac.yml down
+```
+
+### macOS Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| I/O errors during build | Retry or reduce parallelism: `docker compose ... build --parallel 1` |
+| Permission denied on build artifacts | Inside container: `chown -R $(whoami):$(whoami) ~/ros2_ws/build ~/ros2_ws/install ~/ros2_ws/log` |
 
 ---
 
