@@ -1,7 +1,24 @@
 #!/usr/bin/env python3
 """
-Fake RGBD publisher for testing vision node without real camera hardware.
-Publishes synthetic RGBD images to /camera/camera/rgbd topic.
+Fake RGBD Publisher — RealSense D415 Simulator
+
+Publishes synthetic RGBD images to ``/camera/camera/rgbd`` for testing the
+vision pipeline without real camera hardware.
+
+D415 Simulation Specs:
+    - Resolution: 1280x720
+    - Publish rate: 6 Hz (test mode; real D415 runs at 30 Hz)
+    - RGB encoding: bgr8
+    - Depth encoding: 16UC1 (Z16 format), values in millimeters
+    - Depth range: 300–3000 mm (D415 working range)
+    - Depth scale: 1.0 (raw value = millimeters)
+    - Sensor noise: ±2 mm std dev (Gaussian)
+    - Invalid pixels: ~2 % (simulates edges / reflective surfaces)
+    - Object-aligned depth: shapes in the RGB image have corresponding
+      depth values (374–624 mm) placed on a simulated table at 624 mm.
+
+Also broadcasts static TFs for ``camera_color_optical_frame`` and
+``camera_depth_optical_frame`` relative to ``camera_link``.
 """
 
 import rclpy

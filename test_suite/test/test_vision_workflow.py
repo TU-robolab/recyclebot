@@ -3,29 +3,45 @@
 Vision Workflow End-to-End Integration Tests
 
 Tests the complete object detection pipeline:
-    Fake RGBD Camera → Vision Detector → Object Detections
+    Fake RGBD Camera → Vision Detector Node (YOLO) → Object Detections
 
-Test Coverage:
-    1. Service Availability - /capture_detections service is accessible
-    2. Detection Triggering - Service calls successfully trigger detections
-    3. Topic Publishing - Detections published to /object_detections topic
-    4. Detection Format - Output has valid structure and metadata
+Pipeline under test::
 
-Features:
-    - Automated performance metrics collection
-    - Detailed detection metadata capture (bbox, confidence, class)
-    - Real-time console reporting
-    - Saved report file (/tmp/vision_workflow_test_report.txt)
-    - Quick summary with key metrics
+    fake_rgbd_publisher  →  rec_bot_vision  →  /object_detections
+    (/camera/camera/rgbd)    (/capture_detections srv)   (Detection3DArray)
 
-Usage:
+Test Coverage (7 tests):
+    1. Service Availability   — /capture_detections reachable within 15 s
+    2. Detection Triggering   — Trigger srv returns success with "detection" msg
+    3. Topic Publishing       — Detection3DArray arrives on /object_detections
+    4. Detection Format       — Valid bbox, confidence [0,1], class_id present
+    4b. TF Available          — base_link → camera_color_optical_frame resolves
+    5. RGBD Data Available    — 1280×720 frames, bgr8 RGB, 16UC1 depth
+    6. Depth Channel Valid.   — uint16 single-channel, 300–3000 mm, <10 % invalid
+
+Performance Reference (typical values):
+    Service response time:
+        CPU: 2000–4000 ms  |  GPU: 200–500 ms
+        Includes YOLO inference + image processing + ROS 2 comms.
+    Detection latency (srv call → topic msg):
+        Service response + 100–500 ms
+    Confidence score ranges:
+        90–100 %  very high  |  70–90 %  high  |  50–70 %  moderate
+    Common object classes:
+        flower_pot, box_pp, food_jar_pet, food_tetra, food_bottle_hdpe
+
+Outputs:
+    - Console report with pass/fail per test
+    - /tmp/vision_workflow_test_report.txt
+    - /tmp/rgbd_frame_*_{rgb,depth,combined}.png
+
+Usage::
+
     # Via automated script (recommended)
     bash scripts/run_vision_test.sh
 
     # Direct pytest
     python3 -m pytest test/test_vision_workflow.py -v -s
-
-See README_VISION_TESTS.md for complete documentation.
 """
 
 import unittest
@@ -491,7 +507,12 @@ class TestVisionWorkflow(unittest.TestCase):
             print(f"Warning: Could not write report file: {e}")
 
     def test_01_service_available(self):
-        """Test that the capture_detections service is available"""
+        """Verify /capture_detections service is running and accessible.
+
+        Checks: ROS 2 service discovery finds the service within 15 s.
+        Metric: time until service is available.
+        Pass: service found before timeout.
+        """
         start_time = time.time()
         result = self.wait_for_service(timeout_sec=15.0)
         elapsed = time.time() - start_time
@@ -507,7 +528,13 @@ class TestVisionWorkflow(unittest.TestCase):
         self.assertTrue(result, "Service /capture_detections not available after 15 seconds")
 
     def test_02_trigger_detection(self):
-        """Test triggering a detection via service call"""
+        """Verify Trigger service call runs YOLO inference and returns success.
+
+        Checks: service accepts request, returns success=True, response
+        message contains "detection", response arrives within 30 s.
+        Metric: service call response time (includes YOLO inference).
+        Pass: success=True and "detection" in message.
+        """
         # Wait for service
         self.assertTrue(self.wait_for_service(timeout_sec=15.0))
 
@@ -558,7 +585,13 @@ class TestVisionWorkflow(unittest.TestCase):
                      f"Unexpected message: {response.message}")
 
     def test_03_detections_published(self):
-        """Test that detections are published to /object_detections topic"""
+        """Verify detections arrive on /object_detections after a trigger.
+
+        Checks: Detection3DArray message received, array is non-empty.
+        Metrics: detection latency (service call → topic message),
+        number of objects detected.
+        Pass: ≥1 message received with ≥1 detection within 5 s.
+        """
         # Wait for service and trigger detection
         self.assertTrue(self.wait_for_service(timeout_sec=15.0))
 
@@ -613,7 +646,13 @@ class TestVisionWorkflow(unittest.TestCase):
                           "Detection array is empty")
 
     def test_04_detection_format(self):
-        """Test that detections have the correct format"""
+        """Validate detection message structure and capture metadata.
+
+        Checks: bbox has positive dimensions, center coords exist,
+        confidence ∈ [0.0, 1.0], class_id is non-empty.
+        Metrics per object: class_id, confidence %, bbox center/size/area.
+        Pass: all fields valid for every detection in the array.
+        """
         # Trigger and wait for detections
         self.assertTrue(self.wait_for_service(timeout_sec=15.0))
         self.detections_received.clear()
@@ -687,7 +726,11 @@ class TestVisionWorkflow(unittest.TestCase):
                   f"{obj['bbox_width']:.1f}x{obj['bbox_height']:.1f}px")
 
     def test_04b_tf_available(self):
-        """Test that TF can resolve base_link to camera_color_optical_frame"""
+        """Verify TF resolves base_link → camera_color_optical_frame.
+
+        Checks: tf2 lookup_transform succeeds within 5 s.
+        Pass: transform is not None.
+        """
         timeout = 5.0
         start_time = time.time()
         transform = None
@@ -722,7 +765,13 @@ class TestVisionWorkflow(unittest.TestCase):
         )
 
     def test_05_rgbd_data_available(self):
-        """Test that RGBD frames are being published from the fake camera"""
+        """Verify RGBD frames are publishing from the fake camera.
+
+        Checks: RGBD msg on /camera/camera/rgbd within 5 s, RGB and depth
+        non-null, camera info populated, 1280×720, bgr8 + 16UC1 encodings.
+        Metrics: frame count, resolution, encodings.
+        Pass: ≥1 frame matching expected resolution and encodings.
+        """
         # Clear any previous frames
         self.rgbd_frames.clear()
 
@@ -773,7 +822,16 @@ class TestVisionWorkflow(unittest.TestCase):
         print(f"         RGB encoding: {rgbd_msg.rgb.encoding}, Depth encoding: {rgbd_msg.depth.encoding}")
 
     def test_06_depth_channel_validation(self):
-        """Test that depth channel has valid data matching D415 specifications"""
+        """Validate depth data against RealSense D415 specifications.
+
+        Checks: dtype=uint16, single channel (720, 1280), depth in
+        300–3000 mm range, <10 % invalid (zero) pixels.
+        Metrics: depth min/max/mean/std, valid/invalid pixel counts.
+        Pass: all range and quality assertions hold.
+
+        Side-effect: saves RGB, depth heatmap, and combined visualizations
+        to /tmp/rgbd_frame_*_{rgb,depth,combined}.png.
+        """
         # Get an RGBD frame (reuse from previous test if available)
         if len(self.rgbd_frames) == 0:
             self.rgbd_frames.clear()
