@@ -28,7 +28,7 @@
 #   0 - All tests passed
 #   1 - One or more tests failed
 #
-# See README_VISION_TESTS.md for detailed documentation
+# See test_suite/README.md for detailed documentation
 #
 ################################################################################
 
