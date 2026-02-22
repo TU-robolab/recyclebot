@@ -73,7 +73,7 @@ class VisionDetector(Node):
         # TODO: consider extracting from /camera/camera/depth/camera_info or parameter server
         self.depth_scale = 0.001  
         
-        # create ROS2 interfaces to triger capture of goals
+        # create ROS2 interfaces to trigger capture of goals
         self.srv = self.create_service(Trigger, "capture_detections", 
                                        self.trigger_callback,
                                        callback_group= MutuallyExclusiveCallbackGroup()
@@ -150,21 +150,20 @@ class VisionDetector(Node):
             camera_info = self.last_rgbd_image.rgb_camera_info
         
 
-        # display debug images
-        #self.show_rgbd(cv_image,depth_cv_image)
-        #(comment this line for headless testing) Launch visualization in separate thread 
+        # Uncomment for debug visualization (disables headless testing)
+        # Runs in a separate thread to avoid blocking the inference callback
         #Thread(target=self.show_rgbd, args=(cv_image, depth_cv_image)).start()
 
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
         inf_results = self.model(cv_image, conf=0.5)  
-        print(f"NN output raw inference output: {inf_results}")
-        print(f"NN output raw inference boxes: {inf_results[0].boxes}")
+        self.get_logger().debug(f"NN output raw inference output: {inf_results}")
+        self.get_logger().debug(f"NN output raw inference boxes: {inf_results[0].boxes}")
        
         
         # process detections
         detections = self.process_yolo_results(inf_results, cv_image, depth_cv_image)
 
-        print(f"NN output raw detections: {detections}")
+        self.get_logger().debug(f"NN output raw detections: {detections}")
         # add unique detections to deque (only alter detections inside the lock)
         with self.detection_lock:
             added_count = 0
