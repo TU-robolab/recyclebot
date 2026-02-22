@@ -125,28 +125,13 @@ Build and run on macOS using x86_64 platform emulation.
 
 **Prerequisites:** Docker Desktop for Mac with Rosetta emulation enabled (recommended).
 
-### Build
+### Build & Launch
 
 ```bash
 cd ~/.../recyclebot
-./export_env.sh
+source ./export_env.sh  # generates .env + exports BuildKit vars
 docker compose --env-file .env -f docker-compose.mac.yml build
-```
-
-### Start Container
-
-```bash
-# Recommended
 docker compose --env-file .env -f docker-compose.mac.yml up -d
-
-# Manual alternative
-docker run -d \
-  --name recyclebot-mac-1 \
-  --platform linux/amd64 \
-  -v "$(pwd)/packages:/home/${USER}/ros2_ws/src:rw" \
-  -v "$(pwd)/test_suite:/home/${USER}/test_suite:rw" \
-  ros2_mac \
-  bash -c "while true; do sleep 3600; done"
 ```
 
 ### Access Container & Build
@@ -160,33 +145,10 @@ colcon build --symlink-install
 source ~/ros2_ws/install/setup.bash
 ```
 
-### Testing with Fake Publishers
-
-**Vision node with fake camera:**
-```bash
-# Terminal 1 — fake RGBD
-ros2 run test_suite fake_rgbd_publisher
-
-# Terminal 2 — vision node
-ros2 run recycle_bot rec_bot_vision
-
-# Terminal 3 — trigger detection
-ros2 service call /capture_detections std_srvs/srv/Trigger
-
-# Monitor detections
-ros2 topic echo /object_detections
-```
-
-**Robot control with fake joint states:**
-```bash
-ros2 run test_suite fake_joint_state_publisher
-ros2 topic echo /joint_states
-```
-
 ### Stop Container
 
 ```bash
-docker compose -f docker-compose.mac.yml down
+docker compose --env-file .env -f docker-compose.mac.yml down
 ```
 
 ### macOS Troubleshooting
