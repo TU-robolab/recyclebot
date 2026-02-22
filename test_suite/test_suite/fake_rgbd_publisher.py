@@ -226,7 +226,7 @@ class FakeRGBDPublisher(Node):
         self.publisher.publish(rgbd_msg)
 
         self.frame_count += 1
-        if self.frame_count % 25 == 0:
+        if self.frame_count % 360 == 0:
             self.get_logger().info(f'Published {self.frame_count} fake RGBD frames')
 
 
