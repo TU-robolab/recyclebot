@@ -9,6 +9,7 @@ CV based pick-and-place system for trash sorting using ROS2 Jazzy inside a conta
 - [Overview](#overview)
 - [System Requirements](#system-requirements)
 - [Setup & Run](#setup--run)
+- [Run Modes](#run-modes)
 - [macOS Docker Quickstart](#macos-docker-quickstart)
 - [Subsystems](#subsystems)
   - [Robot (UR)](#robot-ur)
@@ -117,6 +118,66 @@ colcon build --cmake-clean-first
 source install/setup.bash
 ```
 
+### 6. Real Gripper Serial Device (Linux, Hardware Mode)
+
+`grip_command_package` expects a serial device at `/tmp/ttyUR`.
+
+1. Create a stable host symlink for the USB-serial adapter (example udev rule):
+```bash
+sudo tee /etc/udev/rules.d/99-ttyUR.rules >/dev/null <<'EOF'
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", SYMLINK+="ttyUR", MODE="0666"
+EOF
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+ls -l /dev/ttyUR
+```
+2. Bind the device into Docker by enabling this line in `docker-compose.dev.yml`:
+```yaml
+- /dev/ttyUR:/tmp/ttyUR
+```
+3. Recreate the container:
+```bash
+docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml up -d --force-recreate
+```
+
+---
+
+## Run Modes
+
+After workspace build (`colcon build` + `source install/setup.bash`), choose one mode:
+
+### Full System (Real UR + RealSense + Gripper)
+
+```bash
+ros2 launch recycle_bot rec_bot.launch.py
+```
+
+`rec_bot.launch.py` starts a launch gate while the operator enables External Control on the teach pendant. Continue immediately with:
+
+```bash
+ros2 service call /launch_gate std_srvs/srv/Trigger "{}"
+```
+
+Or wait for the launch timeout (default: 30s).
+
+### Full System (Mock UR + Fake Camera + Mock Gripper)
+
+```bash
+ros2 launch recycle_bot rec_bot_fake.launch.py
+```
+
+### Smoke Test (Real UR, no camera)
+
+```bash
+ros2 launch recycle_bot rec_bot_smoke.launch.py
+```
+
+### Smoke Test (Mock UR, no camera)
+
+```bash
+ros2 launch recycle_bot rec_bot_smoke_fake.launch.py
+```
+
 ---
 
 ## macOS Docker Quickstart
@@ -170,7 +231,7 @@ docker compose --env-file .env -f docker-compose.mac.yml down
 ros2 launch ur_robot_driver ur_control.launch.py \
   ur_type:=ur16e \
   robot_ip:=192.168.1.102 \
-  kinematics_params_file:="/home/ur16e/ros2_ws/src/recycle_bot/my_robot_calibration.yaml" \
+  kinematics_params_file:="$(ros2 pkg prefix recycle_bot)/share/recycle_bot/config/my_robot_calibration.yaml" \
   launch_rviz:=false
 ```
 3. Test with smoke demo:
@@ -182,6 +243,23 @@ ros2 launch recycle_bot rec_bot_smoke.launch.py
 - Robot IP (`192.168.1.102`) is set in `export_env.sh` and mapped via Docker's `extra_hosts` as hostname `ur`
 - `my_robot_calibration.yaml` — UR kinematics calibration exported from the teach pendant (unique per robot)
 - `calibration.yaml` — camera-to-base TF measured with the UR tool tip
+
+### Calibration Workflow (Required for Real Hardware)
+
+1. Export UR kinematic calibration from the teach pendant and save it as:
+`packages/recycle_bot/config/my_robot_calibration.yaml`
+2. Measure camera-to-base transform and update:
+`packages/recycle_bot/config/calibration.yaml`
+3. Verify TF chain:
+```bash
+ros2 run tf2_tools view_frames
+```
+4. Rebuild package after config changes:
+```bash
+cd ~/ros2_ws
+colcon build --packages-select recycle_bot
+source install/setup.bash
+```
 
 ---
 
@@ -344,6 +422,17 @@ docker builder prune -f
 # Full reset (destructive)
 docker rmi $(docker images -q) --force
 docker rm -f $(docker ps -aq)
+```
+
+### Serial Device Checks (Gripper)
+
+```bash
+# On host (Linux)
+ls -l /dev/ttyUR
+
+# In container
+ls -l /tmp/ttyUR
+ros2 topic list | grep /serial/com1
 ```
 
 ---

@@ -18,11 +18,18 @@ Automated end-to-end integration tests for RecycleBot vision detection system wi
 
 ## Quick Start
 
+Set container name once (Linux: `recyclebot-dev-1`, macOS: `recyclebot-mac-1`):
+
+```bash
+export CONTAINER=recyclebot-dev-1
+# export CONTAINER=recyclebot-mac-1
+```
+
 ### Run Tests (Automated)
 
 ```bash
 # Inside Docker container
-docker exec -it recyclebot-mac-1 /ros_entrypoint.sh bash
+docker exec -it "$CONTAINER" /ros_entrypoint.sh bash
 cd ~/ros2_ws/src/test_suite
 bash scripts/run_vision_test.sh
 ```
@@ -30,7 +37,7 @@ bash scripts/run_vision_test.sh
 ### From Host Machine
 
 ```bash
-docker exec recyclebot-mac-1 /ros_entrypoint.sh bash -c \
+docker exec "$CONTAINER" /ros_entrypoint.sh bash -c \
   "cd ~/ros2_ws/src/test_suite && bash scripts/run_vision_test.sh"
 ```
 
@@ -41,10 +48,10 @@ docker exec recyclebot-mac-1 /ros_entrypoint.sh bash -c \
 cat /tmp/vision_workflow_test_report.txt
 
 # From host
-docker exec recyclebot-mac-1 cat /tmp/vision_workflow_test_report.txt
+docker exec "$CONTAINER" cat /tmp/vision_workflow_test_report.txt
 
 # Copy to host
-docker cp recyclebot-mac-1:/tmp/vision_workflow_test_report.txt ./
+docker cp "$CONTAINER":/tmp/vision_workflow_test_report.txt ./
 ```
 
 ---
@@ -121,11 +128,11 @@ python3 -m pytest test/test_vision_workflow.py -v -s
 
 ```bash
 # Run complete test
-docker exec recyclebot-mac-1 /ros_entrypoint.sh bash -c \
+docker exec "$CONTAINER" /ros_entrypoint.sh bash -c \
   "cd ~/ros2_ws/src/test_suite && bash scripts/run_vision_test.sh"
 
 # View report
-docker exec recyclebot-mac-1 cat /tmp/vision_workflow_test_report.txt
+docker exec "$CONTAINER" cat /tmp/vision_workflow_test_report.txt
 ```
 
 ### Method 4: End-to-End Robot Motion Tests (NEW)
@@ -239,11 +246,16 @@ Tests automatically run on GitHub when:
 **Triggers:**
 - Push to `main` or `dev/**` branches
 - Pull requests to `main` or `dev/**`
-- Changes to vision-related files:
+- Changes to these path patterns:
   - `packages/recycle_bot/recycle_bot/rec_bot_vision.py`
   - `packages/recycle_bot/**/*.py`
-  - `test_suite/` files
-  - Docker configs
+  - `test_suite/test/test_vision_workflow.py`
+  - `test_suite/scripts/**`
+  - `test_suite/package.xml`
+  - `test_suite/setup.py`
+  - `Dockerfile*`
+  - `docker-compose*.yml`
+  - `.github/workflows/vision-tests.yml`
 
 **Workflow:** `.github/workflows/vision-tests.yml`
 
