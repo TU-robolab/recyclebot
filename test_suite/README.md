@@ -173,7 +173,7 @@ fake_rgbd → rec_bot_vision (YOLO) → rec_bot_core (3D projection) → rec_bot
 
 ## Test Reports
 
-Reports are saved to `/tmp/` inside Docker. See [EXAMPLE_REPORT.md](EXAMPLE_REPORT.md) for sample output.
+Reports are saved to `/tmp/` inside Docker. See [example_report.md](example_report.md) for sample output.
 
 **Saved report file:** `/tmp/vision_workflow_test_report.txt` (quick summary + detailed detection info).
 
@@ -198,7 +198,7 @@ Reports are saved to `/tmp/` inside Docker. See [EXAMPLE_REPORT.md](EXAMPLE_REPO
 ```
 test_suite/
 ├── README.md                        # This documentation
-├── EXAMPLE_REPORT.md                # Sample test output
+├── example_report.md                # Sample test output
 ├── package.xml                      # ROS2 package definition
 ├── setup.py                         # Python package setup
 ├── scripts/
