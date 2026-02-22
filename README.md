@@ -95,7 +95,7 @@ xhost +local:root
 
 ```bash
 # Build (with BuildKit for faster cached builds)
-source ./export_env.sh (gives buildkit and compose bake)
+source ./export_env.sh  # gives BuildKit and Compose Bake
 docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml build
 
 # Launch
@@ -237,24 +237,7 @@ docker cp <container>:/tmp/e2e_pipeline_test_report.txt ./
 
 ### E2E Pipeline Test Details
 
-The `test_e2e_pipeline` suite validates the complete system end-to-end with 13 tests:
-
-**Pipeline**: fake_rgbd → YOLO detection → 3D projection → MoveIt planning → mock gripper
-
-**13 Test Cases**:
-1. RGBD frames published
-2. Vision service available
-3. Trigger detection
-4. Detection format validation
-5. Pose published (3D projection)
-6. TF available
-7. Initial joint states
-8. Gripper service available
-9. Gripper grip command
-10. Gripper release command
-11. Full pipeline flow (detection → pose → control)
-12. RGBD data validation
-13. Depth channel validation
+The `test_e2e_pipeline` suite validates the complete system end-to-end: fake_rgbd → YOLO detection → 3D projection → MoveIt planning → mock gripper. 13 tests covering RGBD publishing, vision service, detection format, TF, joint states, gripper commands, full pipeline flow, and depth validation.
 
 ### Pick-Place Sequence
 
@@ -270,8 +253,6 @@ The control node executes a **10-step pick-place cycle** using **Pilz PTP/LIN pl
 8. Move to bin place (LIN)
 9. Open gripper
 10. Return to neutral (PTP)
-
-See `test_suite/README.md` for detailed documentation.
 
 ### Motion Planners
 
