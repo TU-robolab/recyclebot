@@ -118,28 +118,6 @@ colcon build --cmake-clean-first
 source install/setup.bash
 ```
 
-### 6. Real Gripper Serial Device (Linux, Hardware Mode)
-
-`grip_command_package` expects a serial device at `/tmp/ttyUR`.
-
-1. Create a stable host symlink for the USB-serial adapter (example udev rule):
-```bash
-sudo tee /etc/udev/rules.d/99-ttyUR.rules >/dev/null <<'EOF'
-SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", SYMLINK+="ttyUR", MODE="0666"
-EOF
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-ls -l /dev/ttyUR
-```
-2. Bind the device into Docker by enabling this line in `docker-compose.dev.yml`:
-```yaml
-- /dev/ttyUR:/tmp/ttyUR
-```
-3. Recreate the container:
-```bash
-docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml up -d --force-recreate
-```
-
 ---
 
 ## Run Modes
