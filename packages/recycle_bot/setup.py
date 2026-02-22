@@ -35,8 +35,8 @@ setup(
     install_requires=install_requires,  # add requirements from requirements.txt
     zip_safe=True,
     maintainer='Elvis Borges',
-    maintainer_email='todo@todo.todo',
-    description='TODO: Package description',
+    maintainer_email='elvis@triku.studio',
+    description='CV-based pick-and-place pipeline: vision, core, and control nodes for RecycleBot',
     license='MIT',
     tests_require=['pytest'],
     entry_points={

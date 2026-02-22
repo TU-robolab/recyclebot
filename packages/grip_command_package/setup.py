@@ -15,10 +15,10 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='ur16e',
-    maintainer_email='ur16e@todo.todo',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    maintainer='Jakob D. Gros',
+    maintainer_email='jakob.gros@hs-aalen.de',
+    description='Serial gripper interface for Robotiq E-Pick on UR robots',
+    license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
