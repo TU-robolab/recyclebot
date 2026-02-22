@@ -562,13 +562,14 @@ class cobot_control(Node):
             return
 
         self.executing_task = True
+        self._object_attached = False
         pick_pose, place_pose = self.task_queue.popleft()
 
         # 1. start from neutral
         self.get_logger().info("Step 1/10: Moving to neutral (safe start)")
         if not self.move_to_neutral(planner="pilz_ptp"):
             self.get_logger().error("Failed to reach neutral, aborting task")
-            self.executing_task = False
+            self._abort_task()
             return
 
         # 2. move to pre-pick (approach)
@@ -576,45 +577,39 @@ class cobot_control(Node):
         pre_pick = self.offset_pose_z(pick_pose, self.approach_height_m)
         if pre_pick is not None and not self.move_to_pose(pre_pick, planner="pilz_ptp"):
             self.get_logger().error("Failed to reach pre-pick pose, returning to neutral")
-            self.move_to_neutral(planner="pilz_ptp")
-            self.executing_task = False
+            self._abort_task(move_to_neutral=True)
             return
 
         # 3. move to pick
         self.get_logger().info("Step 3/10: Moving to pick pose (LIN)")
         if not self.move_to_pose(pick_pose, planner="pilz_lin"):
             self.get_logger().error("Failed to reach pick pose, returning to neutral")
-            self.move_to_neutral(planner="pilz_ptp")
-            self.executing_task = False
+            self._abort_task(move_to_neutral=True)
             return
 
         # 4. grip
         self.get_logger().info("Step 4/10: Gripping object")
         if not self.gripper_action("grip"):
             self.get_logger().error("Failed to grip object, returning to neutral")
-            self.move_to_neutral(planner="pilz_ptp")
-            self.executing_task = False
+            self._abort_task(move_to_neutral=True)
             return
 
-        # 4b. LIN retreat to pre-pick before attaching collision object
-        #     (attaching at pick height would collide with table)
+        # 5. LIN retreat to pre-pick before attaching collision object
+        #    (attaching at pick height would collide with table)
         self.get_logger().info("Step 5/10: Retreating to pre-pick height")
         if pre_pick is not None and not self.move_to_pose(pre_pick, planner="pilz_lin"):
             self.get_logger().error("Failed to retreat to pre-pick, returning to neutral")
-            self.gripper_action("release")
-            self.move_to_neutral(planner="pilz_ptp")
-            self.executing_task = False
+            self._abort_task(release_object=True, move_to_neutral=True)
             return
 
         self.attach_object_to_tool()
-
-        self.get_logger().info("Step 6/10: Lifting to neutral (safe transit with object)")
+        self._object_attached = True
 
         # 6. lift to neutral (safe transit with object)
+        self.get_logger().info("Step 6/10: Lifting to neutral (safe transit with object)")
         if not self.move_to_neutral(planner="pilz_ptp"):
             self.get_logger().error("Failed to lift to neutral, releasing object")
-            self.gripper_action("release")
-            self.executing_task = False
+            self._abort_task(release_object=True)
             return
 
         # 7. move to pre-place (approach)
@@ -622,33 +617,39 @@ class cobot_control(Node):
         pre_place = self.offset_pose_z(place_pose, self.approach_height_m)
         if pre_place is not None and not self.move_to_pose(pre_place, planner="pilz_ptp"):
             self.get_logger().error("Failed to reach pre-place pose, releasing and returning to neutral")
-            self.gripper_action("release")
-            self.move_to_neutral(planner="pilz_ptp")
-            self.executing_task = False
+            self._abort_task(release_object=True, move_to_neutral=True)
             return
 
         # 8. move to place
         self.get_logger().info("Step 8/10: Moving to place pose (LIN)")
         if not self.move_to_pose(place_pose, planner="pilz_lin"):
             self.get_logger().error("Failed to reach place pose, releasing and returning to neutral")
-            self.gripper_action("release")
-            self.move_to_neutral(planner="pilz_ptp")
-            self.executing_task = False
+            self._abort_task(release_object=True, move_to_neutral=True)
             return
 
         # 9. release
         self.get_logger().info("Step 9/10: Releasing object")
         if not self.gripper_action("release"):
-            self.get_logger().warn("Failed to release object")
-        else:
-            self.detach_object_from_tool()
-
-        self.get_logger().info("Step 10/10: Returning to neutral")
+            self.get_logger().warn("Failed to release object, detaching collision object anyway")
+        self.detach_object_from_tool()
+        self._object_attached = False
 
         # 10. return to neutral
+        self.get_logger().info("Step 10/10: Returning to neutral")
         self.move_to_neutral(planner="pilz_ptp")
 
         self.get_logger().info("Sorting task completed")
+        self.executing_task = False
+
+    def _abort_task(self, release_object=False, move_to_neutral=False):
+        """Clean up and abort the current pick-place task."""
+        if release_object:
+            self.gripper_action("release")
+        if self._object_attached:
+            self.detach_object_from_tool()
+            self._object_attached = False
+        if move_to_neutral:
+            self.move_to_neutral(planner="pilz_ptp")
         self.executing_task = False
 
     def move_cartesian(self, waypoints):
