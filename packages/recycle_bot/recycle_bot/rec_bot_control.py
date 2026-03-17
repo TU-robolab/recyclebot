@@ -504,13 +504,34 @@ class cobot_control(Node):
                 plan_args["single_plan_parameters"] = PlanRequestParameters(self.moveit, planner)
             plan_result = self.arm.plan(**plan_args)
 
-            if not plan_result or not getattr(plan_result, "success", False):
-                status = getattr(plan_result, "status", "unknown")
-                self.get_logger().error(f"Joint planning failed: {status}")
+            if not plan_result:
+                self.get_logger().error("Joint planning failed: no plan result returned")
+                return False
+
+            # Support both result variants used by MoveItPy APIs.
+            error_code = getattr(plan_result, "error_code", None)
+            error_code_val = getattr(error_code, "val", None) if error_code else None
+            plan_success = getattr(plan_result, "success", None)
+            trajectory = getattr(plan_result, "trajectory", None)
+
+            if error_code_val is not None:
+                if error_code_val != MoveItErrorCodes.SUCCESS:
+                    name = ERROR_CODE_NAMES.get(error_code_val, "UNKNOWN")
+                    self.get_logger().error(f"Joint planning failed: {name} ({error_code_val})")
+                    return False
+            elif plan_success is not None:
+                if not plan_success:
+                    status = getattr(plan_result, "status", "unknown")
+                    self.get_logger().error(f"Joint planning failed: {status}")
+                    return False
+            elif trajectory is None:
+                self.get_logger().error("Joint planning failed: missing success/error_code and no trajectory")
                 return False
 
             self.get_logger().info("Executing joint-space plan")
-            trajectory = plan_result.trajectory
+            if trajectory is None:
+                self.get_logger().error("Joint planning failed: plan result contains no trajectory")
+                return False
             trajectory_retimed = trajectory.apply_totg_time_parameterization(
                 velocity_scaling_factor=self.velocity_scaling,
                 acceleration_scaling_factor=self.acceleration_scaling,

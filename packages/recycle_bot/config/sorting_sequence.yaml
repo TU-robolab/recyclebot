@@ -10,13 +10,13 @@ neutral_pose:
   orientation: [0.691287034033189, 0.7225793866612643, -0.0010909763948931102, 0.000276261350695787]  # face-down (180° around Y)
 
 # joint-space neutral (preferred for safe, deterministic motion)
-# neutral_joint_pose:
-#   shoulder_pan_joint: 0.0
-#   shoulder_lift_joint: -1.57
-#   elbow_joint: 1.57
-#   wrist_1_joint: -1.57
-#   wrist_2_joint: -1.57
-#   wrist_3_joint: 0.0
+neutral_joint_pose:
+  shoulder_pan_joint: -1.92
+  shoulder_lift_joint: -1.82
+  elbow_joint: -1.91
+  wrist_1_joint: -0.96
+  wrist_2_joint: 1.57
+  wrist_3_joint: -3.19
 
 # sorting bin locations
 sorting_sequence:
