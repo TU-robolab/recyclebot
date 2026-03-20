@@ -4,7 +4,7 @@
 # camera transform: static transform from base to camera_link (meters)
 # used for projecting detections into robot frame
 camera_transform:
-  parent_frame: "base"
+  parent_frame: "base_link"
   child_frame: "camera_link"
   translation: [0.38, -0.40, 0.58]  # meters (measured with UR tool)
   rotation: [0.69641, 0.71764, 0.0, 0.0]  # quaternion [x, y, z, w] (measured with UR tool)
