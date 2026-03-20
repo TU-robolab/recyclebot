@@ -6,7 +6,7 @@
 camera_transform:
   parent_frame: "base"
   child_frame: "camera_link"
-  translation: [-0.3795, 0.3011, 0.6262]  # meters (measured with UR tool)
+  translation: [0.38, -0.40, 0.58]  # meters (measured with UR tool)
   rotation: [0.69641, 0.71764, 0.0, 0.0]  # quaternion [x, y, z, w] (measured with UR tool)
 
 # detection filter thresholds

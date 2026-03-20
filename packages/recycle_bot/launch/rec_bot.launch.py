@@ -22,6 +22,7 @@ def generate_launch_description():
             robot_name="ur16e", package_name="ur16e_moveit_config"
         )
         .robot_description(file_path="config/ur16e.urdf.xacro")
+        .robot_description_semantic(file_path="config/ur16e.srdf")
         .trajectory_execution(file_path="config/moveit_controllers.yaml")
         .moveit_cpp(
             file_path=os.path.join(
@@ -36,7 +37,7 @@ def generate_launch_description():
     # Launch argument: seconds to wait for teach pendant before auto-continuing
     wait_timeout_arg = DeclareLaunchArgument(
         "wait_timeout",
-        default_value="30.0",
+        default_value="10.0",
         description="Seconds to wait for External Control URCap before launching remaining nodes",
     )
 
@@ -143,6 +144,14 @@ def generate_launch_description():
         )
     )
 
+    rviz_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        parameters=[moveit_config.to_dict()], 
+        output="screen",
+    )
+
     # Stage 2: after cleanup → start UR driver + wait gate
     start_after_cleanup = RegisterEventHandler(
         OnProcessExit(
@@ -164,6 +173,7 @@ def generate_launch_description():
                 core_node,
                 control_node,
                 grip_launch,
+                rviz_node,
             ],
         )
     )

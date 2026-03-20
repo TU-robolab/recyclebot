@@ -198,22 +198,29 @@ class cobot_control(Node):
 
     def setup_collision_objects(
         self,
-        table_size=(1.2, 0.8, 0.05),
-        table_position=(0.0, 0.0, -0.025),
-        camera_size=(0.10, 0.03, 0.03),
-        camera_position=(-0.3795, 0.3011, 0.6262)  # keep in sync with config/calibration.yaml
+        table_size=(1.4, 1.2, 0.05),
+        table_position=(0.0, 0.0, -0.05),
+
+        camera_stand_size=(0.04, 0.04, 0.6),
+        camera_stand_position=(0.38, -0.52, 0.29),
+
+        camera_size=(0.1, 0.25, 0.1),
+        camera_position=(0.38, -0.40, 0.58)
     ):
         """
         Add collision objects to planning scene for safe motion planning.
 
         Args:
-            table_size: (x, y, z) dimensions in meters, default 0.4x0.4x0.05m
+            table_size: (x, y, z) dimensions in meters
             table_position: (x, y, z) center position relative to base
-            camera_size: (x, y, z) dimensions in meters, default ~D415 with margin
+            camera_stand_size: (x, y, z) dimensions in meters, vertical pole
+            camera_stand_position: (x, y, z) center position of stand pole
+            camera_size: (x, y, z) dimensions in meters, ~D415 with margin
             camera_position: (x, y, z) position from rec_bot_core.py static transform
 
         Collision geometry:
         - table: box underneath robot base where UR16e is mounted
+        - camera_stand: vertical pole supporting the RealSense camera
         - camera: box at camera mount position (RealSense D415)
         """
         planning_scene_monitor = self.moveit.get_planning_scene_monitor()
@@ -224,17 +231,17 @@ class cobot_control(Node):
             #   top view:
             #        ┌─────────────────────┐
             #        │                     │
-            #        │    table (0.4m)     │
+            #        │    table (1.4m)     │
             #        │         ·──────────── UR base at center
             #        │                     │
             #        └─────────────────────┘
-            #              0.8m
+            #              1.2m
             #
             #   side view:
             #        ════════════ world (z=0)
             #        ┌──────────┐
-            #        │  table   │ 0.05m thick
-            #        └──────────┘ z = -0.025m (center)
+            #        │  table   │ 0.5m thick
+            #        └──────────┘ z = -0.05m (center)
             #
             table = CollisionObject()
             table.header.frame_id = "world"
@@ -258,17 +265,48 @@ class cobot_control(Node):
             scene.apply_collision_object(table)
             self.get_logger().info("Added table collision object")
 
+            # camera stand collision object (vertical pole)
+            #
+            #   side view:
+            #                    │ ← stand (0.04x0.04m)
+            #                    │
+            #        ════════════╪════════════ world (z=0)
+            #                    │
+            #                    │  0.6m tall, center z=0.29m
+            #
+            camera_stand = CollisionObject()
+            camera_stand.header.frame_id = "world"
+            camera_stand.header.stamp = self.get_clock().now().to_msg()
+            camera_stand.id = "camera_stand"
+            camera_stand.operation = CollisionObject.ADD
+
+            camera_stand_box = SolidPrimitive()
+            camera_stand_box.type = SolidPrimitive.BOX
+            camera_stand_box.dimensions = list(camera_stand_size)
+
+            camera_stand_pose = Pose()
+            camera_stand_pose.position.x = camera_stand_position[0]
+            camera_stand_pose.position.y = camera_stand_position[1]
+            camera_stand_pose.position.z = camera_stand_position[2]
+            camera_stand_pose.orientation.w = 1.0
+
+            camera_stand.primitives.append(camera_stand_box)
+            camera_stand.primitive_poses.append(camera_stand_pose)
+
+            scene.apply_collision_object(camera_stand)
+            self.get_logger().info("Added camera stand collision object")
+
             # camera collision object (RealSense D415: ~99mm x 25mm x 25mm)
             #
             #   side view:
-            #                    ┌───┐ camera
-            #                    │   │
-            #        ────────────┼───┼──────── z = 0.624m
-            #                    │   │
-            #                    └───┘
+            #                    ┌───────┐ camera (0.1x0.25x0.1m)
+            #                    │       │
+            #        ────────────┼───────┼──────── z = 0.58m
+            #                    │       │
+            #                    └───────┘
             #                      │
             #        ═════════════╧════════════ world
-            #              x = -0.384m
+            #              x = 0.38m, y = -0.40m
             #
             camera = CollisionObject()
             camera.header.frame_id = "world"
@@ -587,14 +625,14 @@ class cobot_control(Node):
         pick_pose, place_pose = self.task_queue.popleft()
 
         # 1. start from neutral
-        self.get_logger().info("Step 1/10: Moving to neutral (safe start)")
+        self.get_logger().info("\033[94m Step 1/10: Moving to neutral (safe start)\033[0m")
         if not self.move_to_neutral(planner="pilz_ptp"):
             self.get_logger().error("Failed to reach neutral, aborting task")
             self._abort_task()
             return
 
         # 2. move to pre-pick (approach)
-        self.get_logger().info("Step 2/10: Moving to pre-pick (approach)")
+        self.get_logger().info("\033[94m Step 2/10: Moving to pre-pick (approach)\033[0m")
         pre_pick = self.offset_pose_z(pick_pose, self.approach_height_m)
         if pre_pick is not None and not self.move_to_pose(pre_pick, planner="pilz_ptp"):
             self.get_logger().error("Failed to reach pre-pick pose, returning to neutral")
@@ -602,14 +640,14 @@ class cobot_control(Node):
             return
 
         # 3. move to pick
-        self.get_logger().info("Step 3/10: Moving to pick pose (LIN)")
+        self.get_logger().info("\033[94m Step 3/10: Moving to pick pose (LIN)\033[0m")
         if not self.move_to_pose(pick_pose, planner="pilz_lin"):
             self.get_logger().error("Failed to reach pick pose, returning to neutral")
             self._abort_task(move_to_neutral=True)
             return
 
         # 4. grip
-        self.get_logger().info("Step 4/10: Gripping object")
+        self.get_logger().info("\033[94m Step 4/10: Gripping object\033[0m")
         if not self.gripper_action("grip"):
             self.get_logger().error("Failed to grip object, returning to neutral")
             self._abort_task(move_to_neutral=True)
@@ -617,24 +655,25 @@ class cobot_control(Node):
 
         # 5. LIN retreat to pre-pick before attaching collision object
         #    (attaching at pick height would collide with table)
-        self.get_logger().info("Step 5/10: Retreating to pre-pick height")
+        self.get_logger().info("\033[94m Step 5/10: Retreating to pre-pick height\033[0m")
         if pre_pick is not None and not self.move_to_pose(pre_pick, planner="pilz_lin"):
             self.get_logger().error("Failed to retreat to pre-pick, returning to neutral")
             self._abort_task(release_object=True, move_to_neutral=True)
             return
 
-        self.attach_object_to_tool()
-        self._object_attached = True
+        self._object_attached = self.attach_object_to_tool()
+        if not self._object_attached:
+            self.get_logger().warning("Failed to register grasped object in planning scene")
 
         # 6. lift to neutral (safe transit with object)
-        self.get_logger().info("Step 6/10: Lifting to neutral (safe transit with object)")
+        self.get_logger().info("\033[94m Step 6/10: Lifting to neutral (safe transit with object)\033[0m")
         if not self.move_to_neutral(planner="pilz_ptp"):
             self.get_logger().error("Failed to lift to neutral, releasing object")
             self._abort_task(release_object=True)
             return
 
         # 7. move to pre-place (approach)
-        self.get_logger().info("Step 7/10: Moving to pre-place (approach)")
+        self.get_logger().info("\033[94m Step 7/10: Moving to pre-place (approach)\033[0m")
         pre_place = self.offset_pose_z(place_pose, self.approach_height_m)
         if pre_place is not None and not self.move_to_pose(pre_place, planner="pilz_ptp"):
             self.get_logger().error("Failed to reach pre-place pose, releasing and returning to neutral")
@@ -642,21 +681,22 @@ class cobot_control(Node):
             return
 
         # 8. move to place
-        self.get_logger().info("Step 8/10: Moving to place pose (LIN)")
+        self.get_logger().info("\033[94m Step 8/10: Moving to place pose (LIN)\033[0m")
         if not self.move_to_pose(place_pose, planner="pilz_lin"):
             self.get_logger().error("Failed to reach place pose, releasing and returning to neutral")
             self._abort_task(release_object=True, move_to_neutral=True)
             return
 
         # 9. release
-        self.get_logger().info("Step 9/10: Releasing object")
+        self.get_logger().info("\033[94m Step 9/10: Releasing object\033[0m")
         if not self.gripper_action("release"):
             self.get_logger().warn("Failed to release object, detaching collision object anyway")
-        self.detach_object_from_tool()
+        if not self.detach_object_from_tool():
+            self.get_logger().warning("Failed to detach/remove grasped object from planning scene")
         self._object_attached = False
 
         # 10. return to neutral
-        self.get_logger().info("Step 10/10: Returning to neutral")
+        self.get_logger().info("\033[94m Step 10/10: Returning to neutral\033[0m")
         self.move_to_neutral(planner="pilz_ptp")
 
         self.get_logger().info("Sorting task completed")
@@ -667,8 +707,10 @@ class cobot_control(Node):
         if release_object:
             self.gripper_action("release")
         if self._object_attached:
-            self.detach_object_from_tool()
-            self._object_attached = False
+            if self.detach_object_from_tool():
+                self._object_attached = False
+            else:
+                self.get_logger().warning("Abort cleanup could not detach/remove grasped object")
         if move_to_neutral:
             self.move_to_neutral(planner="pilz_ptp")
         self.executing_task = False
@@ -862,7 +904,7 @@ class cobot_control(Node):
         return pose
 
 
-    def attach_object_to_tool(self):
+    def attach_object_to_tool(self) -> bool:
         """Attach a simple collision object to the tool for safer planning."""
         try:
             aco = AttachedCollisionObject()
@@ -888,11 +930,13 @@ class cobot_control(Node):
             planning_scene_monitor = self.moveit.get_planning_scene_monitor()
             with planning_scene_monitor.read_write() as scene:
                 scene.process_attached_collision_object(aco)
+            return True
         except Exception as exc:
-            self.get_logger().warn(f"Failed to attach collision object: {exc}")
+            self.get_logger().warning(f"Failed to attach collision object: {exc}")
+            return False
 
-    def detach_object_from_tool(self):
-        """Detach the collision object from the tool."""
+    def detach_object_from_tool(self) -> bool:
+        """Detach and fully remove the grasped collision object from planning scene."""
         try:
             aco = AttachedCollisionObject()
             aco.link_name = "tool0"
@@ -901,11 +945,20 @@ class cobot_control(Node):
             aco.object.header.frame_id = "tool0"
             aco.object.operation = CollisionObject.REMOVE
 
+            # Defensive cleanup: remove a world object with same id too.
+            world_obj = CollisionObject()
+            world_obj.id = "grasped_object"
+            world_obj.header.frame_id = "world"
+            world_obj.operation = CollisionObject.REMOVE
+
             planning_scene_monitor = self.moveit.get_planning_scene_monitor()
             with planning_scene_monitor.read_write() as scene:
                 scene.process_attached_collision_object(aco)
+                scene.apply_collision_object(world_obj)
+            return True
         except Exception as exc:
-            self.get_logger().warn(f"Failed to detach collision object: {exc}")
+            self.get_logger().warning(f"Failed to detach collision object: {exc}")
+            return False
 
     def offset_pose_z(self, pose_stamped: PoseStamped, dz: float):
         """Return a PoseStamped offset in Z by dz (meters)."""
