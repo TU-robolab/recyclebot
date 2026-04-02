@@ -229,7 +229,7 @@ class RecBotCore(Node):
         """
         # defaults (original hardcoded values)
         defaults = {
-            "parent_frame": "base",
+            "parent_frame": "base_link",
             "child_frame": "camera_link",
             "translation": [0.384, -0.286, 0.624],
             "rotation": [0.0, 1.0, 0.0, 0.0]

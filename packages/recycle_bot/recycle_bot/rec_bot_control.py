@@ -204,8 +204,8 @@ class cobot_control(Node):
         camera_stand_size=(0.04, 0.04, 0.6),
         camera_stand_position=(0.38, -0.52, 0.29),
 
-        camera_size=(0.1, 0.25, 0.1),
-        camera_position=(0.38, -0.40, 0.58)
+        camera_size=(0.1, 0.1, 0.1),
+        camera_position=(0.38, -0.40, 0.58)  # fallback if load_camera_position() fails
     ):
         """
         Add collision objects to planning scene for safe motion planning.
@@ -320,7 +320,7 @@ class cobot_control(Node):
 
             camera_pose = Pose()
             camera_pose.position.x = camera_position[0]
-            camera_pose.position.y = camera_position[1]
+            camera_pose.position.y = camera_position[1] #+ camera_position[1] / 2.
             camera_pose.position.z = camera_position[2]
             camera_pose.orientation.w = 1.0
 
