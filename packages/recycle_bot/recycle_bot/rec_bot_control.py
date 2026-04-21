@@ -429,6 +429,13 @@ class cobot_control(Node):
             )
             transformed_pose = tf2_geometry_msgs.do_transform_pose_stamped(msg, transform)
 
+            # Set pick orientation to face-down in base frame.
+            # Position comes from the camera→base TF; orientation is fixed
+            # because we always pick straight down regardless of camera pose.
+            transformed_pose.pose.orientation = Quaternion(
+                x=1.0, y=0.0, z=0.0, w=0.0
+            )
+
             # retrieve target bin location (base-link reference)
             target_pose = self.get_next_sorting_pose()
 
