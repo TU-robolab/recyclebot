@@ -138,6 +138,7 @@ class RecBotCore(Node):
         u = int(detection.bbox.center.position.x)
         v = int(detection.bbox.center.position.y)
         z = detection.bbox.center.position.z  # avg depth in meters from vision node
+        #z = 0.01
 
         # get confidence from first hypothesis (if available)
         confidence = 0.0
@@ -214,11 +215,14 @@ class RecBotCore(Node):
         pose.pose.position.x = x
         pose.pose.position.y = y
         pose.pose.position.z = z
+        #pose.pose.position.z = 0.16  # fixed height above table to avoid grasping issues, can be tuned based on testing
 
         # Tool pointing down = aligned with -Z → euler (roll=pi, pitch=0, yaw=0)
         q = quaternion_from_euler(np.pi, 0, 0)  # facing downward
         pose.pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
+        #pose.pose.orientation = Quaternion(x=1.0, y=0.0, z=0.0, w=0.0)  
 
+        self.get_logger().info(f"point orientation: (x={pose.pose.orientation.x:.2f}, y={pose.pose.orientation.y:.2f}, z={pose.pose.orientation.z:.2f}, w={pose.pose.orientation.w:.2f})")
         self.detected_object_pub.publish(pose)
 
     def load_camera_transform(self):

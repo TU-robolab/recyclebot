@@ -21,6 +21,7 @@ x11-xserver-utils
 xauth
 xterm
 xdg-utils
+vim
 
 # python
 python-is-python3
