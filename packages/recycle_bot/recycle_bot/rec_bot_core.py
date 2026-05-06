@@ -135,7 +135,7 @@ class RecBotCore(Node):
         u = int(detection.bbox.center.position.x)
         v = int(detection.bbox.center.position.y)
         z = detection.bbox.center.position.z  # avg depth in meters from vision node
-        #z = 0.01
+        #z = 0.6
 
         # get confidence from first hypothesis (if available)
         confidence = 0.0
