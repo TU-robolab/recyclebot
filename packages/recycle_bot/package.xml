@@ -37,6 +37,9 @@
   <!-- Gripper Interface -->
   <depend>grip_interface</depend>
 
+  <!-- Visualization -->
+  <depend>visualization_msgs</depend>
+
   <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>onnxruntime</exec_depend>
   <exec_depend>numpy</exec_depend>

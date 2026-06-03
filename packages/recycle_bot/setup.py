@@ -29,6 +29,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'config'), glob('config/**/*.yaml', recursive=True)),
+        (os.path.join('share', package_name, 'config'), glob('config/*.rviz')),
         (os.path.join('share', package_name, 'pkg_resources'), glob(os.path.join('pkg_resources', '*'))),
         (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*launch.[pxy][yma]*')))
     ],
@@ -45,7 +46,8 @@ setup(
             'rec_bot_control = recycle_bot.rec_bot_control:main',
             'rec_bot_vision = recycle_bot.rec_bot_vision:main',
             'rec_bot_smoke = recycle_bot.rec_bot_smoke:main',
-            'launch_gate = recycle_bot.launch_gate:main'
+            'launch_gate = recycle_bot.launch_gate:main',
+            'rec_bot_viz = recycle_bot.rec_bot_viz:main',
         ],
     },
 )

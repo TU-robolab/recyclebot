@@ -163,6 +163,13 @@ def generate_launch_description():
         )
     )
 
+    viz_node = Node(
+        package="recycle_bot",
+        executable="rec_bot_viz",
+        name="rec_bot_viz",
+        output="screen",
+    )
+
     # Stage 3: after gate exits → start remaining nodes
     start_after_gate = RegisterEventHandler(
         OnProcessExit(
@@ -174,6 +181,7 @@ def generate_launch_description():
                 control_node,
                 grip_launch,
                 rviz_node,
+                viz_node,
             ],
         )
     )

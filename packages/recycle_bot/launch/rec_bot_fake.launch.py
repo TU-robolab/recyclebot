@@ -109,6 +109,16 @@ def generate_launch_description():
         output="screen",
     )
 
+    # =========================================================================
+    # 7. Detection Visualization Node
+    # =========================================================================
+    viz_node = Node(
+        package="recycle_bot",
+        executable="rec_bot_viz",
+        name="rec_bot_viz",
+        output="screen",
+    )
+
     # Start everything else only after cleanup finishes
     start_after_cleanup = RegisterEventHandler(
         OnProcessExit(
@@ -120,6 +130,7 @@ def generate_launch_description():
                 core_node,
                 control_node,
                 mock_gripper_node,
+                viz_node,
             ],
         )
     )

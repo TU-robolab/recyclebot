@@ -133,6 +133,12 @@ def generate_launch_description():
                 parameters=[moveit_config.to_dict()],
                 output="screen",
             ),
+            Node(
+                package="recycle_bot",
+                executable="rec_bot_viz",
+                name="rec_bot_viz",
+                output="screen",
+            ),
         ]
     )
 
