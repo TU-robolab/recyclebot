@@ -41,7 +41,7 @@ class VisionDetector(Node):
         tmp_model_path = os.path.join(
             get_package_share_directory("recycle_bot"),
             "pkg_resources",
-            "rb-lab-data-hannover-messe-v3-171025.pt",
+            "DIS.pt", #rb-lab-data-hannover-messe-v3-171025.pt
         )
         self.model = YOLO(tmp_model_path)
 

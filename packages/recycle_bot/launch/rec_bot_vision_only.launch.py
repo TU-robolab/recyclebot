@@ -15,7 +15,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "use_fake_camera",
-            default_value="true",
+            default_value="false",
             description="Use synthetic RGBD frames instead of a real RealSense camera",
         ),
 
