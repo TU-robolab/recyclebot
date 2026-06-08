@@ -136,9 +136,10 @@ RUN echo ". /opt/ros/${ROS_DISTRO}/setup.bash" >> /home/${USER_NAME}/.bashrc \
     && echo ". /opt/third_party/setup.bash" >> /home/${USER_NAME}/.bashrc \
     && echo ". ${ROS2_WS}/install/setup.bash" >> /home/${USER_NAME}/.bashrc \
     && echo "alias ros='ros2'" >> /home/${USER_NAME}/.bashrc \
-    && echo "export RCUTILS_COLORIZED_OUTPUT=1" >> /home/${USER_NAME}/.bashrc
+    && echo "export RCUTILS_COLORIZED_OUTPUT=1" >> /home/${USER_NAME}/.bashrc \
+    && echo "alias r2s='source install/setup.bash'" >> /home/${USER_NAME}/.bashrc 
 
-# set working directory for the container    
+    # set working directory for the container    
 WORKDIR ${ROS2_WS}
     
 # copy entrypoint script for ROS sourcing in the main terminal

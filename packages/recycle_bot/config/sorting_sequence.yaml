@@ -11,12 +11,29 @@ neutral_pose:
 
 # joint-space neutral (preferred for safe, deterministic motion)
 neutral_joint_pose:
-  shoulder_pan_joint: -1.92
-  shoulder_lift_joint: -1.82
-  elbow_joint: -1.91
-  wrist_1_joint: -0.96
+  shoulder_pan_joint: -2.91
+  shoulder_lift_joint: -1.54
+  elbow_joint: -2.28
+  wrist_1_joint: -0.89
   wrist_2_joint: 1.57
-  wrist_3_joint: -3.19
+  wrist_3_joint: -4.08
+
+  # neutral_joint_pose:
+  # shoulder_pan_joint: -1.92
+  # shoulder_lift_joint: -1.82
+  # elbow_joint: -1.91
+  # wrist_1_joint: -0.96
+  # wrist_2_joint: 1.57
+  # wrist_3_joint: -3.19
+
+# joint-space pose under the camera (waypoint before descending to pick)
+under_camera_pose:
+  shoulder_pan_joint: -3.40
+  shoulder_lift_joint: -1.72
+  elbow_joint: -2.22
+  wrist_1_joint: -0.77
+  wrist_2_joint: 1.57
+  wrist_3_joint: -4.57
 
 # sorting bin locations
 sorting_sequence:

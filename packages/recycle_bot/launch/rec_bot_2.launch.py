@@ -68,6 +68,7 @@ def generate_launch_description():
             "tool_stop_bits": "1",
             "tool_rx_idle_chars": "1.5",
             "tool_tx_idle_chars": "3.5",
+            "headless_mode": "true",
         }.items()
     )
 

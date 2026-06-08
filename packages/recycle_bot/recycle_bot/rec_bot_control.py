@@ -67,6 +67,7 @@ class cobot_control(Node):
             self.sorting_sequence,
             self.neutral_pose,
             self.neutral_joint_pose,
+            self.under_camera_pose,
             self.cycle,
         ) = self.load_config()
         self.sequence_index = 0
@@ -378,13 +379,20 @@ class cobot_control(Node):
                 }
                 self.get_logger().info("Neutral joint pose loaded from config")
 
-            return sorting_sequence, neutral_pose, neutral_joint_pose, cycle
+            under_camera_pose = data.get("under_camera_pose", None)
+            if under_camera_pose:
+                under_camera_pose = {
+                    name: float(value) for name, value in under_camera_pose.items()
+                }
+                self.get_logger().info("Under-camera joint pose loaded from config")
+
+            return sorting_sequence, neutral_pose, neutral_joint_pose, under_camera_pose, cycle
 
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
             self.approach_height_m = 0.10
             self.grasped_object_size = [0.05, 0.05, 0.05]
-            return [], None, None, True
+            return [], None, None, None, True
 
     def create_pose_from_dict(self, pose_dict):
         """Create PoseStamped from dict with position and orientation keys."""
@@ -638,10 +646,18 @@ class cobot_control(Node):
             self._abort_task()
             return
 
+        # 1b. move to under-camera pose
+        if self.under_camera_pose:
+            self.get_logger().info("\033[94m Step 1b: Moving to under-camera pose\033[0m")
+            if not self.move_to_joint_positions(self.under_camera_pose, planner="pilz_ptp"):
+                self.get_logger().error("Failed to reach under_camera_pose, aborting task")
+                self._abort_task(move_to_neutral=True)
+                return
+
         # 2. move to pre-pick (approach)
         self.get_logger().info("\033[94m Step 2/10: Moving to pre-pick (approach)\033[0m")
         pre_pick = self.offset_pose_z(pick_pose, self.approach_height_m)
-        if pre_pick is not None and not self.move_to_pose(pre_pick, planner="pilz_ptp"):
+        if pre_pick is not None and not self.move_to_pose(pre_pick, planner="pilz_lin"):
             self.get_logger().error("Failed to reach pre-pick pose, returning to neutral")
             self._abort_task(move_to_neutral=True)
             return

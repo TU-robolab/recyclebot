@@ -66,7 +66,7 @@ class VisionDetector(Node):
         self.detection_lock = Lock()
 
         # threshold to weed out duplicate detections
-        self.similarity_threshold = 0.7
+        self.similarity_threshold = 0.5     #0.7
 
         # depth scale: converts raw depth values to meters
         # D415 default: 0.001 (raw values in mm, so mm * 0.001 = meters)
