@@ -81,6 +81,26 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/apt-dev-packages
 
+# UPGRADE UR driver stack from ros2-testing: ur_client_library 2.9.0 (stable repo)
+# has a startup race ("Could not get configuration package within timeout",
+# upstream issue Universal_Robots_Client_Library#503), fixed in 2.12.0.
+# The whole installed ur-* stack must be upgraded together: mixing e.g. driver
+# 3.8.0 with stable ur-dashboard-msgs/ur-controllers 3.7.0 breaks dashboard_client
+# (undefined symbol GetRobotModel) and the friction_model_controller spawner.
+# TODO: remove this block once >=2.12.0 reaches the stable jazzy repo.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    sed 's|packages.ros.org/ros2/ubuntu|packages.ros.org/ros2-testing/ubuntu|' \
+        /etc/apt/sources.list.d/ros2.sources > /etc/apt/sources.list.d/ros2-testing.sources \
+    && apt-get update \
+    && apt-get install -y --only-upgrade \
+        $(dpkg-query -W -f='${Package}\n' | grep -E "^ros-${ROS_DISTRO}-ur(-|$)") \
+    && dpkg --compare-versions \
+        "$(dpkg-query -W -f='${Version}' ros-${ROS_DISTRO}-ur-client-library)" ge 2.12.0 \
+    && rm /etc/apt/sources.list.d/ros2-testing.sources \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # build third-party ROS packages into a separate prefix so we don't
 # overwrite the distro setup.bash; survives bind mount of packages/ → src/
 RUN mkdir -p /tmp/third_party_ws/src \
@@ -103,7 +123,7 @@ COPY ./packages/recycle_bot/requirements.txt /tmp/requirements.txt
 
 # setup CPU+CUDA (126) with specific library determinism for torch     
 ARG TORCH_CUDA=cu126
-RUN python3 -m pip install --no-cache-dir --break-system-packages \
+RUN python3 -m pip install --no-cache-dir --default-timeout=1000 --break-system-packages \
          --index-url https://download.pytorch.org/whl/${TORCH_CUDA} \
          torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 \
     && python3 -m pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
