@@ -360,6 +360,7 @@ class cobot_control(Node):
             sorting_sequence = data.get("sorting_sequence", [])
             cycle = data.get("cycle", True)  # default to cycling for backwards compatibility
             self.approach_height_m = float(data.get("approach_height_m", 0.10))
+            self.pick_z_offset_m = float(data.get("pick_z_offset_m", 0.0))
             size = data.get("grasped_object_size", [0.05, 0.05, 0.05])
             self.grasped_object_size = [float(size[0]), float(size[1]), float(size[2])]
 
@@ -391,6 +392,7 @@ class cobot_control(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
             self.approach_height_m = 0.10
+            self.pick_z_offset_m = 0.0
             self.grasped_object_size = [0.05, 0.05, 0.05]
             return [], None, None, None, True
 
@@ -436,6 +438,11 @@ class cobot_control(Node):
                 stamp,
             )
             transformed_pose = tf2_geometry_msgs.do_transform_pose_stamped(msg, transform)
+
+            # Raise the pick height by a small clearance in the base frame.
+            # The vision pipeline reports the object surface slightly too low, so
+            # without this the robot over-travels and squishes the object.
+            transformed_pose.pose.position.z += self.pick_z_offset_m
 
             # Set pick orientation to face-down in base frame.
             # Position comes from the camera→base TF; orientation is fixed
