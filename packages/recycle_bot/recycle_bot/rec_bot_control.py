@@ -364,6 +364,9 @@ class cobot_control(Node):
             size = data.get("grasped_object_size", [0.05, 0.05, 0.05])
             self.grasped_object_size = [float(size[0]), float(size[1]), float(size[2])]
 
+            # load TCP orientation constraint (used by OMPL transit moves)
+            self._load_orientation_constraint(data.get("orientation_constraint", None))
+
             # load neutral pose
             neutral_data = data.get("neutral_pose", None)
             neutral_pose = None
@@ -394,7 +397,18 @@ class cobot_control(Node):
             self.approach_height_m = 0.10
             self.pick_z_offset_m = 0.0
             self.grasped_object_size = [0.05, 0.05, 0.05]
+            self._load_orientation_constraint(None)
             return [], None, None, None, True
+
+    def _load_orientation_constraint(self, oc_data):
+        """Load TCP orientation-constraint settings (with safe defaults)."""
+        oc_data = oc_data or {}
+        self.oc_enabled = bool(oc_data.get("enabled", True))
+        self.oc_link_name = str(oc_data.get("link_name", "tool0"))
+        self.oc_tol_x = float(oc_data.get("absolute_x_axis_tolerance", 0.1))
+        self.oc_tol_y = float(oc_data.get("absolute_y_axis_tolerance", 0.1))
+        self.oc_tol_z = float(oc_data.get("absolute_z_axis_tolerance", 3.14))
+        self.oc_weight = float(oc_data.get("weight", 1.0))
 
     def create_pose_from_dict(self, pose_dict):
         """Create PoseStamped from dict with position and orientation keys."""
@@ -530,10 +544,34 @@ class cobot_control(Node):
 
         return result.success
 
-    def move_to_neutral(self, planner: str = None) -> bool:
-        """Move to neutral pose if configured."""
+    def _plan_with_retries(self, move_fn, attempts: int = 3) -> bool:
+        """Run a move, retrying on failure.
+
+        Constrained (orientation-manifold) OMPL planning is non-deterministic: a
+        seed can occasionally get stuck and exhaust the time budget, while a fresh
+        seed usually solves in well under a second. Retrying converts an unlucky
+        timeout into a quick success instead of aborting the whole task.
+        """
+        for attempt in range(1, attempts + 1):
+            if move_fn():
+                return True
+            self.get_logger().warn(
+                f"Constrained move failed (attempt {attempt}/{attempts})"
+                + ("; retrying with a fresh plan" if attempt < attempts else "")
+            )
+        return False
+
+    def move_to_neutral(self, planner: str = None, constrain_to=None) -> bool:
+        """Move to neutral pose if configured.
+
+        constrain_to: optional reference Quaternion. When set (and an OMPL planner
+        is used), the TCP is kept near this orientation along the path — used while
+        carrying a grasped object so it does not tip onto its side in transit.
+        """
         if self.neutral_joint_pose:
-            return self.move_to_joint_positions(self.neutral_joint_pose, planner=planner)
+            return self.move_to_joint_positions(
+                self.neutral_joint_pose, planner=planner, constrain_to=constrain_to
+            )
 
         if self.neutral_pose is None:
             return True  # skip if not configured
@@ -546,8 +584,13 @@ class cobot_control(Node):
             return False
         return True
 
-    def move_to_joint_positions(self, joint_positions: dict, planner: str = None) -> bool:
-        """Plan and execute a joint-space goal."""
+    def move_to_joint_positions(self, joint_positions: dict, planner: str = None,
+                                constrain_to=None) -> bool:
+        """Plan and execute a joint-space goal.
+
+        constrain_to: optional reference Quaternion for a TCP orientation path
+        constraint (OMPL only). Keeps a carried object from tipping during transit.
+        """
         try:
             self.arm.set_start_state_to_current_state()
             robot_state = RobotState(self.moveit.get_robot_model())
@@ -559,6 +602,15 @@ class cobot_control(Node):
                 ),
             )
             self.arm.set_goal_state(motion_plan_constraints=[joint_constraint])
+            # Apply the orientation path constraint only when carrying (constrain_to
+            # set) and using OMPL; otherwise clear it so a prior pose constraint does
+            # not bleed into this joint-space goal.
+            if constrain_to is not None and self.oc_enabled and planner and "ompl" in planner:
+                self.arm.set_path_constraints(
+                    self.build_orientation_constraint(constrain_to, "base")
+                )
+            else:
+                self.arm.set_path_constraints(Constraints())
             plan_args = {}
             if planner:
                 plan_args["single_plan_parameters"] = PlanRequestParameters(self.moveit, planner)
@@ -695,17 +747,26 @@ class cobot_control(Node):
         if not self._object_attached:
             self.get_logger().warning("Failed to register grasped object in planning scene")
 
-        # 6. lift to neutral (safe transit with object)
+        # Tool-down reference for the carry: keeps the grasped object from tipping
+        # onto its side during PTP transit (PTP interpolates joints, not Cartesian
+        # orientation). Loose tolerance + free yaw, so OMPL can still plan it.
+        carry_orientation = Quaternion(x=1.0, y=0.0, z=0.0, w=0.0)
+
+        # 6. lift to neutral (safe transit with object) — constrained so it stays level
         self.get_logger().info("\033[94m Step 6/10: Lifting to neutral (safe transit with object)\033[0m")
-        if not self.move_to_neutral(planner="pilz_ptp"):
+        if not self._plan_with_retries(
+            lambda: self.move_to_neutral(planner="ompl_rrtc", constrain_to=carry_orientation)
+        ):
             self.get_logger().error("Failed to lift to neutral, releasing object")
             self._abort_task(release_object=True)
             return
 
-        # 7. move to pre-place (approach)
+        # 7. move to pre-place (approach) — constrained so it stays level
         self.get_logger().info("\033[94m Step 7/10: Moving to pre-place (approach)\033[0m")
         pre_place = self.offset_pose_z(place_pose, self.approach_height_m)
-        if pre_place is not None and not self.move_to_pose(pre_place, planner="pilz_ptp"):
+        if pre_place is not None and not self._plan_with_retries(
+            lambda: self.move_to_pose(pre_place, planner="ompl_rrtc")
+        ):
             self.get_logger().error("Failed to reach pre-place pose, releasing and returning to neutral")
             self._abort_task(release_object=True, move_to_neutral=True)
             return
@@ -800,6 +861,26 @@ class cobot_control(Node):
             self.get_logger().error(f"Error in Cartesian motion: {str(e)}")
             return False
 
+    def build_orientation_constraint(self, reference_orientation, frame_id):
+        """Build a path Constraints keeping the TCP near reference_orientation.
+
+        Per-axis tolerances come from config (orientation_constraint in
+        sorting_sequence.yaml). frame_id is the frame the reference orientation
+        is expressed in (the planning frame, e.g. "base") and MUST be set, else
+        MoveIt cannot resolve the constraint frame and validation fails.
+        """
+        constraints = Constraints()
+        ocm = OrientationConstraint()
+        ocm.header.frame_id = frame_id
+        ocm.orientation = reference_orientation
+        ocm.link_name = self.oc_link_name
+        ocm.absolute_x_axis_tolerance = self.oc_tol_x
+        ocm.absolute_y_axis_tolerance = self.oc_tol_y
+        ocm.absolute_z_axis_tolerance = self.oc_tol_z
+        ocm.weight = self.oc_weight
+        constraints.orientation_constraints.append(ocm)
+        return constraints
+
     def move_to_pose(self, pose: PoseStamped, planner: str = None) -> bool:
         """
         Plans and executes motion to the given pose.
@@ -815,6 +896,19 @@ class cobot_control(Node):
             self.arm.set_start_state_to_current_state()
             self.log_motion_debug(pose_to_plan)
             self.arm.set_goal_state(pose_stamped_msg=pose_to_plan, pose_link="tool0")
+            # Keep the TCP near the goal orientation along the path. Apply ONLY for
+            # OMPL planners: the ValidateSolution adapter enforces path constraints
+            # on every plan (Pilz included), and Pilz LIN legitimately rotates the
+            # TCP from start to goal, so the constraint must be cleared for them.
+            # Always call set_path_constraints so a prior constraint never persists.
+            if self.oc_enabled and planner and "ompl" in planner:
+                self.arm.set_path_constraints(
+                    self.build_orientation_constraint(
+                        pose_to_plan.pose.orientation, pose_to_plan.header.frame_id
+                    )
+                )
+            else:
+                self.arm.set_path_constraints(Constraints())
             plan_args = {}
             if planner:
                 plan_args["single_plan_parameters"] = PlanRequestParameters(self.moveit, planner)

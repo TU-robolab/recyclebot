@@ -29,7 +29,18 @@ ompl:
       type: geometric::PRMstar
     RRTConnectkConfigDefault:
       type: geometric::RRTConnect
+      # Max tree-extension length (rad). The default is too long for constrained
+      # (orientation-manifold) planning — long extensions fail to project, so the
+      # tree barely grows. A short range makes each step projectable. Raise toward
+      # the default if unconstrained planning becomes slow.
+      range: 0.3
   ur_arm:
+    # Use OMPL's constrained (projected) state space so orientation path
+    # constraints are satisfied by manifold projection instead of rejection
+    # sampling — required for the orientation-constrained transit moves to plan
+    # reliably (rejection sampling times out on longer reaches like pre-place).
+    enforce_constrained_state_space: true
+    projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
     planner_configs:
       - PRMstarkConfigDefault
       - RRTConnectkConfigDefault
@@ -74,7 +85,10 @@ ompl_rrtc:
     planner_id: "RRTConnectkConfigDefault"
     max_velocity_scaling_factor: 0.3
     max_acceleration_scaling_factor: 0.3
-    planning_time: 5.0
+    # Per-attempt budget for constrained (orientation-manifold) planning. Kept
+    # short on purpose: a stuck RRTConnect seed should fail fast so the code-level
+    # retry can try a fresh seed (which usually solves in <1s) instead of hanging.
+    planning_time: 6.0
 
 pilz_ptp:
   plan_request_params:

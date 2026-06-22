@@ -51,3 +51,18 @@ grasped_object_size: [0.05, 0.05, 0.05]  # meters (box attached to tool for plan
 # and squishes the object. This raises the pick pose to compensate.
 # increase if it still presses too hard, decrease if it stops short of the object.
 pick_z_offset_m: 0.007
+
+# TCP orientation constraint applied to the carry transit moves (Steps 6 & 7)
+# so a grasped object does not tip onto its side mid-transit. Per-axis tolerances
+# are radians of allowed divergence from tool-down. ~3.14 = free, 0 = locked.
+# x/y are kept loose (~28 deg) on purpose: tight enough to stop the object tipping
+# over, loose enough that constrained OMPL planning stays fast/reliable. z is free
+# (the object may spin about the vertical — that does not tip it).
+# Note: only OMPL planners honor this; Pilz PTP/LIN ignore it.
+orientation_constraint:
+  enabled: true
+  link_name: "tool0"
+  absolute_x_axis_tolerance: 0.5
+  absolute_y_axis_tolerance: 0.5
+  absolute_z_axis_tolerance: 3.14
+  weight: 1.0
