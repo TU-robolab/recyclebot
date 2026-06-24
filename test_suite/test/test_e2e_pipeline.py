@@ -42,7 +42,7 @@ from rclpy.time import Time
 from std_srvs.srv import Trigger
 from sensor_msgs.msg import JointState
 from geometry_msgs.msg import PoseStamped
-from vision_msgs.msg import Detection3DArray
+from vision_msgs.msg import Detection3DArray, Detection3D
 from realsense2_camera_msgs.msg import RGBD
 from grip_interface.srv import GripCommand
 from cv_bridge import CvBridge
@@ -128,7 +128,7 @@ class TestE2EPipeline(unittest.TestCase):
         )
 
         self.pose_sub = self.node.create_subscription(
-            PoseStamped, '/vision/detected_object',
+            Detection3D, '/vision/detected_object',
             self._pose_callback, qos_reliable
         )
 
@@ -345,14 +345,20 @@ class TestE2EPipeline(unittest.TestCase):
 
         details = f"Poses received: {len(self.poses_received)}"
         if success and len(self.poses_received) > 0:
-            pose_stamped, _ = self.poses_received[-1]
-            x = pose_stamped.pose.position.x
-            y = pose_stamped.pose.position.y
-            z = pose_stamped.pose.position.z
+            detection, _ = self.poses_received[-1]
+            self.assertTrue(detection.results, "Detection3D has no results")
+            label = detection.results[0].hypothesis.class_id
+            position = detection.results[0].pose.pose.position
+            x = position.x
+            y = position.y
+            z = position.z
 
-            details += f", pos=({x:.3f}, {y:.3f}, {z:.3f}), frame={pose_stamped.header.frame_id}"
+            details += (
+                f", pos=({x:.3f}, {y:.3f}, {z:.3f}), frame={detection.header.frame_id}, "
+                f"label='{label}'"
+            )
 
-            self.assertIsNotNone(pose_stamped.header.frame_id)
+            self.assertIsNotNone(detection.header.frame_id)
             self.assertGreater(z, 0.1, "Depth below minimum filter threshold")
             self.assertLess(z, 1.6, "Depth above maximum filter threshold")
             self.assertGreater(x, -1.5, "X out of range")
@@ -360,7 +366,7 @@ class TestE2EPipeline(unittest.TestCase):
             self.assertGreater(y, -1.0, "Y out of range")
             self.assertLess(y, 1.0, "Y out of range")
 
-            print(f"\n[E2E 05] Pose position: ({x:.3f}, {y:.3f}, {z:.3f}), frame: {pose_stamped.header.frame_id}")
+            print(f"\n[E2E 05] Pose position: ({x:.3f}, {y:.3f}, {z:.3f}), frame: {detection.header.frame_id}, label: '{label}'")
         else:
             # Poses may be empty if detections don't pass filters
             print(f"\n[E2E 05] No poses published (detections may not pass filters)")

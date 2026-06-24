@@ -17,7 +17,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from cv_bridge import CvBridge
 from image_geometry import PinholeCameraModel
-from geometry_msgs.msg import PoseStamped, Quaternion, TransformStamped
+from geometry_msgs.msg import Pose, PoseStamped, Quaternion, TransformStamped
 
 class RecBotCore(Node):
 
@@ -67,7 +67,7 @@ class RecBotCore(Node):
         )
 
         self.detected_object_pub = self.create_publisher(
-            PoseStamped,
+            Detection3D,
             "/vision/detected_object",
             qos_detected_objects
         )
@@ -137,12 +137,16 @@ class RecBotCore(Node):
         z = detection.bbox.center.position.z  # avg depth in meters from vision node
         #z = 0.6
 
-        # get confidence from first hypothesis (if available)
+        # get confidence and class label from first hypothesis (if available)
         confidence = 0.0
+        label = ""
         if detection.results:
             confidence = detection.results[0].hypothesis.score
+            label = detection.results[0].hypothesis.class_id
 
-        self.get_logger().info(f"Detection: (u={u}, v={v}), depth={z:.3f}m, conf={confidence:.2f}")
+        self.get_logger().info(
+            f"Detection: (u={u}, v={v}), depth={z:.3f}m, conf={confidence:.2f}, label='{label}'"
+        )
 
         # filter by confidence
         if confidence < self.min_confidence:
@@ -204,23 +208,36 @@ class RecBotCore(Node):
         y = ray[1] * scale
         # z remains as the original Z-depth
 
-        # create PoseStamped
-        pose = PoseStamped()
-        pose.header.stamp = self.get_clock().now().to_msg()
-        pose.header.frame_id = frame_id  # usually "camera_link" or similar
-
-        pose.pose.position.x = x
-        pose.pose.position.y = y
-        pose.pose.position.z = z
-        #pose.pose.position.z = 0.16  # fixed height above table to avoid grasping issues, can be tuned based on testing
+        # build the projected pose in the camera frame
+        pose = Pose()
+        pose.position.x = x
+        pose.position.y = y
+        pose.position.z = z
+        #pose.position.z = 0.16  # fixed height above table to avoid grasping issues, can be tuned based on testing
 
         # Orientation is intentionally left as identity here.
         # The pick orientation (face-down) is set in base frame by rec_bot_control
         # after the camera→base TF transform.
-        pose.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+        pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
 
-        self.get_logger().info(f"point orientation: (x={pose.pose.orientation.x:.2f}, y={pose.pose.orientation.y:.2f}, z={pose.pose.orientation.z:.2f}, w={pose.pose.orientation.w:.2f})")
-        self.detected_object_pub.publish(pose)
+        # publish a Detection3D so the label rides along with the pose:
+        #   header.frame_id → camera frame (control TF-transforms to base)
+        #   results[0].hypothesis.class_id → label (used for bin routing)
+        #   results[0].pose.pose → projected 3D pose
+        out = Detection3D()
+        out.header.stamp = self.get_clock().now().to_msg()
+        out.header.frame_id = frame_id  # usually "camera_link" or similar
+
+        hypothesis = ObjectHypothesisWithPose()
+        hypothesis.hypothesis.class_id = label
+        hypothesis.hypothesis.score = confidence
+        hypothesis.pose.pose = pose
+        out.results.append(hypothesis)
+
+        self.get_logger().info(
+            f"publishing detection: label='{label}', pos=({x:.3f}, {y:.3f}, {z:.3f})"
+        )
+        self.detected_object_pub.publish(out)
 
     def load_camera_transform(self):
         """

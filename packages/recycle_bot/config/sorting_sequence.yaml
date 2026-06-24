@@ -35,11 +35,37 @@ under_camera_pose:
   wrist_2_joint: 1.57
   wrist_3_joint: -4.57
 
-# sorting bin locations
+# named drop-off bins
+# each bin is a position (meters) + orientation quaternion [x, y, z, w] in base_link frame
+bins:
+  general_waste: { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
+  hdpe:          { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
+  pet:           { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
+  pp:            { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
+  pp_ps:         { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
+  tetra:         { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
+# TODO: replace the placeholder coordinates above with each bin's measured pose
+
+# label-to-bin routing: maps a detected YOLO class label (from model.names) to a
+# bin name defined under 'bins' above. Any label not listed here falls through
+# to 'default_bin'.
+bin_routing:
+  food_bootle_hdpe: hdpe
+  non-food_bootle_hdpe: hdpe
+  food_jar_pet: pet
+  non-food_bootle_pet: pet
+  non-food_jar_pet: pet
+  food_jar_pp: pp
+  food_packet_pp: pp
+  food_lid_pp-ps: pp_ps
+  food_tetra: tetra
+
+# bin used for any detected label without a bin_routing entry
+default_bin: general_waste
+
+# legacy round-robin sequence (no longer used for routing; kept for reference)
 sorting_sequence:
   - target_bin_1: { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
-#  - target_bin_2: { position: [x2, y2, z2], orientation: [qx2, qy2, qz2, qw2] }
-#  - target_bin_3: { position: [x3, y3, z3], orientation: [qx3, qy3, qz3, qw3] }
 
 cycle: true  # cycle through targets when end is reached
 approach_height_m: 0.05  # meters above pick/place for approach/retreat

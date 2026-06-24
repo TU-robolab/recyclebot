@@ -30,7 +30,7 @@ from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPo
 from std_srvs.srv import Trigger
 from sensor_msgs.msg import JointState
 from geometry_msgs.msg import PoseStamped
-from vision_msgs.msg import Detection3DArray
+from vision_msgs.msg import Detection3DArray, Detection3D
 from grip_interface.srv import GripCommand
 
 
@@ -82,7 +82,7 @@ class TestRealControlRobotMotion(unittest.TestCase):
         )
 
         cls.pose_sub = cls.node.create_subscription(
-            PoseStamped, '/vision/detected_object',
+            Detection3D, '/vision/detected_object',
             cls.pose_callback, qos_reliable
         )
 

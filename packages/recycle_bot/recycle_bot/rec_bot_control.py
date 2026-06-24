@@ -23,6 +23,7 @@ from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
 from ament_index_python.packages import get_package_share_directory
 from std_msgs.msg import Bool, String
 from grip_interface.srv import GripCommand
+from vision_msgs.msg import Detection3D
 from sensor_msgs.msg import JointState
 from controller_manager_msgs.srv import ListControllers
 
@@ -69,6 +70,9 @@ class cobot_control(Node):
             self.neutral_joint_pose,
             self.under_camera_pose,
             self.cycle,
+            self.bins,
+            self.bin_routing,
+            self.default_bin,
         ) = self.load_config()
         self.sequence_index = 0
         # implemented as thread-safe deque, for now we use FIFO
@@ -114,7 +118,7 @@ class cobot_control(Node):
         # to be used for vision subscriber (detects object availability and poses)
         # use RELIABLE to match rec_bot_core publisher
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE, depth=10)
-        self.create_subscription(PoseStamped, "/vision/detected_object", self.vision_callback, qos_profile)
+        self.create_subscription(Detection3D, "/vision/detected_object", self.vision_callback, qos_profile)
 
         self.joint_states_received = False
         self.startup_ready = False
@@ -390,7 +394,22 @@ class cobot_control(Node):
                 }
                 self.get_logger().info("Under-camera joint pose loaded from config")
 
-            return sorting_sequence, neutral_pose, neutral_joint_pose, under_camera_pose, cycle
+            # load named bins + label→bin routing for material-based sorting
+            bins = data.get("bins", {}) or {}
+            bin_routing = data.get("bin_routing", {}) or {}
+            default_bin = data.get("default_bin", None)
+            if bins:
+                self.get_logger().info(
+                    f"Loaded {len(bins)} named bin(s); {len(bin_routing)} routing rule(s); "
+                    f"default_bin='{default_bin}'"
+                )
+            else:
+                self.get_logger().warn("No named bins in config; label-based routing disabled")
+
+            return (
+                sorting_sequence, neutral_pose, neutral_joint_pose,
+                under_camera_pose, cycle, bins, bin_routing, default_bin,
+            )
 
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
@@ -398,7 +417,7 @@ class cobot_control(Node):
             self.pick_z_offset_m = 0.0
             self.grasped_object_size = [0.05, 0.05, 0.05]
             self._load_orientation_constraint(None)
-            return [], None, None, None, True
+            return [], None, None, None, True, {}, {}, None
 
     def _load_orientation_constraint(self, oc_data):
         """Load TCP orientation-constraint settings (with safe defaults)."""
@@ -427,9 +446,25 @@ class cobot_control(Node):
 
         return pose
 
-    def vision_callback(self, msg: PoseStamped):
-        """Handles incoming object pose from the vision system and queues it."""
+    def vision_callback(self, msg: Detection3D):
+        """Handles an incoming object detection from the vision system and queues it.
+
+        The detection carries the projected pose (results[0].pose.pose, in the
+        camera frame given by msg.header.frame_id) and the class label
+        (results[0].hypothesis.class_id) used to choose the target bin.
+        """
         try:
+            if not msg.results:
+                self.get_logger().warn("Detection has no results; skipping")
+                return
+
+            label = msg.results[0].hypothesis.class_id
+
+            # rebuild a PoseStamped in the camera frame for the TF transform
+            pose_in = PoseStamped()
+            pose_in.header = msg.header
+            pose_in.pose = msg.results[0].pose.pose
+
             # check if transform is available at the message timestamp
             stamp = rclpy.time.Time.from_msg(msg.header.stamp)
             if not self.tf_buffer.can_transform(
@@ -451,7 +486,7 @@ class cobot_control(Node):
                 msg.header.frame_id,
                 stamp,
             )
-            transformed_pose = tf2_geometry_msgs.do_transform_pose_stamped(msg, transform)
+            transformed_pose = tf2_geometry_msgs.do_transform_pose_stamped(pose_in, transform)
 
             # Raise the pick height by a small clearance in the base frame.
             # The vision pipeline reports the object surface slightly too low, so
@@ -465,16 +500,18 @@ class cobot_control(Node):
                 x=1.0, y=0.0, z=0.0, w=0.0
             )
 
-            # retrieve target bin location (base-link reference)
-            target_pose = self.get_next_sorting_pose()
+            # choose the target bin from the detected material label (base-link reference)
+            target_pose = self.get_bin_pose_for_label(label)
 
             if target_pose is None:
-                self.get_logger().error("Cannot queue task: no sorting sequence configured")
+                self.get_logger().error(
+                    f"Cannot queue task: no bin for label '{label}' and no default bin configured"
+                )
                 return
 
             # add sorting task to FIFO queue
             self.task_queue.append((transformed_pose, target_pose))
-            self.get_logger().info("Queued new sorting task.")
+            self.get_logger().info(f"Queued sorting task for label '{label}'.")
         except tf2_ros.LookupException:
             self.get_logger().warn(f"TF lookup failed: frame '{msg.header.frame_id}' not found")
         except tf2_ros.ExtrapolationException:
@@ -500,6 +537,37 @@ class cobot_control(Node):
 
         # convert from return YAML value into posetamped datatype
         return self.create_pose(target_pose_obj)
+
+    def get_bin_pose_for_label(self, label: str):
+        """Return the target bin pose for a detected material label.
+
+        Looks the label up in bin_routing → bin name, falling back to
+        default_bin for any unmapped label. Returns a PoseStamped for the named
+        bin, or None if no usable bin is configured.
+        """
+        if not self.bins:
+            self.get_logger().error("No named bins configured; cannot route detection")
+            return None
+
+        bin_name = self.bin_routing.get(label, self.default_bin)
+        if bin_name is None:
+            self.get_logger().warn(
+                f"Label '{label}' has no routing rule and no default_bin is set"
+            )
+            return None
+
+        bin_data = self.bins.get(bin_name)
+        if bin_data is None:
+            self.get_logger().error(
+                f"Routed label '{label}' to bin '{bin_name}', but it is not defined under 'bins'"
+            )
+            return None
+
+        routed = "default" if label not in self.bin_routing else "mapped"
+        self.get_logger().info(f"Routing label '{label}' → bin '{bin_name}' ({routed})")
+
+        # create_pose accepts a single-key dict {bin_name: {position, orientation}}
+        return self.create_pose({bin_name: bin_data})
 
     def gripper_action(self, action: str) -> bool:
         """
