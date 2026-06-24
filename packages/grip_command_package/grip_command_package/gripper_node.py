@@ -2,7 +2,6 @@ import rclpy
 from rclpy.node import Node
 from grip_interface.srv import GripCommand
 from std_msgs.msg import UInt8MultiArray, String
-import time
 
 class GripperNode(Node):     
     def __init__(self):
@@ -32,14 +31,44 @@ class GripperNode(Node):
         timer_period = 1.0
         self.timer = self.create_timer(timer_period, self.query_sensor)
 
-        self.get_logger().info("GripperNode_v4 is ready to receive commands.")
+        # Gripper initialisieren (closed-loop).
+        # The activation message must not be published until the serial bridge
+        # (remote_serial) has actually subscribed to the topic. With the default
+        # VOLATILE QoS, anything published before discovery completes is silently
+        # dropped, which left the gripper un-activated intermittently.
+        #
+        # Instead of firing once, we re-send the activation command on a timer
+        # until the gripper's own status (decoded in inspect_callback) reports it
+        # is activated. query_sensor() polls that status every second, so the two
+        # timers form a request/confirm loop that self-corrects.
+        self.gripper_activated = False
+        self._init_attempts = 0
+        self._init_timer = self.create_timer(1.0, self._try_initialize_gripper)
 
-        # Gripper initialisieren
+    def _try_initialize_gripper(self):
+        if self.gripper_activated:
+            self.get_logger().info("Gripper activation confirmed.")
+            self._init_timer.cancel()
+            return
+
+        self._init_attempts += 1
+        if self.publisher.get_subscription_count() < 1:
+            self.get_logger().info(
+                "Waiting for serial bridge to subscribe before activating gripper..."
+            )
+            return
+
         init_msg = UInt8MultiArray()
         init_msg.data = [9, 6, 3, 232, 9, 0, 14, 162]
         self.publisher.publish(init_msg)
-        self.get_logger().info("Gripper initialized.")
-        time.sleep(1) 
+        self.get_logger().info(
+            f"Activation command sent (attempt {self._init_attempts}); "
+            "awaiting status confirmation..."
+        )
+        if self._init_attempts % 10 == 0:
+            self.get_logger().warn(
+                f"Gripper still not confirmed activated after {self._init_attempts} attempts."
+            )
 
     def execute_command(self, request, response):
         try:
@@ -84,14 +113,21 @@ class GripperNode(Node):
                 result = String()
                 if value == 185:
                     result.data = "object detected"
+                    self.gripper_activated = True
                 elif value == 249:
                     result.data = "no object detected"
+                    self.gripper_activated = True
                 elif value == 57:
                     result.data = "unknown object detection. Regulating towards requested vacuum/pressure"
+                    self.gripper_activated = True
                 elif value == 121:
                     result.data = "object detected. Minimum vacuum reached"
+                    self.gripper_activated = True
                 elif value == 192:
                     result.data = "Gripper not activated (0xC0)"
+                    # Status explicitly reports the gripper is not activated; keep
+                    # the init loop re-sending the activation command.
+                    self.gripper_activated = False
                 else:
                     result.data = f"unknown value: {value}"
                 self.detection_publisher.publish(result)

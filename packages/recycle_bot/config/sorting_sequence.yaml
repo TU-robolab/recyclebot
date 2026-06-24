@@ -50,7 +50,7 @@ grasped_object_size: [0.05, 0.05, 0.05]  # meters (box attached to tool for plan
 # averaging over the bbox + calibration error), so the robot over-travels by ~1cm
 # and squishes the object. This raises the pick pose to compensate.
 # increase if it still presses too hard, decrease if it stops short of the object.
-pick_z_offset_m: 0.007
+pick_z_offset_m: 0.01
 
 # TCP orientation constraint applied to the carry transit moves (Steps 6 & 7)
 # so a grasped object does not tip onto its side mid-transit. Per-axis tolerances
