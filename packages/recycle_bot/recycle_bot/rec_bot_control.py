@@ -80,9 +80,9 @@ class cobot_control(Node):
         self.executing_task = False
 
         # MoveIt2 Interface
-        self.velocity_scaling = float(self.declare_parameter("velocity_scaling", 0.1).value)
+        self.velocity_scaling = float(self.declare_parameter("velocity_scaling", 0.5).value)
         self.acceleration_scaling = float(
-            self.declare_parameter("acceleration_scaling", 0.1).value
+            self.declare_parameter("acceleration_scaling", 0.5).value
         )
         self.moveit = None
         self.arm = None
@@ -364,6 +364,13 @@ class cobot_control(Node):
             sorting_sequence = data.get("sorting_sequence", [])
             cycle = data.get("cycle", True)  # default to cycling for backwards compatibility
             self.approach_height_m = float(data.get("approach_height_m", 0.10))
+            self.place_transit_height_m = float(
+                data.get("place_transit_height_m", self.approach_height_m)
+            )
+            self.place_yaw_candidates_deg = [
+                float(value)
+                for value in data.get("place_yaw_candidates_deg", [0.0, 90.0, -90.0, 180.0])
+            ]
             self.pick_z_offset_m = float(data.get("pick_z_offset_m", 0.0))
             size = data.get("grasped_object_size", [0.05, 0.05, 0.05])
             self.grasped_object_size = [float(size[0]), float(size[1]), float(size[2])]
@@ -414,6 +421,8 @@ class cobot_control(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to load YAML: {e}")
             self.approach_height_m = 0.10
+            self.place_transit_height_m = 0.10
+            self.place_yaw_candidates_deg = [0.0, 90.0, -90.0, 180.0]
             self.pick_z_offset_m = 0.0
             self.grasped_object_size = [0.05, 0.05, 0.05]
             self._load_orientation_constraint(None)
@@ -629,6 +638,100 @@ class cobot_control(Node):
             )
         return False
 
+    def _plan_with_planner_fallbacks(self, move_fn_factory, planners: list[tuple[str, int]]) -> bool:
+        """Try one or more planners, with retries per planner."""
+        for index, (planner, attempts) in enumerate(planners):
+            for attempt in range(1, attempts + 1):
+                if move_fn_factory(planner)():
+                    return True
+                retry_suffix = "; retrying with a fresh plan" if attempt < attempts else ""
+                self.get_logger().warn(
+                    f"Planning failed with {planner} (attempt {attempt}/{attempts}){retry_suffix}"
+                )
+
+            if index + 1 < len(planners):
+                self.get_logger().info(
+                    f"Switching planner from {planner} to {planners[index + 1][0]}"
+                )
+
+        return False
+
+    def _build_place_pose_candidates(self, place_pose: PoseStamped, height_offsets: list[float]) -> list[PoseStamped]:
+        """Build tool-down place candidates across a small yaw and height grid."""
+        candidates = []
+        seen = set()
+
+        for dz in height_offsets:
+            candidate = self.offset_pose_z(place_pose, dz)
+            if candidate is None:
+                continue
+
+            for yaw_deg in self.place_yaw_candidates_deg:
+                qx, qy, qz, qw = quaternion_from_euler(math.pi, 0.0, math.radians(yaw_deg))
+                candidate_yaw = PoseStamped()
+                candidate_yaw.header.frame_id = candidate.header.frame_id
+                candidate_yaw.header.stamp = self.get_clock().now().to_msg()
+                candidate_yaw.pose.position.x = candidate.pose.position.x
+                candidate_yaw.pose.position.y = candidate.pose.position.y
+                candidate_yaw.pose.position.z = candidate.pose.position.z
+                candidate_yaw.pose.orientation.x = qx
+                candidate_yaw.pose.orientation.y = qy
+                candidate_yaw.pose.orientation.z = qz
+                candidate_yaw.pose.orientation.w = qw
+
+                key = (
+                    round(candidate_yaw.pose.position.z, 4),
+                    round(candidate_yaw.pose.orientation.x, 4),
+                    round(candidate_yaw.pose.orientation.y, 4),
+                    round(candidate_yaw.pose.orientation.z, 4),
+                    round(candidate_yaw.pose.orientation.w, 4),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                candidates.append(candidate_yaw)
+
+        return candidates
+
+    def _move_to_any_place_candidate(
+        self,
+        place_pose: PoseStamped,
+        height_offsets: list[float],
+        planners: list[tuple[str, int]],
+    ) -> PoseStamped | None:
+        """Try reachable tool-down place candidates and return the first success."""
+        for candidate in self._build_place_pose_candidates(place_pose, height_offsets):
+            p = candidate.pose.position
+            o = candidate.pose.orientation
+            self.get_logger().info(
+                "Trying place candidate: "
+                f"z={p.z:.3f}, quat=({o.x:.3f},{o.y:.3f},{o.z:.3f},{o.w:.3f})"
+            )
+            if self._plan_with_planner_fallbacks(
+                lambda planner: lambda: self.move_to_pose(candidate, planner=planner),
+                planners,
+            ):
+                return candidate
+
+        return None
+
+    def _copy_pose_with_orientation(self, pose: PoseStamped, orientation: Quaternion) -> PoseStamped | None:
+        """Copy a pose while replacing only its orientation."""
+        if pose is None:
+            return None
+
+        copied_pose = PoseStamped()
+        copied_pose.header.frame_id = pose.header.frame_id or "base"
+        copied_pose.header.stamp = self.get_clock().now().to_msg()
+        copied_pose.pose.position.x = pose.pose.position.x
+        copied_pose.pose.position.y = pose.pose.position.y
+        copied_pose.pose.position.z = pose.pose.position.z
+        copied_pose.pose.orientation.x = orientation.x
+        copied_pose.pose.orientation.y = orientation.y
+        copied_pose.pose.orientation.z = orientation.z
+        copied_pose.pose.orientation.w = orientation.w
+        return copied_pose
+
     def move_to_neutral(self, planner: str = None, constrain_to=None) -> bool:
         """Move to neutral pose if configured.
 
@@ -831,17 +934,44 @@ class cobot_control(Node):
 
         # 7. move to pre-place (approach) — constrained so it stays level
         self.get_logger().info("\033[94m Step 7/10: Moving to pre-place (approach)\033[0m")
-        pre_place = self.offset_pose_z(place_pose, self.approach_height_m)
-        if pre_place is not None and not self._plan_with_retries(
-            lambda: self.move_to_pose(pre_place, planner="ompl_rrtc")
-        ):
+        height_offsets = [self.approach_height_m]
+        if self.place_transit_height_m > self.approach_height_m:
+            height_offsets.append(self.place_transit_height_m)
+
+        selected_pre_place = self._move_to_any_place_candidate(
+            place_pose,
+            height_offsets,
+            [("ompl_rrtc", 1), ("ompl_prmstar", 1)],
+        )
+        if selected_pre_place is None:
             self.get_logger().error("Failed to reach pre-place pose, releasing and returning to neutral")
+            self._abort_task(release_object=True, move_to_neutral=True)
+            return
+
+        selected_pre_place_pose = self._copy_pose_with_orientation(
+            self.offset_pose_z(place_pose, self.approach_height_m),
+            selected_pre_place.pose.orientation,
+        )
+        selected_place_pose = self._copy_pose_with_orientation(
+            place_pose,
+            selected_pre_place.pose.orientation,
+        )
+        if selected_pre_place_pose is None or selected_place_pose is None:
+            self.get_logger().error("Failed to derive selected place poses from the successful Step 7 candidate")
+            self._abort_task(release_object=True, move_to_neutral=True)
+            return
+
+        if (
+            abs(selected_pre_place.pose.position.z - selected_pre_place_pose.pose.position.z) > 1e-6
+            and not self.move_to_pose(selected_pre_place_pose, planner="pilz_lin")
+        ):
+            self.get_logger().error("Failed to lower from the selected transit height to the true pre-place height")
             self._abort_task(release_object=True, move_to_neutral=True)
             return
 
         # 8. move to place
         self.get_logger().info("\033[94m Step 8/10: Moving to place pose (LIN)\033[0m")
-        if not self.move_to_pose(place_pose, planner="pilz_lin"):
+        if not self.move_to_pose(selected_place_pose, planner="pilz_lin"):
             self.get_logger().error("Failed to reach place pose, releasing and returning to neutral")
             self._abort_task(release_object=True, move_to_neutral=True)
             return

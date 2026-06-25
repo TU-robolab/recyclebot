@@ -74,8 +74,8 @@ plan_request_params:
   planning_attempts: 10
   planning_pipeline: ompl
   planner_id: "RRTConnectkConfigDefault"
-  max_velocity_scaling_factor: 0.3
-  max_acceleration_scaling_factor: 0.3
+  max_velocity_scaling_factor: 0.5
+  max_acceleration_scaling_factor: 0.5
 
 # Named plan request configs for each planner
 ompl_rrtc:
@@ -83,20 +83,29 @@ ompl_rrtc:
     planning_attempts: 10
     planning_pipeline: ompl
     planner_id: "RRTConnectkConfigDefault"
-    max_velocity_scaling_factor: 0.3
-    max_acceleration_scaling_factor: 0.3
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
     # Per-attempt budget for constrained (orientation-manifold) planning. Kept
     # short on purpose: a stuck RRTConnect seed should fail fast so the code-level
     # retry can try a fresh seed (which usually solves in <1s) instead of hanging.
-    planning_time: 6.0
+    planning_time: 2.0
+
+ompl_prmstar:
+  plan_request_params:
+    planning_attempts: 1
+    planning_pipeline: ompl
+    planner_id: "PRMstarkConfigDefault"
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
+    planning_time: 2.0
 
 pilz_ptp:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: pilz_industrial_motion_planner
     planner_id: "PTP"
-    max_velocity_scaling_factor: 0.3
-    max_acceleration_scaling_factor: 0.3
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
     planning_time: 0.8
 
 pilz_lin:
@@ -104,14 +113,14 @@ pilz_lin:
     planning_attempts: 1
     planning_pipeline: pilz_industrial_motion_planner
     planner_id: "LIN"
-    max_velocity_scaling_factor: 0.3
-    max_acceleration_scaling_factor: 0.3
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
     planning_time: 0.8
 
 chomp_planner:
   plan_request_params:
     planning_attempts: 1
     planning_pipeline: chomp
-    max_velocity_scaling_factor: 0.3
-    max_acceleration_scaling_factor: 0.3
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
     planning_time: 1.5
