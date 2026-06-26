@@ -477,5 +477,5 @@ This repository is distributed under the MIT License unless otherwise stated.
 
 ---
 
-Maintained by Triku Studio
+Maintained by Elvis Borges @Triku Studio
 © 2026 Triku Studio — All Rights Reserved.
