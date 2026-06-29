@@ -3,6 +3,7 @@ import yaml
 import os
 import math
 import time
+import threading
 
 from collections import deque
 
@@ -140,6 +141,22 @@ class cobot_control(Node):
             GripCommand, '/gripper_action', callback_group=self._gripper_cb_group
         )
         self.gripper_timeout_sec = 5.0
+
+        # Gripper grasp feedback (E-Pick vacuum sensor) — the gripper node polls
+        # the sensor at 1 Hz and publishes a human-readable status string. We
+        # cache the latest reading so confirm_grasp() can verify a pick actually
+        # took hold. Its own ReentrantCallbackGroup is required for the same
+        # reason as gripper_client: process_tasks (a reentrant timer callback)
+        # blocks polling in confirm_grasp(), and the subscription must still be
+        # serviced on another thread to deliver fresh readings.
+        self._gripper_status_lock = threading.Lock()
+        self._last_gripper_status = None
+        self._last_gripper_status_time = 0.0
+        self._gripper_status_cb_group = ReentrantCallbackGroup()
+        self.create_subscription(
+            String, "/object_detection/status", self.gripper_status_callback, 10,
+            callback_group=self._gripper_status_cb_group,
+        )
 
         # Timer for checking and processing tasks — use a ReentrantCallbackGroup
         # so the executor can still process service responses (e.g. gripper)
@@ -621,6 +638,42 @@ class cobot_control(Node):
 
         return result.success
 
+    def gripper_status_callback(self, msg: String):
+        """Cache the latest E-Pick vacuum-sensor status string."""
+        with self._gripper_status_lock:
+            self._last_gripper_status = msg.data
+            self._last_gripper_status_time = time.time()
+
+    def confirm_grasp(self, timeout_sec: float = 3.5):
+        """Verify the gripper actually grabbed something using its vacuum sensor.
+
+        Only readings that arrive *after* this call starts are trusted, so a
+        stale status can't produce a false positive/negative.
+
+        Returns:
+            True  — object confirmed held
+            False — confirmed empty, or only ambiguous (settling/unknown)
+                    readings seen before the timeout
+            None  — no sensor data at all (no E-Pick present, e.g. mock setups);
+                    caller should proceed without enforcing the check
+        """
+        t0 = time.time()
+        deadline = t0 + timeout_sec
+        saw_fresh = False
+        while rclpy.ok() and time.time() < deadline:
+            with self._gripper_status_lock:
+                status, ts = self._last_gripper_status, self._last_gripper_status_time
+            if status is not None and ts >= t0:
+                # Check "no object detected" first so the substring "object
+                # detected" can't false-positive on it.
+                if "no object detected" in status:
+                    return False
+                if "object detected" in status:  # also "...Minimum vacuum reached"
+                    return True
+                saw_fresh = True  # regulating / unknown — keep polling
+            time.sleep(0.1)
+        return False if saw_fresh else None
+
     def _plan_with_retries(self, move_fn, attempts: int = 3) -> bool:
         """Run a move, retrying on failure.
 
@@ -846,6 +899,7 @@ class cobot_control(Node):
             3.  move to pick pose (LIN)
             4.  grip object
             5.  retreat to pre-pick (LIN) — clear table before attaching collision
+            5b. verify grasp via vacuum sensor (retry grip once, else abort to neutral)
             6.  move to neutral (safe transit with object)
             7.  move to pre-place pose (approach)
             8.  move to place pose (LIN)
@@ -913,6 +967,29 @@ class cobot_control(Node):
             self.get_logger().error("Failed to retreat to pre-pick, returning to neutral")
             self._abort_task(release_object=True, move_to_neutral=True)
             return
+
+        # 5b. verify the vacuum gripper actually grabbed something
+        self.get_logger().info("\033[94m Step 5b: Verifying grasp\033[0m")
+        grasped = self.confirm_grasp()
+        if grasped is None:
+            self.get_logger().warning("No gripper status available; skipping grasp verification")
+        elif not grasped:
+            self.get_logger().warning("Grasp not confirmed; retrying grip once")
+            retry_ok = (
+                self.move_to_pose(pick_pose, planner="pilz_lin")
+                and self.gripper_action("grip")
+                and pre_pick is not None
+                and self.move_to_pose(pre_pick, planner="pilz_lin")
+                and self.confirm_grasp() is not False  # True or None (sensor lost) -> accept
+            )
+            if not retry_ok:
+                self.get_logger().error(
+                    "Grasp not confirmed after retry; releasing and returning to neutral")
+                self._abort_task(release_object=True, move_to_neutral=True)
+                return
+            self.get_logger().info("Grasp confirmed after retry")
+        else:
+            self.get_logger().info("Grasp confirmed")
 
         self._object_attached = self.attach_object_to_tool()
         if not self._object_attached:
