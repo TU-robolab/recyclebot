@@ -73,11 +73,32 @@ class VisionDetector(Node):
         # TODO: consider extracting from /camera/camera/depth/camera_info or parameter server
         self.depth_scale = 0.001  
         
-        # create ROS2 interfaces to trigger capture of goals
-        self.srv = self.create_service(Trigger, "capture_detections", 
+        # create ROS2 interfaces to trigger capture of goals.
+        # Service and the periodic auto-capture timer share one mutually-exclusive
+        # callback group so two YOLO inferences can never run concurrently.
+        self.capture_cb_group = MutuallyExclusiveCallbackGroup()
+        self.srv = self.create_service(Trigger, "capture_detections",
                                        self.trigger_callback,
-                                       callback_group= MutuallyExclusiveCallbackGroup()
+                                       callback_group=self.capture_cb_group
         )
+
+        # Auto-capture: run detection periodically so it doesn't need a manual
+        # /capture_detections call. Period in seconds; set to 0 to disable and
+        # fall back to manual triggering only.
+        self.auto_capture_period_s = (
+            self.declare_parameter("auto_capture_period_s", 1.0)
+            .get_parameter_value()
+            .double_value
+        )
+        if self.auto_capture_period_s > 0.0:
+            self.auto_capture_timer = self.create_timer(
+                self.auto_capture_period_s,
+                self.auto_capture_callback,
+                callback_group=self.capture_cb_group,
+            )
+            self.get_logger().info(
+                f"Auto-capture enabled every {self.auto_capture_period_s:.2f}s"
+            )
         
         """
             subscribe to vision topic for rbg image from realsense: 
@@ -131,16 +152,20 @@ class VisionDetector(Node):
     thread-safe detection callback, runs the model on capture
     and publishes the detections 
     """
-    def trigger_callback(self, request, response):
+    def capture_detections(self):
+        """Run YOLO on the latest RGBD frame and add new detections to the deque.
+
+        Returns the number of newly added detections, or None if no image is
+        available yet. Shared by the /capture_detections service and the
+        periodic auto-capture timer.
+        """
         cv_image = None
         depth_cv_image = None
         # keep lock on last image only as long as necessary
         with self.rgbd_lock:
             if self.last_rgbd_image is None:
-                response.success = False
-                response.message = "No image available"
-                return response
-            
+                return None
+
             depth_cv_image = self.bridge.imgmsg_to_cv2(self.last_rgbd_image.depth, "passthrough")
 
             # convert ROS image to OpenCV format
@@ -148,18 +173,18 @@ class VisionDetector(Node):
 
             # camera info for conversions
             camera_info = self.last_rgbd_image.rgb_camera_info
-        
+
 
         # Uncomment for debug visualization (disables headless testing)
         # Runs in a separate thread to avoid blocking the inference callback
         #Thread(target=self.show_rgbd, args=(cv_image, depth_cv_image)).start()
 
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
-        inf_results = self.model(cv_image, conf=0.5)  
+        inf_results = self.model(cv_image, conf=0.5)
         self.get_logger().debug(f"NN output raw inference output: {inf_results}")
         self.get_logger().debug(f"NN output raw inference boxes: {inf_results[0].boxes}")
-       
-        
+
+
         # process detections
         detections = self.process_yolo_results(inf_results, cv_image, depth_cv_image)
 
@@ -172,11 +197,31 @@ class VisionDetector(Node):
                     self.detection_deque.append(det)
                     added_count += 1
 
-        
+        return added_count
+
+    """
+    service wrapper: manual /capture_detections trigger
+    """
+    def trigger_callback(self, request, response):
+        added_count = self.capture_detections()
+        if added_count is None:
+            response.success = False
+            response.message = "No image available"
+            return response
+
         response.success = True
         response.message = f"Added {added_count} potential new detections"
+        return response
 
-        return response            
+    """
+    timer wrapper: periodic auto-capture (no manual trigger needed)
+    """
+    def auto_capture_callback(self):
+        added_count = self.capture_detections()
+        if added_count is None:
+            self.get_logger().debug("Auto-capture: no image available yet")
+        elif added_count > 0:
+            self.get_logger().debug(f"Auto-capture added {added_count} new detections")
 
     def show_rgbd(self, rgb_img, depth_img):
         # create colorized depth visualization

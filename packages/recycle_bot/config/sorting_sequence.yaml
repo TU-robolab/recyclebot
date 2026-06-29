@@ -70,7 +70,7 @@ sorting_sequence:
 cycle: true  # cycle through targets when end is reached
 approach_height_m: 0.05  # meters above pick/place for approach/retreat
 place_transit_height_m: 0.05  # optional higher Step 7 fallback height; keep equal to approach height unless a taller above-bin waypoint is known to be reachable
-place_yaw_candidates_deg: [0.0, 90.0, -90.0, 180.0]  # Step 7/8 may rotate wrist yaw while keeping the tool vertical, avoiding unreachable exact-quaternion place goals
+place_yaw_candidates_deg: [90.0, -90.0, 180.0, 0.0]  # Step 7/8 may rotate wrist yaw while keeping the tool vertical, avoiding unreachable exact-quaternion place goals. 90 deg first: yaw=0 is consistently unreachable for the place pose, so trying it first wasted two planning attempts.
 grasped_object_size: [0.05, 0.05, 0.05]  # meters (box attached to tool for planning)
 
 # small vertical clearance added to the detected pick height (meters).

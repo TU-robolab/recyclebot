@@ -85,10 +85,7 @@ ompl_rrtc:
     planner_id: "RRTConnectkConfigDefault"
     max_velocity_scaling_factor: 0.5
     max_acceleration_scaling_factor: 0.5
-    # Per-attempt budget for constrained (orientation-manifold) planning. Kept
-    # short on purpose: a stuck RRTConnect seed should fail fast so the code-level
-    # retry can try a fresh seed (which usually solves in <1s) instead of hanging.
-    planning_time: 2.0
+    planning_time: 1.0
 
 ompl_prmstar:
   plan_request_params:
@@ -97,7 +94,7 @@ ompl_prmstar:
     planner_id: "PRMstarkConfigDefault"
     max_velocity_scaling_factor: 0.5
     max_acceleration_scaling_factor: 0.5
-    planning_time: 2.0
+    planning_time: 1.0
 
 pilz_ptp:
   plan_request_params:

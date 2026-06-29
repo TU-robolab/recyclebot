@@ -104,6 +104,8 @@ def generate_launch_description():
                 executable="rec_bot_vision",
                 name="rec_bot_vision",
                 output="screen",
+                # Auto-capture detections on an interval (seconds); 0 disables it.
+                parameters=[{"auto_capture_period_s": 2.0}],
             ),
             Node(
                 package="recycle_bot",
