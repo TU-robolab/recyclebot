@@ -95,7 +95,7 @@ class RecBotCore(Node):
         RealSense D415 range: 0.3m - 10m (optimal 0.5m - 3m)
         """
         defaults = {
-            "min_confidence": 0.5,
+            "min_confidence": 0.75,
             "min_depth_m": 0.3,
             "max_depth_m": 1.5
         }

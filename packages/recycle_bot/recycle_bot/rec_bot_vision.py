@@ -12,6 +12,7 @@ from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
+from std_msgs.msg import Bool
 from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
 from std_srvs.srv import Trigger
 from realsense2_camera_msgs.msg import RGBD
@@ -78,6 +79,23 @@ class VisionDetector(Node):
 
         # threshold to weed out duplicate detections
         self.similarity_threshold = 0.5     #0.7
+
+        # Robot-busy gate: control publishes this (latched) while a pick-place
+        # task or the startup move is in progress. Both the manual
+        # /capture_detections trigger and auto-capture skip while busy — running
+        # YOLO on a frame with the arm/gripper in view risks detecting the robot
+        # itself and queuing a bogus task. Defaults to "idle" if control isn't
+        # running (e.g. vision-only launches), matching prior behavior.
+        self.robot_busy = False
+        busy_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            Bool, "/rec_bot/robot_busy", self._robot_busy_callback, busy_qos
+        )
 
         # depth scale: converts raw depth values to meters
         # D415 default: 0.001 (raw values in mm, so mm * 0.001 = meters)
@@ -161,6 +179,9 @@ class VisionDetector(Node):
     def image_callback(self, msg):
         with self.rgbd_lock:
             self.last_rgbd_image = msg
+
+    def _robot_busy_callback(self, msg: Bool):
+        self.robot_busy = msg.data
         
     """ 
     thread-safe detection callback, runs the model on capture
@@ -230,6 +251,11 @@ class VisionDetector(Node):
     service wrapper: manual /capture_detections trigger
     """
     def trigger_callback(self, request, response):
+        if self.robot_busy:
+            response.success = False
+            response.message = "Robot is executing a task; capture skipped"
+            return response
+
         added_count = self.capture_detections()
         if added_count is None:
             response.success = False
@@ -244,6 +270,10 @@ class VisionDetector(Node):
     timer wrapper: periodic auto-capture (no manual trigger needed)
     """
     def auto_capture_callback(self):
+        if self.robot_busy:
+            self.get_logger().debug("Auto-capture: skipped, robot busy")
+            return
+
         added_count = self.capture_detections()
         if added_count is None:
             self.get_logger().debug("Auto-capture: no image available yet")

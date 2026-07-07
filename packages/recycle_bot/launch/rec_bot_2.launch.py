@@ -82,20 +82,26 @@ def generate_launch_description():
     start_nodes = TimerAction(
         period=5.0,
         actions=[
-            LogInfo(msg=">>> Triggering /dashboard_client/play to start robot program..."),
-            # Retry loop: the dashboard client may not be up yet (a one-shot call
-            # fails silently and nothing starts the robot program). The response
-            # is also checked for success=True — the call itself exits 0 even
-            # when the dashboard refuses (e.g. program not loaded / local mode).
+            LogInfo(msg=">>> Waiting for External Control program (headless mode)..."),
+            # Headless mode: the driver sends the External Control URScript to
+            # the robot itself at startup — no Polyscope program is loaded, so
+            # /dashboard_client/play has nothing to play and always answers
+            # "Failed to execute: play" even while the script is running.
+            # Instead, confirm via the driver's robot_program_running flag and,
+            # if it is not up yet, nudge it with resend_robot_program (the
+            # documented headless-mode recovery call).
             ExecuteProcess(
                 cmd=["bash", "-c",
                      "for i in $(seq 1 20); do "
-                     "out=$(timeout 15 ros2 service call /dashboard_client/play std_srvs/srv/Trigger 2>&1) || true; "
-                     "echo \"$out\"; "
-                     "if echo \"$out\" | grep -q 'success=True'; then echo '[play] Robot program started'; exit 0; fi; "
-                     "echo \"[play] attempt $i failed; retrying in 3s\"; sleep 3; "
+                     "if timeout 10 ros2 topic echo --once /io_and_status_controller/robot_program_running 2>/dev/null "
+                     "| grep -q 'data: true'; then "
+                     "echo '[program] External Control program running'; exit 0; fi; "
+                     "echo \"[program] not running yet (attempt $i/20); calling resend_robot_program\"; "
+                     "timeout 10 ros2 service call /io_and_status_controller/resend_robot_program std_srvs/srv/Trigger 2>&1 | tail -1; "
+                     "sleep 3; "
                      "done; "
-                     "echo '[play] ERROR: could not start robot program after 20 attempts'; exit 1"],
+                     "echo '[program] WARNING: could not confirm program running - check remote mode / External Control'; "
+                     "exit 0"],
                 output='screen',
             ),
             IncludeLaunchDescription(
@@ -120,7 +126,7 @@ def generate_launch_description():
                 name="rec_bot_vision",
                 output="screen",
                 # Auto-capture detections on an interval (seconds); 0 disables it.
-                parameters=[{"auto_capture_period_s": 0.0}],
+                parameters=[{"auto_capture_period_s": 3.0}],
             ),
             Node(
                 package="recycle_bot",

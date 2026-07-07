@@ -13,14 +13,19 @@ import rclpy.duration
 import tf2_ros
 import tf2_geometry_msgs
 
-from rclpy.qos import QoSProfile, QoSReliabilityPolicy
+from rclpy.qos import (
+    QoSProfile,
+    QoSReliabilityPolicy,
+    QoSDurabilityPolicy,
+    QoSHistoryPolicy,
+)
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from tf_transformations import quaternion_from_euler
 from geometry_msgs.msg import Pose, PoseStamped, Quaternion
 from ament_index_python.packages import get_package_share_directory
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 from grip_interface.srv import GripCommand
 from vision_msgs.msg import Detection3D
 from sensor_msgs.msg import JointState
@@ -89,6 +94,21 @@ class cobot_control(Node):
         self.task_max_age_s = float(
             self.declare_parameter("task_max_age_s", 60.0).value
         )
+
+        # Publishes whether a pick-place task (or the startup move) is currently
+        # executing, so vision can pause capture (both manual /capture_detections
+        # and auto-capture) while the robot is moving — capturing mid-motion risks
+        # detecting the gripper/arm itself and queuing bogus tasks.
+        # TRANSIENT_LOCAL so a vision node that (re)starts after this one still
+        # gets the last known state immediately instead of defaulting to "idle".
+        busy_qos = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.busy_pub = self.create_publisher(Bool, "/rec_bot/robot_busy", busy_qos)
+        self.publish_busy(False)
 
         # MoveIt2 Interface
         self.velocity_scaling = float(self.declare_parameter("velocity_scaling", 0.5).value)
@@ -178,6 +198,12 @@ class cobot_control(Node):
         self.create_timer(10.0, self.process_tasks, callback_group=self._timer_cb_group)
 
         self.get_logger().info("UR16e sorter node initialized")
+
+    def publish_busy(self, busy: bool):
+        """Broadcast whether the robot is currently moving (see busy_pub above)."""
+        msg = Bool()
+        msg.data = busy
+        self.busy_pub.publish(msg)
 
     def joint_state_callback(self, msg: JointState):
         self.joint_states_received = True
@@ -421,6 +447,7 @@ class cobot_control(Node):
                 for value in data.get("place_yaw_candidates_deg", [0.0, 90.0, -90.0, 180.0])
             ]
             self.pick_z_offset_m = float(data.get("pick_z_offset_m", 0.0))
+            self.grasp_retry_extra_depth_m = float(data.get("grasp_retry_extra_depth_m", 0.01))
             size = data.get("grasped_object_size", [0.05, 0.05, 0.05])
             self.grasped_object_size = [float(size[0]), float(size[1]), float(size[2])]
 
@@ -475,6 +502,7 @@ class cobot_control(Node):
             self.place_transit_height_m = 0.10
             self.place_yaw_candidates_deg = [0.0, 90.0, -90.0, 180.0]
             self.pick_z_offset_m = 0.0
+            self.grasp_retry_extra_depth_m = 0.01
             self.grasped_object_size = [0.05, 0.05, 0.05]
             self._load_orientation_constraint(None)
             return None, None, None, {}, {}, None
@@ -962,6 +990,7 @@ class cobot_control(Node):
                 return
             pick_pose, place_pose = task
             self._current_pick_pose = pick_pose
+            self.publish_busy(True)
             self._run_pick_place(pick_pose, place_pose)
         except Exception as exc:
             self.get_logger().error(f"Unhandled error during pick-place task: {exc}")
@@ -971,6 +1000,7 @@ class cobot_control(Node):
             self._abort_task()
         finally:
             self._current_pick_pose = None
+            self.publish_busy(False)
             self._task_latch.release()
 
     def _run_pick_place(self, pick_pose: PoseStamped, place_pose: PoseStamped):
@@ -1056,12 +1086,19 @@ class cobot_control(Node):
         if grasped is None:
             self.get_logger().warning("No gripper status available; skipping grasp verification")
         elif not grasped:
-            self.get_logger().warning("Grasp not confirmed; retrying grip once")
+            # Go a little deeper on the retry: a common miss is the object
+            # sitting slightly lower than reported (depth/calibration error),
+            # so the first attempt closes on air just above it.
+            retry_pick_pose = self.offset_pose_z(pick_pose, -self.grasp_retry_extra_depth_m)
+            self.get_logger().warning(
+                f"Grasp not confirmed; retrying grip {self.grasp_retry_extra_depth_m * 1000:.0f}mm lower"
+            )
             retry_ok = (
                 # release first: re-sending "grip" while the pump is already
                 # regulating may not rebuild suction on the repositioned object
                 self.gripper_action("release")
-                and self.move_to_pose(pick_pose, planner="pilz_lin")
+                and retry_pick_pose is not None
+                and self.move_to_pose(retry_pick_pose, planner="pilz_lin")
                 and self.gripper_action("grip")
                 and pre_pick is not None
                 and self.move_to_pose(pre_pick, planner="pilz_lin")
@@ -1452,8 +1489,12 @@ def main():
         # Startup check and neutral move BEFORE adding to executor,
         # so rclpy.spin_once(self) inside wait_for_startup_ready works
         # (a node cannot be spun by two executors simultaneously).
+        # publish_busy() itself doesn't need spinning (publishing works before
+        # the node is added to an executor), so this move is covered too.
+        ur_node.publish_busy(True)
         if ur_node.wait_for_startup_ready() and ur_node.move_to_neutral(planner="pilz_ptp"):
             ur_node.get_logger().info("Moved to neutral pose on startup")
+        ur_node.publish_busy(False)
         executor.add_node(ur_node)
         executor.spin()
     except KeyboardInterrupt:
