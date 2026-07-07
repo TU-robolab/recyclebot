@@ -1,21 +1,17 @@
 # System Imports
-import yaml
 import os
 import time
-import getpass
 
 from collections import deque
-from threading import Lock, Thread
+from threading import Lock
 
 # ROS2 imports
 import rclpy
-import tf2_ros
 
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
-from sensor_msgs.msg import Image
 from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
 from std_srvs.srv import Trigger
 from realsense2_camera_msgs.msg import RGBD
@@ -60,18 +56,36 @@ class VisionDetector(Node):
         self.bridge = CvBridge()
         self.rgbd_lock = Lock()  # protects: last_rgbd_image
         self.last_rgbd_image = None
-                
-        # create list to track detected trash (max 128 values ~4.2 secs at 30FPS)
-        self.detection_deque = deque(maxlen=128)
+        self.camera_frame_id = ""
+
+        # Detection bookkeeping (protected by detection_lock):
+        #   pending_detections — new detections awaiting publication (drained by
+        #                        process_deque at 10 Hz)
+        #   recent_detections  — dedup memory; entries stay for dedup_window_s so
+        #                        a stationary object is not re-published on every
+        #                        capture. Keep the window short: downstream
+        #                        consumers (viz, tests) expect a periodic stream,
+        #                        and the control node dedups tasks by 3D pose
+        #                        anyway — this window only rate-limits publishes.
+        self.pending_detections = deque()
+        self.recent_detections = deque(maxlen=128)
         self.detection_lock = Lock()
+        self.dedup_window_s = (
+            self.declare_parameter("dedup_window_s", 2.0)
+            .get_parameter_value()
+            .double_value
+        )
 
         # threshold to weed out duplicate detections
         self.similarity_threshold = 0.5     #0.7
 
         # depth scale: converts raw depth values to meters
         # D415 default: 0.001 (raw values in mm, so mm * 0.001 = meters)
-        # TODO: consider extracting from /camera/camera/depth/camera_info or parameter server
-        self.depth_scale = 0.001  
+        self.depth_scale = (
+            self.declare_parameter("depth_scale", 0.001)
+            .get_parameter_value()
+            .double_value
+        )
         
         # create ROS2 interfaces to trigger capture of goals.
         # Service and the periodic auto-capture timer share one mutually-exclusive
@@ -171,12 +185,13 @@ class VisionDetector(Node):
             # convert ROS image to OpenCV format
             cv_image = self.bridge.imgmsg_to_cv2(self.last_rgbd_image.rgb, self.last_rgbd_image.rgb.encoding)
 
-            # camera info for conversions
-            camera_info = self.last_rgbd_image.rgb_camera_info
+            # camera frame for the published Detection3DArray header
+            self.camera_frame_id = self.last_rgbd_image.rgb.header.frame_id
 
 
-        # Uncomment for debug visualization (disables headless testing)
+        # Uncomment for debug visualization (disables headless testing).
         # Runs in a separate thread to avoid blocking the inference callback
+        # (requires: from threading import Thread)
         #Thread(target=self.show_rgbd, args=(cv_image, depth_cv_image)).start()
 
         # run inference with YOLO11 (outside of image lock, confidence threshold of 0.5)
@@ -189,15 +204,27 @@ class VisionDetector(Node):
         detections = self.process_yolo_results(inf_results, cv_image, depth_cv_image)
 
         self.get_logger().debug(f"NN output raw detections: {detections}")
-        # add unique detections to deque (only alter detections inside the lock)
+        # add unique detections (only alter detection state inside the lock)
         with self.detection_lock:
+            self._expire_old_detections()
             added_count = 0
             for det in detections:
                 if not self.is_duplicate(det):
-                    self.detection_deque.append(det)
+                    self.recent_detections.append(det)
+                    self.pending_detections.append(det)
                     added_count += 1
 
         return added_count
+
+    def _expire_old_detections(self):
+        """Drop dedup-memory entries older than the dedup window.
+
+        Must be called with detection_lock held. recent_detections is ordered by
+        insertion time, so popping from the left is sufficient.
+        """
+        cutoff = time.time() - self.dedup_window_s
+        while self.recent_detections and self.recent_detections[0]["timestamp"] < cutoff:
+            self.recent_detections.popleft()
 
     """
     service wrapper: manual /capture_detections trigger
@@ -289,12 +316,22 @@ class VisionDetector(Node):
             x2 = int(min(img_w, cx + w / 2))
             y2 = int(min(img_h, cy + h / 2))
 
-            # extract depth region and compute average depth in meters
-            depth_bbox = depth_img[y1:y2, x1:x2]
-            valid_depth = depth_bbox[depth_bbox > 0]  # exclude invalid pixels (0 = no reading)
+            # Estimate object depth from the central half of the bbox using the
+            # median: bbox edges are mostly background (table), and a mean over
+            # the full box systematically overestimates depth for small objects
+            # (reported pick pose too low → gripper presses into the object).
+            qw = (x2 - x1) // 4
+            qh = (y2 - y1) // 4
+            central = depth_img[y1 + qh:y2 - qh, x1 + qw:x2 - qw]
+            valid_depth = central[central > 0]  # exclude invalid pixels (0 = no reading)
+
+            if len(valid_depth) == 0:
+                # fall back to the full bbox if the central region has no reading
+                depth_bbox = depth_img[y1:y2, x1:x2]
+                valid_depth = depth_bbox[depth_bbox > 0]
 
             if len(valid_depth) > 0:
-                avg_depth_m = float(np.mean(valid_depth)) * self.depth_scale
+                avg_depth_m = float(np.median(valid_depth)) * self.depth_scale
             else:
                 avg_depth_m = 0.0  # no valid depth readings
 
@@ -318,7 +355,8 @@ class VisionDetector(Node):
         return detections
    
     def is_duplicate(self, new_det):
-        for existing_det in self.detection_deque:
+        """IoU check against the dedup memory. Call with detection_lock held."""
+        for existing_det in self.recent_detections:
             # calculate IoU for duplicate detection check
             # bbox_uv format: (center_x, center_y, width, height)
             box_a = new_det["bbox_uv"]
@@ -378,17 +416,19 @@ class VisionDetector(Node):
         return False
 
     def process_deque(self):
-        # skip if empty
-        if not self.detection_deque:
-            return
-
         detection_array = Detection3DArray()
         detection_array.header.stamp = self.get_clock().now().to_msg()
 
         with self.detection_lock:
-            while self.detection_deque:
+            # skip if nothing new (recent_detections is dedup memory only)
+            if not self.pending_detections:
+                return
+
+            detection_array.header.frame_id = self.camera_frame_id
+
+            while self.pending_detections:
                 # fifo order
-                det = self.detection_deque.popleft()
+                det = self.pending_detections.popleft()
 
                 d = Detection3D()
                 # bbox.center.position:

@@ -59,6 +59,9 @@ cleanup() {
     if [ ! -z "$VISION_PID" ]; then
         kill $VISION_PID 2>/dev/null || true
     fi
+    if [ ! -z "$CORE_PID" ]; then
+        kill $CORE_PID 2>/dev/null || true
+    fi
 }
 
 # Set trap to cleanup on exit
@@ -74,6 +77,13 @@ sleep 3
 echo "2. Starting vision detector node..."
 ros2 run recycle_bot rec_bot_vision &
 VISION_PID=$!
+
+# Start core node (publishes the base_link -> camera_link static TF that
+# test_04b_tf_available checks)
+echo "2b. Starting core node..."
+ros2 run recycle_bot rec_bot_core &
+CORE_PID=$!
+
 sleep 10  # Wait for YOLO model to load
 
 # Run the tests

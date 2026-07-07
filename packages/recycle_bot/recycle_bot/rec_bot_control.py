@@ -17,12 +17,10 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.parameter import Parameter
 from tf_transformations import quaternion_from_euler
-from image_geometry import PinholeCameraModel
-from geometry_msgs.msg import Pose, PoseStamped, Point, Quaternion
+from geometry_msgs.msg import Pose, PoseStamped, Quaternion
 from ament_index_python.packages import get_package_share_directory
-from std_msgs.msg import Bool, String
+from std_msgs.msg import String
 from grip_interface.srv import GripCommand
 from vision_msgs.msg import Detection3D
 from sensor_msgs.msg import JointState
@@ -66,19 +64,31 @@ class cobot_control(Node):
         
         # load config from YAML file
         (
-            self.sorting_sequence,
             self.neutral_pose,
             self.neutral_joint_pose,
             self.under_camera_pose,
-            self.cycle,
             self.bins,
             self.bin_routing,
             self.default_bin,
         ) = self.load_config()
-        self.sequence_index = 0
-        # implemented as thread-safe deque, for now we use FIFO
-        self.task_queue = deque() 
-        self.executing_task = False
+        # FIFO task queue of (pick_pose, place_pose, queued_at) tuples
+        self.task_queue = deque()
+        # Latch guarding task execution. The process_tasks timer runs in a
+        # ReentrantCallbackGroup, so overlapping invocations are possible; a
+        # non-blocking lock (instead of a check-then-set flag) makes concurrent
+        # task execution impossible.
+        self._task_latch = threading.Lock()
+        # pick pose of the task currently being executed (for duplicate rejection)
+        self._current_pick_pose = None
+        self._object_attached = False
+
+        # duplicate-task rejection radius and stale-task expiry (see vision_callback)
+        self.task_dedup_radius_m = float(
+            self.declare_parameter("task_dedup_radius_m", 0.05).value
+        )
+        self.task_max_age_s = float(
+            self.declare_parameter("task_max_age_s", 60.0).value
+        )
 
         # MoveIt2 Interface
         self.velocity_scaling = float(self.declare_parameter("velocity_scaling", 0.5).value)
@@ -124,8 +134,11 @@ class cobot_control(Node):
         self.joint_states_received = False
         self.startup_ready = False
         self.create_subscription(JointState, "/joint_states", self.joint_state_callback, 10)
+        # ReentrantCallbackGroup so the executor can resolve the response while
+        # controller_active() polls from inside the process_tasks timer callback.
         self.controller_manager_client = self.create_client(
-            ListControllers, "/controller_manager/list_controllers"
+            ListControllers, "/controller_manager/list_controllers",
+            callback_group=ReentrantCallbackGroup(),
         )
 
         # gripper service client — needs its own ReentrantCallbackGroup to avoid
@@ -166,22 +179,30 @@ class cobot_control(Node):
 
         self.get_logger().info("UR16e sorter node initialized")
 
-    def robot_description_callback(self, msg):
-        self.robot_description = msg.data
-
     def joint_state_callback(self, msg: JointState):
         self.joint_states_received = True
 
-    def controller_active(self, controller_name: str) -> bool:
-        """Check whether a controller is active in controller_manager."""
+    def controller_active(self, controller_name: str, spin: bool = False) -> bool:
+        """Check whether a controller is active in controller_manager.
+
+        spin: pass True ONLY while the node is not yet added to an executor
+        (startup path); rclpy.spin_once then processes the response. Once the
+        node is owned by the MultiThreadedExecutor, spinning it again is invalid
+        — the executor resolves the future on another thread, so we just sleep.
+        """
         if not self.controller_manager_client.wait_for_service(timeout_sec=1.0):
             return False
 
         request = ListControllers.Request()
         future = self.controller_manager_client.call_async(request)
-        while rclpy.ok() and not future.done():
-            rclpy.spin_once(self, timeout_sec=0.1)
+        deadline = time.time() + 2.0
+        while rclpy.ok() and not future.done() and time.time() < deadline:
+            if spin:
+                rclpy.spin_once(self, timeout_sec=0.1)
+            else:
+                time.sleep(0.05)
         if not future.done():
+            future.cancel()
             return False
 
         response = future.result()
@@ -194,7 +215,11 @@ class cobot_control(Node):
         return False
 
     def wait_for_startup_ready(self) -> bool:
-        """Block until joint states are present and scaled controller is active."""
+        """Block until joint states are present and scaled controller is active.
+
+        Only called before the node is added to the executor (see main), hence
+        the rclpy.spin_once / controller_active(spin=True) pattern is safe here.
+        """
         if self.startup_ready:
             return True
         start_time = time.time()
@@ -209,7 +234,7 @@ class cobot_control(Node):
                 continue
             last_check = now
 
-            if self.controller_active("scaled_joint_trajectory_controller"):
+            if self.controller_active("scaled_joint_trajectory_controller", spin=True):
                 self.startup_ready = True
                 return True
 
@@ -354,7 +379,13 @@ class cobot_control(Node):
 
     def load_camera_position(self):
         """Load camera translation from calibration.yaml for collision object placement."""
-        default = (-0.3795, 0.3011, 0.6262)
+        # Fallback must match calibration.yaml's camera_transform.translation.
+        # These are base_link-frame coordinates used in the "world" frame
+        # (world ≈ base_link here). NOTE: NOT the UR "base" frame — base is
+        # base_link rotated 180° about Z, so its x/y signs are flipped; a
+        # base-frame value here puts the camera collision box on the wrong
+        # side of the robot and MoveIt would plan through the real camera.
+        default = (0.35, -0.29, 0.61)
         yaml_path = os.path.join(
             get_package_share_directory("recycle_bot"), "config", "calibration.yaml"
         )
@@ -366,11 +397,14 @@ class cobot_control(Node):
             self.get_logger().info(f"Camera collision position from calibration: {pos}")
             return pos
         except Exception as e:
-            self.get_logger().warn(f"Failed to load camera position from calibration: {e}, using default")
+            self.get_logger().error(
+                f"Failed to load camera position from calibration: {e}; using hardcoded "
+                "default — verify it matches the physical camera mount!"
+            )
             return default
 
     def load_config(self):
-        """Load sorting sequence, neutral pose, and cycle setting from YAML config."""
+        """Load neutral/under-camera poses, bins, and motion settings from YAML config."""
         yaml_path = os.path.join(
             get_package_share_directory("recycle_bot"), "config", "sorting_sequence.yaml"
         )
@@ -378,8 +412,6 @@ class cobot_control(Node):
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
 
-            sorting_sequence = data.get("sorting_sequence", [])
-            cycle = data.get("cycle", True)  # default to cycling for backwards compatibility
             self.approach_height_m = float(data.get("approach_height_m", 0.10))
             self.place_transit_height_m = float(
                 data.get("place_transit_height_m", self.approach_height_m)
@@ -431,19 +463,21 @@ class cobot_control(Node):
                 self.get_logger().warn("No named bins in config; label-based routing disabled")
 
             return (
-                sorting_sequence, neutral_pose, neutral_joint_pose,
-                under_camera_pose, cycle, bins, bin_routing, default_bin,
+                neutral_pose, neutral_joint_pose,
+                under_camera_pose, bins, bin_routing, default_bin,
             )
 
         except Exception as e:
-            self.get_logger().error(f"Failed to load YAML: {e}")
+            self.get_logger().error(
+                f"Failed to load YAML: {e} — no bins configured, detections will not be queued"
+            )
             self.approach_height_m = 0.10
             self.place_transit_height_m = 0.10
             self.place_yaw_candidates_deg = [0.0, 90.0, -90.0, 180.0]
             self.pick_z_offset_m = 0.0
             self.grasped_object_size = [0.05, 0.05, 0.05]
             self._load_orientation_constraint(None)
-            return [], None, None, None, True, {}, {}, None
+            return None, None, None, {}, {}, None
 
     def _load_orientation_constraint(self, oc_data):
         """Load TCP orientation-constraint settings (with safe defaults)."""
@@ -526,7 +560,7 @@ class cobot_control(Node):
                 x=1.0, y=0.0, z=0.0, w=0.0
             )
 
-            # choose the target bin from the detected material label (base-link reference)
+            # choose the target bin from the detected material label
             target_pose = self.get_bin_pose_for_label(label)
 
             if target_pose is None:
@@ -535,8 +569,18 @@ class cobot_control(Node):
                 )
                 return
 
-            # add sorting task to FIFO queue
-            self.task_queue.append((transformed_pose, target_pose))
+            # Reject duplicates: vision re-detects a stationary object once its
+            # dedup window expires, so the same object would otherwise be queued
+            # repeatedly (and re-picked from an empty spot after the first run).
+            if self._is_duplicate_task(transformed_pose):
+                self.get_logger().info(
+                    f"Skipping duplicate detection for label '{label}' "
+                    f"(existing task within {self.task_dedup_radius_m} m)"
+                )
+                return
+
+            # add sorting task to FIFO queue (stamped for stale-task expiry)
+            self.task_queue.append((transformed_pose, target_pose, time.time()))
             self.get_logger().info(f"Queued sorting task for label '{label}'.")
         except tf2_ros.LookupException:
             self.get_logger().warn(f"TF lookup failed: frame '{msg.header.frame_id}' not found")
@@ -545,24 +589,31 @@ class cobot_control(Node):
         except Exception as e:
             self.get_logger().warn(f"Failed to process detected object: {e}")
 
-    def get_next_sorting_pose(self):
-        """Returns the next target pose from the predefined sorting sequence, cycles if configured."""
-        if not self.sorting_sequence:
-            self.get_logger().error("No sorting sequence available!")
-            return None
+    def _is_duplicate_task(self, pick_pose: PoseStamped) -> bool:
+        """True if a queued or currently executing task targets ~the same spot."""
+        def close(other: PoseStamped) -> bool:
+            dx = pick_pose.pose.position.x - other.pose.position.x
+            dy = pick_pose.pose.position.y - other.pose.position.y
+            dz = pick_pose.pose.position.z - other.pose.position.z
+            return math.sqrt(dx * dx + dy * dy + dz * dz) <= self.task_dedup_radius_m
 
-        if self.sequence_index >= len(self.sorting_sequence):
-            if self.cycle:
-                self.sequence_index = 0  # wrap around
-            else:
-                self.get_logger().warn("Sorting sequence exhausted and cycle=false")
-                return None
+        current = self._current_pick_pose
+        if current is not None and close(current):
+            return True
+        # deque iteration is safe against concurrent append/popleft
+        return any(close(queued_pick) for queued_pick, _, _ in self.task_queue)
 
-        target_pose_obj = self.sorting_sequence[self.sequence_index]
-        self.sequence_index += 1
-
-        # convert from return YAML value into posetamped datatype
-        return self.create_pose(target_pose_obj)
+    def _pop_fresh_task(self):
+        """Pop the next task that is not older than task_max_age_s, or None."""
+        while self.task_queue:
+            pick_pose, place_pose, queued_at = self.task_queue.popleft()
+            age = time.time() - queued_at
+            if age <= self.task_max_age_s:
+                return pick_pose, place_pose
+            self.get_logger().warn(
+                f"Dropping stale task ({age:.0f}s old > {self.task_max_age_s:.0f}s limit)"
+            )
+        return None
 
     def get_bin_pose_for_label(self, label: str):
         """Return the target bin pose for a detected material label.
@@ -618,6 +669,7 @@ class cobot_control(Node):
         deadline = time.time() + self.gripper_timeout_sec
         while rclpy.ok() and not future.done():
             if time.time() > deadline:
+                future.cancel()
                 self.get_logger().error(f"Gripper {action} call timed out")
                 return False
             time.sleep(0.05)
@@ -890,12 +942,44 @@ class cobot_control(Node):
             return False
 
     def process_tasks(self):
+        """Pop and execute the next pending sorting task if the robot is idle.
+
+        Guarded by a non-blocking latch (the timer's ReentrantCallbackGroup
+        allows overlapping invocations) and a try/finally so that an unhandled
+        exception can never leave the node permanently "executing".
         """
-        Processes pending sorting tasks if the robot is idle.
+        if not self.startup_ready:
+            if self.joint_states_received and self.controller_active("scaled_joint_trajectory_controller"):
+                self.startup_ready = True
+            else:
+                return
+
+        if not self._task_latch.acquire(blocking=False):
+            return  # a task is already executing
+        try:
+            task = self._pop_fresh_task()
+            if task is None:
+                return
+            pick_pose, place_pose = task
+            self._current_pick_pose = pick_pose
+            self._run_pick_place(pick_pose, place_pose)
+        except Exception as exc:
+            self.get_logger().error(f"Unhandled error during pick-place task: {exc}")
+            # Detach any grasped-object collision box; deliberately do NOT
+            # release the gripper — dropping a held object at an unknown pose
+            # is worse than holding it for the operator.
+            self._abort_task()
+        finally:
+            self._current_pick_pose = None
+            self._task_latch.release()
+
+    def _run_pick_place(self, pick_pose: PoseStamped, place_pose: PoseStamped):
+        """
+        Executes one pick-place task.
 
         Task sequence:
             1.  move to neutral (safe start)
-            2.  move to pre-pick pose (approach)
+            2.  move to pre-pick pose (approach, PTP with OMPL fallback)
             3.  move to pick pose (LIN)
             4.  grip object
             5.  retreat to pre-pick (LIN) — clear table before attaching collision
@@ -911,17 +995,7 @@ class cobot_control(Node):
                     ▼                                              │
                   pre-pick ─► pick ─► grip ─► pre-pick ─► neutral ─► pre-place ─► place ─► release
         """
-        if not self.startup_ready:
-            if self.joint_states_received and self.controller_active("scaled_joint_trajectory_controller"):
-                self.startup_ready = True
-            else:
-                return
-        if self.executing_task or not self.task_queue:
-            return
-
-        self.executing_task = True
         self._object_attached = False
-        pick_pose, place_pose = self.task_queue.popleft()
 
         # 1. start from neutral
         self.get_logger().info("\033[94m Step 1/10: Moving to neutral (safe start)\033[0m")
@@ -938,10 +1012,16 @@ class cobot_control(Node):
                 self._abort_task(move_to_neutral=True)
                 return
 
-        # 2. move to pre-pick (approach)
+        # 2. move to pre-pick (approach) — PTP: this is a long free-space move,
+        #    and a straight Cartesian line from neutral fails easily (joint
+        #    limits / wrist singularities). OMPL as fallback. LIN is reserved
+        #    for the short vertical descent in Step 3.
         self.get_logger().info("\033[94m Step 2/10: Moving to pre-pick (approach)\033[0m")
         pre_pick = self.offset_pose_z(pick_pose, self.approach_height_m)
-        if pre_pick is not None and not self.move_to_pose(pre_pick, planner="pilz_lin"):
+        if pre_pick is not None and not self._plan_with_planner_fallbacks(
+            lambda planner: lambda: self.move_to_pose(pre_pick, planner=planner),
+            [("pilz_ptp", 1), ("ompl_rrtc", 2)],
+        ):
             self.get_logger().error("Failed to reach pre-pick pose, returning to neutral")
             self._abort_task(move_to_neutral=True)
             return
@@ -956,8 +1036,10 @@ class cobot_control(Node):
         # 4. grip
         self.get_logger().info("\033[94m Step 4/10: Gripping object\033[0m")
         if not self.gripper_action("grip"):
+            # release too: the grip command may have partially actuated (e.g.
+            # response timeout after the vacuum pump started)
             self.get_logger().error("Failed to grip object, returning to neutral")
-            self._abort_task(move_to_neutral=True)
+            self._abort_task(release_object=True, move_to_neutral=True)
             return
 
         # 5. LIN retreat to pre-pick before attaching collision object
@@ -976,7 +1058,10 @@ class cobot_control(Node):
         elif not grasped:
             self.get_logger().warning("Grasp not confirmed; retrying grip once")
             retry_ok = (
-                self.move_to_pose(pick_pose, planner="pilz_lin")
+                # release first: re-sending "grip" while the pump is already
+                # regulating may not rebuild suction on the repositioned object
+                self.gripper_action("release")
+                and self.move_to_pose(pick_pose, planner="pilz_lin")
                 and self.gripper_action("grip")
                 and pre_pick is not None
                 and self.move_to_pose(pre_pick, planner="pilz_lin")
@@ -1066,10 +1151,12 @@ class cobot_control(Node):
         self.move_to_neutral(planner="pilz_ptp")
 
         self.get_logger().info("Sorting task completed")
-        self.executing_task = False
 
     def _abort_task(self, release_object=False, move_to_neutral=False):
-        """Clean up and abort the current pick-place task."""
+        """Clean up and abort the current pick-place task.
+
+        The execution latch is released by process_tasks' finally block, not here.
+        """
         if release_object:
             self.gripper_action("release")
         if self._object_attached:
@@ -1079,62 +1166,6 @@ class cobot_control(Node):
                 self.get_logger().warning("Abort cleanup could not detach/remove grasped object")
         if move_to_neutral:
             self.move_to_neutral(planner="pilz_ptp")
-        self.executing_task = False
-
-    def move_cartesian(self, waypoints):
-        """Move end effector through Cartesian waypoints"""
-        try:
-            # Set start state to current state
-            self.arm.set_start_state_to_current_state()
-            normalized_waypoints = [self.normalize_pose_orientation(p) for p in waypoints]
-
-            # Create Cartesian constraints
-            constraints = Constraints()
-            ocm = OrientationConstraint()
-            ocm.orientation = normalized_waypoints[0].orientation
-            ocm.link_name = "tool0"
-            ocm.absolute_x_axis_tolerance = 0.1
-            ocm.absolute_y_axis_tolerance = 0.1
-            ocm.absolute_z_axis_tolerance = 0.1
-            ocm.weight = 1.0
-            constraints.orientation_constraints.append(ocm)
-
-            # Plan Cartesian path
-            plan_result = self.arm.plan(
-                goal_constraints=[constraints],
-                cartesian=True,
-                waypoints=normalized_waypoints,
-                max_step=0.01,
-                jump_threshold=0.0
-            )
-
-            if not plan_result or not getattr(plan_result, "success", False):
-                status = getattr(plan_result, "status", "unknown")
-                self.get_logger().error(f"Cartesian planning failed: {status}")
-                return False
-
-            self.get_logger().info("Executing Cartesian path")
-            trajectory = plan_result.trajectory
-            trajectory_retimed = trajectory.apply_totg_time_parameterization(
-                velocity_scaling_factor=self.velocity_scaling,
-                acceleration_scaling_factor=self.acceleration_scaling,
-            )
-            if not trajectory_retimed:
-                self.get_logger().warn("time parameterization failed, executing raw plan")
-
-            exec_result = self.moveit.execute(
-                trajectory, controllers=["scaled_joint_trajectory_controller"]
-            )
-
-            if exec_result:
-                self.get_logger().info("Trajectory execution completed successfully.")
-                return True
-            else:
-                self.get_logger().error("Trajectory execution failed.")
-                return False
-        except Exception as e:
-            self.get_logger().error(f"Error in Cartesian motion: {str(e)}")
-            return False
 
     def build_orientation_constraint(self, reference_orientation, frame_id):
         """Build a path Constraints keeping the TCP near reference_orientation.
@@ -1289,17 +1320,17 @@ class cobot_control(Node):
             location_name = list(location[element_idx].keys())[0]
             location_data = location[element_idx][location_name]
 
-        # position coordinates
-        pose.pose.position.x = location_data["position"][0]
-        pose.pose.position.y = location_data["position"][1]
-        pose.pose.position.z = location_data["position"][2]
-        
-        # orientation quaternion 
-        pose.pose.orientation.x = location_data["orientation"][0]
-        pose.pose.orientation.y = location_data["orientation"][1]
-        pose.pose.orientation.z = location_data["orientation"][2]
-        pose.pose.orientation.w = location_data["orientation"][3]
-        
+        # position coordinates (cast: YAML may yield ints, message fields are float)
+        pose.pose.position.x = float(location_data["position"][0])
+        pose.pose.position.y = float(location_data["position"][1])
+        pose.pose.position.z = float(location_data["position"][2])
+
+        # orientation quaternion
+        pose.pose.orientation.x = float(location_data["orientation"][0])
+        pose.pose.orientation.y = float(location_data["orientation"][1])
+        pose.pose.orientation.z = float(location_data["orientation"][2])
+        pose.pose.orientation.w = float(location_data["orientation"][3])
+
         return pose
 
 
@@ -1410,32 +1441,6 @@ class cobot_control(Node):
         except ValueError as exc:
             self.get_logger().error(f"{exc}")
             return None
-
-def create_waypoint_pose(x,y,z,roll=None,pitch=None,yaw=None,quaternion=None):
-    """Create Pose message with either Euler angles or quaternion orientation."""
-    if quaternion is not None and any(value is not None for value in (roll, pitch, yaw)):
-        raise ValueError("Provide either Euler angles or a quaternion, not both")
-    
-    pose = Pose(position=Point(x=x, y=y, z=z))
-    
-    if quaternion is not None:
-        qx, qy, qz, qw = quaternion
-        norm = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
-        if norm <= 0.0:
-            raise ValueError("Invalid quaternion (norm=0)")
-        pose.orientation = Quaternion(
-            x=qx / norm,
-            y=qy / norm,
-            z=qz / norm,
-            w=qw / norm,
-        )
-    else:
-        roll = 0.0 if roll is None else roll
-        pitch = 0.0 if pitch is None else pitch
-        yaw = 0.0 if yaw is None else yaw
-        qx, qy, qz, qw = quaternion_from_euler(roll, pitch, yaw)
-        pose.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
-    return pose
 
 def main():
     rclpy.init()

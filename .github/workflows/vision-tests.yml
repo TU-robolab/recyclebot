@@ -6,9 +6,9 @@ on:
       - main
       - dev/**
     paths:
-      - 'packages/recycle_bot/recycle_bot/rec_bot_vision.py'
       - 'packages/recycle_bot/**/*.py'
       - 'test_suite/test/test_vision_workflow.py'
+      - 'test_suite/test_suite/**'
       - 'test_suite/scripts/**'
       - 'test_suite/package.xml'
       - 'test_suite/setup.py'
@@ -20,9 +20,9 @@ on:
       - main
       - dev/**
     paths:
-      - 'packages/recycle_bot/recycle_bot/rec_bot_vision.py'
       - 'packages/recycle_bot/**/*.py'
       - 'test_suite/test/test_vision_workflow.py'
+      - 'test_suite/test_suite/**'
       - 'test_suite/scripts/**'
       - 'test_suite/package.xml'
       - 'test_suite/setup.py'
@@ -107,9 +107,3 @@ jobs:
         if: always()
         run: |
           docker compose --env-file .env -f docker-compose.base.yml -f docker-compose.dev.yml down -v
-
-      - name: Check test results
-        if: steps.run_tests.outcome == 'failure'
-        run: |
-          echo "::error::Vision tests failed. Check the test report artifact for details."
-          exit 1

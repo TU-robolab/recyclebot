@@ -43,6 +43,10 @@ def generate_launch_description():
         output="screen",
     )
 
+    # Robot IP: single-sourced from the environment (.env / export_env.sh);
+    # falls back to the lab default.
+    robot_ip = os.environ.get("REMOTE_IP", "192.168.1.102")
+
     # =========================================================================
     # Stage 2: UR Robot Driver (real hardware)
     # =========================================================================
@@ -52,7 +56,7 @@ def generate_launch_description():
         ]),
         launch_arguments={
             "ur_type": "ur16e",
-            "robot_ip": "192.168.1.102",
+            "robot_ip": robot_ip,
             "kinematics_params_file": os.path.join(
                 get_package_share_directory("recycle_bot"),
                 "config",
@@ -79,8 +83,19 @@ def generate_launch_description():
         period=5.0,
         actions=[
             LogInfo(msg=">>> Triggering /dashboard_client/play to start robot program..."),
+            # Retry loop: the dashboard client may not be up yet (a one-shot call
+            # fails silently and nothing starts the robot program). The response
+            # is also checked for success=True — the call itself exits 0 even
+            # when the dashboard refuses (e.g. program not loaded / local mode).
             ExecuteProcess(
-                cmd=['ros2', 'service', 'call', '/dashboard_client/play', 'std_srvs/srv/Trigger'],
+                cmd=["bash", "-c",
+                     "for i in $(seq 1 20); do "
+                     "out=$(timeout 15 ros2 service call /dashboard_client/play std_srvs/srv/Trigger 2>&1) || true; "
+                     "echo \"$out\"; "
+                     "if echo \"$out\" | grep -q 'success=True'; then echo '[play] Robot program started'; exit 0; fi; "
+                     "echo \"[play] attempt $i failed; retrying in 3s\"; sleep 3; "
+                     "done; "
+                     "echo '[play] ERROR: could not start robot program after 20 attempts'; exit 1"],
                 output='screen',
             ),
             IncludeLaunchDescription(

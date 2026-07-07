@@ -9,15 +9,13 @@ import tf2_ros
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
 
-from std_msgs.msg import String
 from realsense2_camera_msgs.msg import RGBD
 from vision_msgs.msg import Detection3DArray, Detection3D, ObjectHypothesisWithPose
-from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
-from cv_bridge import CvBridge
 from image_geometry import PinholeCameraModel
-from geometry_msgs.msg import Pose, PoseStamped, Quaternion, TransformStamped
+from geometry_msgs.msg import Pose, Quaternion, TransformStamped
 
 class RecBotCore(Node):
 
@@ -26,7 +24,6 @@ class RecBotCore(Node):
         self.get_logger().info("Hello world from the Python node rec_bot_core")
 
         # RGBD data (protected by rgbd_lock)
-        self.bridge = CvBridge()
         self.rgbd_lock = Lock()  # protects: last_depth_image, last_camera_info, last_depth_info
         self.last_depth_image = None
         self.last_camera_info = None
@@ -245,12 +242,14 @@ class RecBotCore(Node):
 
         Returns dict with keys: parent_frame, child_frame, translation, rotation
         """
-        # defaults (original hardcoded values)
+        # fallback: keep in sync with config/calibration.yaml (a wrong camera TF
+        # breaks every downstream 3D projection, so a load failure is logged as
+        # an error below)
         defaults = {
             "parent_frame": "base_link",
             "child_frame": "camera_link",
-            "translation": [0.384, -0.286, 0.624],
-            "rotation": [0.0, 1.0, 0.0, 0.0]
+            "translation": [0.35, -0.29, 0.61],
+            "rotation": [-0.5, 0.5, 0.5, 0.5]
         }
 
         yaml_path = os.path.join(get_package_share_directory("recycle_bot"), "config", "calibration.yaml")
@@ -269,14 +268,22 @@ class RecBotCore(Node):
             return result
 
         except Exception as e:
-            self.get_logger().warn(f"Failed to load camera transform from config: {e}, using defaults")
+            self.get_logger().error(
+                f"Failed to load camera transform from config: {e}; using hardcoded "
+                "defaults — verify these match the physical camera mount!"
+            )
             return defaults
 
     def publish_camera_static_transform(self):
         """Publish static transform from base to camera using config or defaults."""
         config = self.load_camera_transform()
 
-        static_br = tf2_ros.StaticTransformBroadcaster(self)
+        # Keep the broadcaster alive on self: static TF uses a latched
+        # (TRANSIENT_LOCAL) publisher, and if the broadcaster is garbage-collected
+        # the latched transform is lost for late-joining subscribers (e.g. the
+        # control node, whose MoveItPy init takes several seconds).
+        self._static_broadcaster = tf2_ros.StaticTransformBroadcaster(self)
+        static_br = self._static_broadcaster
         transform = TransformStamped()
         transform.header.stamp = self.get_clock().now().to_msg()
         transform.header.frame_id = config["parent_frame"]

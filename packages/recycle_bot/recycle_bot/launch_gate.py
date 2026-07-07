@@ -59,8 +59,12 @@ class LaunchGate(Node):
         self.get_logger().info("Gate triggered via service call, continuing...")
         res.success = True
         res.message = "ok"
-        self.create_timer(0.1, lambda: (_ for _ in ()).throw(SystemExit(0)))
+        # Exit from a short timer (not here) so the service response is sent first.
+        self.create_timer(0.1, self._exit_after_response)
         return res
+
+    def _exit_after_response(self):
+        raise SystemExit(0)
 
 
 def main(args=None):

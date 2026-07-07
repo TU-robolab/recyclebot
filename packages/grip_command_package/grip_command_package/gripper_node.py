@@ -72,6 +72,22 @@ class GripperNode(Node):
 
     def execute_command(self, request, response):
         try:
+            # Publishing to the serial bridge is fire-and-forget: without a
+            # subscriber the message is silently dropped (same failure mode the
+            # activation loop guards against), so report that as a failure
+            # instead of pretending the gripper actuated.
+            if self.publisher.get_subscription_count() < 1:
+                response.success = False
+                response.message = "Serial bridge not connected; command not sent."
+                self.get_logger().error(response.message)
+                return response
+
+            if not self.gripper_activated:
+                response.success = False
+                response.message = "Gripper not activated yet; command not sent."
+                self.get_logger().error(response.message)
+                return response
+
             msg = UInt8MultiArray()
             if request.action == "grip":
                 msg.data = [9, 6, 3, 233, 0, 99, 25, 27]

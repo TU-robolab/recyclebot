@@ -16,6 +16,7 @@ def generate_launch_description():
             robot_name="ur16e", package_name="ur16e_moveit_config"
         )
         .robot_description(file_path="config/ur16e.urdf.xacro")
+        .robot_description_semantic(file_path="config/ur16e.srdf")
         .trajectory_execution(file_path="config/moveit_controllers.yaml")
         .moveit_cpp(
             file_path=os.path.join(
@@ -45,7 +46,7 @@ def generate_launch_description():
         ]),
         launch_arguments={
             "ur_type": "ur16e",
-            "robot_ip": "192.168.1.102",
+            "robot_ip": os.environ.get("REMOTE_IP", "192.168.1.102"),  # unused with mock hardware
             "kinematics_params_file": os.path.join(
                 get_package_share_directory("recycle_bot"),
                 "config",

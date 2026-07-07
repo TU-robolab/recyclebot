@@ -1,7 +1,13 @@
 # YAML defining sorting target locations and neutral pose
-# defined as a conjunction of a position and orientation in reference to base_link:
+# defined as a conjunction of a position and orientation in reference to the UR
+# "base" frame (the controller frame shown on the teach pendant — rec_bot_control
+# publishes these poses with frame_id "base"):
 # - position: cartesian coordinates (meters) - consistent with MoveIt
 # - orientation: quaternion [x, y, z, w]
+#
+# NOTE: "base" is NOT "base_link"! On UR robots base = base_link rotated 180°
+# about Z, so x/y signs flip between the two. Measure poses in "base" (e.g. via
+# the teach pendant TCP display), or negate x/y if you measured in base_link.
 
 # neutral pose: safe position above workspace for transit between pick and place
 # robot moves here after gripping before moving to place location
@@ -36,7 +42,8 @@ under_camera_pose:
   wrist_3_joint: -4.57
 
 # named drop-off bins
-# each bin is a position (meters) + orientation quaternion [x, y, z, w] in base_link frame
+# each bin is a position (meters) + orientation quaternion [x, y, z, w] in the
+# UR "base" frame (see note at the top of this file)
 bins:
   general_waste: { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
   hdpe:          { position: [0.436, -0.055, 0.576], orientation: [0.707, 0.707, 0, 0] }
@@ -63,11 +70,10 @@ bin_routing:
 # bin used for any detected label without a bin_routing entry
 default_bin: general_waste
 
-# legacy round-robin sequence (no longer used for routing; kept for reference)
+# legacy round-robin sequence (not read by the code anymore; kept for reference)
 sorting_sequence:
   - target_bin_1: { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
 
-cycle: true  # cycle through targets when end is reached
 approach_height_m: 0.05  # meters above pick/place for approach/retreat
 place_transit_height_m: 0.05  # optional higher Step 7 fallback height; keep equal to approach height unless a taller above-bin waypoint is known to be reachable
 place_yaw_candidates_deg: [90.0, -90.0, 180.0, 0.0]  # Step 7/8 may rotate wrist yaw while keeping the tool vertical, avoiding unreachable exact-quaternion place goals. 90 deg first: yaw=0 is consistently unreachable for the place pose, so trying it first wasted two planning attempts.

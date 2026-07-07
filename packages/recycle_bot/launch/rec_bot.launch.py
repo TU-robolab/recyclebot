@@ -34,12 +34,18 @@ def generate_launch_description():
         .to_moveit_configs()
     )
 
-    # Launch argument: seconds to wait for teach pendant before auto-continuing
+    # Launch argument: seconds to wait for teach pendant before auto-continuing.
+    # 60 s gives the operator time to walk to the pendant; call the /launch_gate
+    # service to continue immediately.
     wait_timeout_arg = DeclareLaunchArgument(
         "wait_timeout",
-        default_value="10.0",
+        default_value="60.0",
         description="Seconds to wait for External Control URCap before launching remaining nodes",
     )
+
+    # Robot IP: single-sourced from the environment (.env / export_env.sh);
+    # falls back to the lab default.
+    robot_ip = os.environ.get("REMOTE_IP", "192.168.1.102")
 
     # =========================================================================
     # Stage 1: Kill leftover ROS processes to avoid controller conflicts
@@ -59,7 +65,7 @@ def generate_launch_description():
         ]),
         launch_arguments={
             "ur_type": "ur16e",
-            "robot_ip": "192.168.1.102",
+            "robot_ip": robot_ip,
             "kinematics_params_file": os.path.join(
                 get_package_share_directory("recycle_bot"),
                 "config",

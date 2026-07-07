@@ -3,8 +3,8 @@
 <package format="3">
   <name>recycle_bot</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="todo@todo.todo">Elvis Borges</maintainer>
+  <description>CV-based pick-and-place pipeline: vision, core, and control nodes for RecycleBot</description>
+  <maintainer email="elvis@triku.studio">Elvis Borges</maintainer>
   <license>MIT</license>
 
   <!-- ROS2 Core Dependencies -->
@@ -42,7 +42,6 @@
   <depend>visualization_msgs</depend>
 
   <buildtool_depend>ament_python</buildtool_depend>
-  <exec_depend>onnxruntime</exec_depend>
   <exec_depend>numpy</exec_depend>
   
   <test_depend>ament_copyright</test_depend>

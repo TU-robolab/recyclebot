@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hashlib
 import threading
 
 import cv2
@@ -20,9 +21,18 @@ from cv_bridge import CvBridge
 from image_geometry import PinholeCameraModel
 
 
+def _label_hash(label: str) -> int:
+    """Stable 24-bit hash per class label.
+
+    Built-in hash() is salted per process (PYTHONHASHSEED), which would give a
+    label different colors on every run.
+    """
+    return int(hashlib.md5(label.encode()).hexdigest()[:6], 16)
+
+
 def _class_color_bgr(label: str):
     """Deterministic BGR color per class label, always bright enough to see."""
-    h = hash(label) & 0xFFFFFF
+    h = _label_hash(label)
     r = max((h >> 16) & 0xFF, 80)
     g = max((h >> 8) & 0xFF, 80)
     b = max(h & 0xFF, 80)
@@ -31,7 +41,7 @@ def _class_color_bgr(label: str):
 
 def _class_color_rgb_float(label: str):
     """Deterministic RGB float color for RViz markers."""
-    h = hash(label) & 0xFFFFFF
+    h = _label_hash(label)
     r = max((h >> 16) & 0xFF, 80) / 255.0
     g = max((h >> 8) & 0xFF, 80) / 255.0
     b = max(h & 0xFF, 80) / 255.0
