@@ -174,6 +174,66 @@ def test_bin_routing_identical_across_arms():
         )
 
 
+@pytest.mark.parametrize("ur_type", ALL_ARMS)
+def test_calibration_matches_its_arm(ur_type):
+    """A present my_robot_calibration.yaml must belong to the arm it is filed under.
+
+    Skipped when absent: an arm in bring-up legitimately has no calibration yet,
+    and the launch files already warn and fall back to nominal kinematics. But
+    once the file exists it must be the right one — copying another arm's export
+    shifts every computed pose by a fixed offset, which looks like a camera
+    calibration error rather than a kinematics one.
+    """
+    from recycle_bot.calibration_check import check_calibration
+
+    path = os.path.join(_robot_config_dir(ur_type), "my_robot_calibration.yaml")
+    if not os.path.exists(path):
+        pytest.skip(
+            f"no calibration for {ur_type} yet — export it from the teach pendant "
+            f"to {path}"
+        )
+
+    problems, info = check_calibration(path, ur_type)
+    assert not problems, (
+        f"{ur_type} calibration at {path} is not usable:\n  "
+        + "\n  ".join(problems)
+    )
+
+
+def test_calibration_checker_rejects_the_wrong_arm():
+    """The checker itself must catch a cross-filed calibration.
+
+    Guards the guard: if arm identification silently stopped working, the test
+    above would pass on any file and the whole check would be decorative.
+    """
+    from recycle_bot.calibration_check import check_calibration
+
+    donor = None
+    for ur_type in ALL_ARMS:
+        candidate = os.path.join(_robot_config_dir(ur_type), "my_robot_calibration.yaml")
+        if os.path.exists(candidate):
+            donor = (ur_type, candidate)
+            break
+    if donor is None:
+        pytest.skip("no calibration file available to cross-check with")
+
+    donor_arm, donor_path = donor
+    others = [a for a in ALL_ARMS if a != donor_arm]
+    if not others:
+        pytest.skip("only one arm configured; nothing to cross-check against")
+
+    for other in others:
+        problems, info = check_calibration(donor_path, other)
+        assert problems, (
+            f"checker accepted {donor_arm}'s calibration as {other}'s — "
+            "arm identification is not working"
+        )
+        assert info.get("matched_arm") == donor_arm, (
+            f"checker failed to identify the file as {donor_arm} "
+            f"(said {info.get('matched_arm')!r})"
+        )
+
+
 def test_profiles_are_ordered_by_reach():
     """Sanity check on the profile table itself.
 

@@ -268,10 +268,10 @@ ros2 launch recycle_bot rec_bot_fake.launch.py ur_type:=ur3e \
 Every pose in `config/ur3e/` is a placeholder marked `TODO(ur3e-cell)`. They are
 internally consistent and safe in simulation, but they are not a real cell.
 
-1. Export the UR3e's kinematic calibration from its teach pendant to
-   `packages/recycle_bot/config/ur3e/my_robot_calibration.yaml`. Until this file
-   exists the launch files print a warning and fall back to nominal
-   `ur_description` kinematics.
+1. **Export the UR3e's kinematic calibration.** See
+   [Exporting a kinematic calibration](#exporting-a-kinematic-calibration) below.
+   Until the file exists the launch files print a warning and fall back to
+   nominal `ur_description` kinematics.
 2. Measure the camera-to-base transform into `config/ur3e/calibration.yaml`, and
    retune `detection_filter.max_depth_m` for the new camera height.
 3. Measure the table, camera stand, and camera into `config/ur3e/cell.yaml`.
@@ -285,6 +285,56 @@ internally consistent and safe in simulation, but they are not a real cell.
    python3 -m pytest src/test_suite/test/test_robot_profiles.py -v
    ros2 launch recycle_bot rec_bot_fake.launch.py ur_type:=ur3e   # simulate first
    ```
+
+### Exporting a kinematic calibration
+
+Every physical UR arm leaves the factory with per-unit deviations of up to about
+a millimetre. `ur_robot_driver` needs those measured values or its forward
+kinematics is wrong by a fixed offset — which shows up as picks that miss by a
+consistent amount and reads like a camera calibration fault, not a kinematics
+one. The file is unique to one serial number and must never be copied between
+arms.
+
+Run this with the UR3e powered on and reachable over the network. It only reads
+from the controller; no program needs to be running and External Control does not
+need to be enabled.
+
+```bash
+# Inside the container
+ros2 launch ur_calibration calibration_correction.launch.py \
+  robot_ip:=<UR3E_IP> \
+  target_filename:="$HOME/ur3e_calibration.yaml"
+```
+
+Then move it into the package and verify:
+
+```bash
+cp "$HOME/ur3e_calibration.yaml" \
+   ~/ros2_ws/src/recycle_bot/config/ur3e/my_robot_calibration.yaml
+
+colcon build --packages-select recycle_bot
+source install/setup.bash
+ros2 run recycle_bot check_calibration --ur-type ur3e
+```
+
+`check_calibration` confirms the file is well-formed and that its link lengths
+actually belong to a UR3e. Cross-filing another arm's export is the easy mistake
+here, and it is caught by name:
+
+```
+FAILED — 1 problem(s):
+  - calibration deviates from ur3e nominal kinematics by 235.0 mm, well beyond
+    the 5.0 mm tolerance.
+  The link lengths match 'ur16e' instead (within 0.93 mm) — this looks like a
+  ur16e calibration filed under ur3e
+```
+
+For reference, the measured UR16e in this repo sits within **0.93 mm** of
+nominal, so anything past a few millimetres is a wrong or corrupt file rather
+than a badly calibrated arm.
+
+`test_robot_profiles.py` runs the same check on every arm that has a calibration
+file, and skips the ones that do not.
 
 ### Adding another arm
 
