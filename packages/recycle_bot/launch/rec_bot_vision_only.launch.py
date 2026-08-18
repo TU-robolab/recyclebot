@@ -8,6 +8,8 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+from recycle_bot.robot_profile import DEFAULT_UR_TYPE
+
 
 def generate_launch_description():
     use_fake_camera = LaunchConfiguration("use_fake_camera")
@@ -17,6 +19,12 @@ def generate_launch_description():
             "use_fake_camera",
             default_value="false",
             description="Use synthetic RGBD frames instead of a real RealSense camera",
+        ),
+        DeclareLaunchArgument(
+            "ur_type",
+            default_value=DEFAULT_UR_TYPE,
+            description="Which UR arm's cell config to load (ur16e, ur3e). No "
+                        "MoveIt here, so this only selects config/<ur_type>/.",
         ),
 
         # =====================================================================
@@ -55,12 +63,14 @@ def generate_launch_description():
             executable="rec_bot_vision",
             name="rec_bot_vision",
             output="screen",
+            parameters=[{"ur_type": LaunchConfiguration("ur_type")}],
         ),
         Node(
             package="recycle_bot",
             executable="rec_bot_core",
             name="rec_bot_core",
             output="screen",
+            parameters=[{"ur_type": LaunchConfiguration("ur_type")}],
         ),
 
         # =====================================================================
@@ -71,6 +81,7 @@ def generate_launch_description():
             executable="rec_bot_viz",
             name="rec_bot_viz",
             output="screen",
+            parameters=[{"ur_type": LaunchConfiguration("ur_type")}],
         ),
         Node(
             package="rviz2",

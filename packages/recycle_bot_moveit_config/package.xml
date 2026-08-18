@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>ur16e_moveit_config</name>
+  <name>recycle_bot_moveit_config</name>
   <version>0.3.0</version>
   <description>
-     Automatically generated package with configuration and launch files for using the ur16e with MoveIt 
+     Automatically generated package with configuration and launch files for using UR arms (ur16e, ur3e) with MoveIt 
   </description>
   <maintainer email="todo@todo.todo">Elvis Borges</maintainer>
 

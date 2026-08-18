@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Fake joint state publisher for testing robot control without hardware.
-Publishes joint states that simulate a UR16e robot.
+Publishes joint states that simulate a UR arm.
+The six joint names are identical across the UR e-Series, so this
+publisher is arm-independent and needs no ur_type.
 """
 
 import rclpy
@@ -17,7 +19,7 @@ class FakeJointStatePublisher(Node):
         self.publisher = self.create_publisher(JointState, 'joint_states', 10)
         self.timer = self.create_timer(0.1, self.publish_joint_states)  # 10 Hz
 
-        # UR16e joint names
+        # UR e-Series joint names (identical on ur3e/ur16e/...)
         self.joint_names = [
             'shoulder_pan_joint',
             'shoulder_lift_joint',

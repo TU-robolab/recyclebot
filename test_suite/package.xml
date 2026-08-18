@@ -16,6 +16,10 @@
   <depend>geometry_msgs</depend>
   <depend>grip_interface</depend>
   <depend>ur_robot_driver</depend>
+  <!-- test_real_control_robot_motion.launch.py imports recycle_bot.robot_profile
+       to resolve ur_type and build the MoveIt config. -->
+  <depend>recycle_bot</depend>
+  <depend>recycle_bot_moveit_config</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

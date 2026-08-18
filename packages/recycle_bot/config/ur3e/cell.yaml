@@ -1,0 +1,50 @@
+# Work-cell collision geometry for the UR3e cell.
+#
+# ############################################################################
+# # TODO(ur3e-cell): EVERY VALUE HERE IS A PLACEHOLDER.                      #
+# # Measure the real cell and replace them before running on hardware.       #
+# ############################################################################
+#
+# The numbers below describe a compact cell sized to the UR3e's 500 mm reach.
+# They are internally consistent and safe to plan against in simulation
+# (rec_bot_fake.launch.py), but they are NOT your cell.
+#
+# All boxes are axis-aligned and expressed in the "world" frame, which coincides
+# with base_link. NOTE: this is NOT the UR "base" frame used by
+# sorting_sequence.yaml — base is base_link rotated 180 deg about Z, so x/y signs
+# flip between the two. A base-frame value written here puts the collision box on
+# the wrong side of the robot and MoveIt will plan straight through the real
+# object.
+#
+# size:     (x, y, z) full extents in meters
+# position: (x, y, z) of the box CENTER in meters
+
+# Mounting table. Scaled down from the UR16e's 1.4 x 1.2 m: a table wider than
+# the arm's reach adds no useful collision information, but it does slow every
+# collision check. Roughly 2x the planning reach per side is plenty.
+table:
+  size: [0.9, 0.9, 0.05]
+  position: [0.0, 0.0, -0.05]
+
+# Vertical pole carrying the RealSense above the workspace.
+#
+# The stand must sit OUTSIDE the arm's reachable envelope or the arm will
+# repeatedly fail to plan around its own camera mount. With a 0.45 m planning
+# reach, a stand at radius sqrt(0.28^2 + 0.30^2) = 0.41 m is inside that envelope
+# and will constrain planning — it is placed here anyway because on a small cell
+# there is nowhere else to put it, which is exactly why the arm needs it in the
+# planning scene. Verify it does not block your pick area.
+camera_stand:
+  size: [0.04, 0.04, 0.55]
+  position: [0.28, -0.30, 0.275]
+
+# Box around the RealSense D415 head (~99 x 25 x 25 mm plus clearance margin).
+# Its POSITION is not set here: rec_bot_control reads it from
+# calibration.yaml -> camera_transform.translation so the collision box can never
+# drift away from the TF the projection math uses. Only the size is configurable.
+#
+# The margin matters more on the UR3e than on the UR16e: the camera sits
+# proportionally much closer to the arm, so a camera box that is too small is a
+# real crash risk rather than a theoretical one.
+camera:
+  size: [0.12, 0.12, 0.12]

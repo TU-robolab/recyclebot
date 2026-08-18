@@ -1,0 +1,14 @@
+# Default initial positions for ur3e's ros2_control fake system
+#
+# TODO(ur3e-cell): re-derive for the UR3e cell. These are the UR16e values and
+# are only a placeholder — they are joint angles, so they will "work" (the fake
+# system will happily hold them), but they do not correspond to a sensible
+# start pose for the UR3e in its own cell. Set these to the same joint values as
+# neutral_joint_pose in config/ur3e/sorting_sequence.yaml once measured.
+initial_positions:
+  shoulder_pan_joint: -1.92
+  shoulder_lift_joint: -1.82
+  elbow_joint: -1.91
+  wrist_1_joint: -0.96
+  wrist_2_joint: 1.57
+  wrist_3_joint: -3.19

@@ -31,6 +31,8 @@ from vision_msgs.msg import Detection3D
 from sensor_msgs.msg import JointState
 from controller_manager_msgs.srv import ListControllers
 
+from recycle_bot.robot_profile import PROFILES, config_path, profile, resolve_ur_type
+
 try:
     from moveit.planning import MoveItPy, PlanRequestParameters
     from moveit.core.robot_state import RobotState
@@ -66,7 +68,16 @@ class cobot_control(Node):
 
     def __init__(self):
         super().__init__("cobot_control")
-        
+
+        # Which UR arm this cell is running. Selects config/<ur_type>/ for the
+        # sorting sequence, calibration and cell geometry, and selects the reach
+        # envelope that validate_pose_reach() enforces below.
+        self.ur_type = resolve_ur_type(
+            self.declare_parameter("ur_type", "").value or None
+        )
+        self.profile = profile(self.ur_type)
+        self.get_logger().info(f"cobot_control starting for {self.profile}")
+
         # load config from YAML file
         (
             self.neutral_pose,
@@ -76,6 +87,17 @@ class cobot_control(Node):
             self.bin_routing,
             self.default_bin,
         ) = self.load_config()
+
+        # Reject a config whose poses the arm physically cannot reach. Without
+        # this, porting between arms fails deep inside the pick-place sequence:
+        # MoveIt reports a generic planning failure at step 7 of 10, after the
+        # object is already gripped and in transit. Checking up front turns that
+        # into a startup error naming the offending pose.
+        self.enforce_reach_check = bool(
+            self.declare_parameter("enforce_reach_check", True).value
+        )
+        self.validate_configured_poses()
+
         # FIFO task queue of (pick_pose, place_pose, queued_at) tuples
         self.task_queue = deque()
         # Latch guarding task execution. The process_tasks timer runs in a
@@ -197,7 +219,7 @@ class cobot_control(Node):
         self._timer_cb_group = ReentrantCallbackGroup()
         self.create_timer(10.0, self.process_tasks, callback_group=self._timer_cb_group)
 
-        self.get_logger().info("UR16e sorter node initialized")
+        self.get_logger().info(f"{self.ur_type} sorter node initialized")
 
     def publish_busy(self, busy: bool):
         """Broadcast whether the robot is currently moving (see busy_pub above)."""
@@ -269,52 +291,82 @@ class cobot_control(Node):
         )
         return False
 
+    # Fallback cell geometry, used only when config/<ur_type>/cell.yaml cannot be
+    # read. These are the UR16e cell's values — they describe a 1.4 x 1.2 m table
+    # and a camera stand well outside a UR3e's reach, so they are wrong for any
+    # smaller cell. load_cell_config() logs an error rather than a warning when it
+    # falls back here, because planning against the wrong cell means planning
+    # against obstacles that are not where MoveIt thinks they are.
+    DEFAULT_CELL = {
+        "table": {"size": (1.4, 1.2, 0.05), "position": (0.0, 0.0, -0.05)},
+        "camera_stand": {"size": (0.04, 0.04, 0.6), "position": (0.38, -0.52, 0.29)},
+        "camera": {"size": (0.1, 0.1, 0.1)},
+    }
+
+    def load_cell_config(self):
+        """Load work-cell collision geometry from config/<ur_type>/cell.yaml."""
+        yaml_path = config_path(self.ur_type, "cell.yaml")
+        try:
+            with open(yaml_path, 'r') as f:
+                data = yaml.safe_load(f) or {}
+            cell = {}
+            for key, fallback in self.DEFAULT_CELL.items():
+                section = data.get(key, {}) or {}
+                cell[key] = {
+                    field: tuple(float(v) for v in section.get(field, fallback[field]))
+                    for field in fallback
+                }
+            self.get_logger().info(f"Loaded {self.ur_type} cell geometry from {yaml_path}")
+            return cell
+        except Exception as e:
+            self.get_logger().error(
+                f"Failed to load cell geometry from {yaml_path}: {e}; falling back to "
+                f"the UR16e cell defaults — these are almost certainly WRONG for "
+                f"{self.ur_type} and MoveIt will plan against misplaced obstacles!"
+            )
+            return {k: dict(v) for k, v in self.DEFAULT_CELL.items()}
+
     def setup_collision_objects(
         self,
-        table_size=(1.4, 1.2, 0.05),
-        table_position=(0.0, 0.0, -0.05),
-
-        camera_stand_size=(0.04, 0.04, 0.6),
-        camera_stand_position=(0.38, -0.52, 0.29),
-
-        camera_size=(0.1, 0.1, 0.1),
-        camera_position=(0.38, -0.40, 0.58)  # fallback if load_camera_position() fails
+        camera_position,          # (x, y, z) from load_camera_position()
+        cell=None,                # geometry dict from load_cell_config()
     ):
         """
         Add collision objects to planning scene for safe motion planning.
 
         Args:
-            table_size: (x, y, z) dimensions in meters
-            table_position: (x, y, z) center position relative to base
-            camera_stand_size: (x, y, z) dimensions in meters, vertical pole
-            camera_stand_position: (x, y, z) center position of stand pole
-            camera_size: (x, y, z) dimensions in meters, ~D415 with margin
-            camera_position: (x, y, z) position from rec_bot_core.py static transform
+            camera_position: (x, y, z) camera translation, sourced from
+                calibration.yaml via load_camera_position() so the collision box
+                cannot drift away from the TF the projection math uses.
+            cell: work-cell geometry dict; loaded from config/<ur_type>/cell.yaml
+                when omitted.
 
         Collision geometry:
-        - table: box underneath robot base where UR16e is mounted
+        - table: box underneath the robot base where the arm is mounted
         - camera_stand: vertical pole supporting the RealSense camera
         - camera: box at camera mount position (RealSense D415)
         """
+        cell = cell if cell is not None else self.load_cell_config()
+        table_size = cell["table"]["size"]
+        table_position = cell["table"]["position"]
+        camera_stand_size = cell["camera_stand"]["size"]
+        camera_stand_position = cell["camera_stand"]["position"]
+        camera_size = cell["camera"]["size"]
+
         planning_scene_monitor = self.moveit.get_planning_scene_monitor()
 
         with planning_scene_monitor.read_write() as scene:
             # table collision object
             #
-            #   top view:
-            #        ┌─────────────────────┐
-            #        │                     │
-            #        │    table (1.4m)     │
-            #        │         ·──────────── UR base at center
-            #        │                     │
+            #   top view:                     side view:
+            #        ┌─────────────────────┐        ════════════ world (z=0)
+            #        │                     │        ┌──────────┐
+            #        │        table        │        │  table   │ size[2] thick
+            #        │         ·──────────── UR      └──────────┘ centered on
+            #        │                     │  base                position[2]
             #        └─────────────────────┘
-            #              1.2m
             #
-            #   side view:
-            #        ════════════ world (z=0)
-            #        ┌──────────┐
-            #        │  table   │ 0.5m thick
-            #        └──────────┘ z = -0.05m (center)
+            #   Dimensions come from config/<ur_type>/cell.yaml -> table.
             #
             table = CollisionObject()
             table.header.frame_id = "world"
@@ -341,11 +393,11 @@ class cobot_control(Node):
             # camera stand collision object (vertical pole)
             #
             #   side view:
-            #                    │ ← stand (0.04x0.04m)
+            #                    │ ← stand
             #                    │
             #        ════════════╪════════════ world (z=0)
             #                    │
-            #                    │  0.6m tall, center z=0.29m
+            #                    │  size/position from cell.yaml -> camera_stand
             #
             camera_stand = CollisionObject()
             camera_stand.header.frame_id = "world"
@@ -372,14 +424,13 @@ class cobot_control(Node):
             # camera collision object (RealSense D415: ~99mm x 25mm x 25mm)
             #
             #   side view:
-            #                    ┌───────┐ camera (0.1x0.25x0.1m)
+            #                    ┌───────┐ camera, size from cell.yaml
             #                    │       │
-            #        ────────────┼───────┼──────── z = 0.58m
-            #                    │       │
+            #        ────────────┼───────┼──────── position from calibration.yaml
+            #                    │       │        camera_transform.translation
             #                    └───────┘
             #                      │
             #        ═════════════╧════════════ world
-            #              x = 0.38m, y = -0.40m
             #
             camera = CollisionObject()
             camera.header.frame_id = "world"
@@ -412,9 +463,7 @@ class cobot_control(Node):
         # base-frame value here puts the camera collision box on the wrong
         # side of the robot and MoveIt would plan through the real camera.
         default = (0.35, -0.29, 0.61)
-        yaml_path = os.path.join(
-            get_package_share_directory("recycle_bot"), "config", "calibration.yaml"
-        )
+        yaml_path = config_path(self.ur_type, "calibration.yaml")
         try:
             with open(yaml_path, 'r') as f:
                 data = yaml.safe_load(f)
@@ -431,9 +480,7 @@ class cobot_control(Node):
 
     def load_config(self):
         """Load neutral/under-camera poses, bins, and motion settings from YAML config."""
-        yaml_path = os.path.join(
-            get_package_share_directory("recycle_bot"), "config", "sorting_sequence.yaml"
-        )
+        yaml_path = config_path(self.ur_type, "sorting_sequence.yaml")
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
@@ -506,6 +553,74 @@ class cobot_control(Node):
             self.grasped_object_size = [0.05, 0.05, 0.05]
             self._load_orientation_constraint(None)
             return None, None, None, {}, {}, None
+
+    def reach_distance(self, pose: PoseStamped) -> float:
+        """Straight-line distance from the base origin to a pose, in meters.
+
+        Poses arrive in the UR "base" frame, whose origin sits on the base joint
+        axis, so the vector magnitude is directly comparable to the datasheet
+        reach. This is a necessary condition, not a sufficient one: a pose inside
+        the sphere can still be unreachable at a given tool orientation, or
+        blocked by a joint limit. It is meant to catch the gross case — a pose
+        carried over from a larger arm — not to replace IK.
+        """
+        p = pose.pose.position
+        return math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z)
+
+    def within_reach(self, pose: PoseStamped) -> bool:
+        return self.reach_distance(pose) <= self.profile.planning_reach_m
+
+    def validate_configured_poses(self):
+        """Check every configured pose against the arm's reach envelope.
+
+        Raises RuntimeError listing all offenders when enforce_reach_check is on
+        (the default). Set the enforce_reach_check parameter to false to downgrade
+        this to warnings — useful when deliberately jogging a half-measured cell,
+        but it will let unreachable goals through to MoveIt.
+        """
+        limit = self.profile.planning_reach_m
+        offenders = []
+
+        if self.neutral_pose is not None:
+            d = self.reach_distance(self.neutral_pose)
+            if d > limit:
+                offenders.append(("neutral_pose", d))
+
+        for bin_name, bin_data in (self.bins or {}).items():
+            try:
+                pose = self.create_pose({bin_name: bin_data})
+            except Exception as e:  # malformed bin entry — report, do not crash here
+                self.get_logger().error(f"Bin '{bin_name}' is malformed: {e}")
+                continue
+            if pose is None:
+                continue
+            d = self.reach_distance(pose)
+            if d > limit:
+                offenders.append((f"bins.{bin_name}", d))
+
+        if not offenders:
+            self.get_logger().info(
+                f"Reach check passed: all configured poses within {limit:.3f} m "
+                f"({self.ur_type} datasheet reach {self.profile.max_reach_m:.3f} m "
+                f"x {self.profile.reach_derate:.2f} derate)"
+            )
+            return
+
+        detail = "\n".join(
+            f"    {name}: {dist:.3f} m  (over by {dist - limit:.3f} m)"
+            for name, dist in offenders
+        )
+        message = (
+            f"{len(offenders)} configured pose(s) are outside the {self.ur_type}'s "
+            f"reach envelope of {limit:.3f} m:\n{detail}\n"
+            f"  These come from {config_path(self.ur_type, 'sorting_sequence.yaml')}.\n"
+            f"  A pose copied from a larger arm's cell is the usual cause — the "
+            f"UR16e reaches {PROFILES['ur16e'].max_reach_m:.3f} m, the UR3e only "
+            f"{PROFILES['ur3e'].max_reach_m:.3f} m."
+        )
+        if self.enforce_reach_check:
+            raise RuntimeError(message)
+        self.get_logger().warn(f"{message}\n  enforce_reach_check is off — continuing anyway.")
 
     def _load_orientation_constraint(self, oc_data):
         """Load TCP orientation-constraint settings (with safe defaults)."""
@@ -587,6 +702,23 @@ class cobot_control(Node):
             transformed_pose.pose.orientation = Quaternion(
                 x=1.0, y=0.0, z=0.0, w=0.0
             )
+
+            # Drop detections outside the arm's reach before they become tasks.
+            #
+            # This matters much more on the UR3e than it did on the UR16e: the
+            # camera sees a good deal more table than a 500 mm arm can service,
+            # so without this an object placed just outside the envelope queues a
+            # task that only fails once the arm is already mid-sequence. The
+            # depth filter in calibration.yaml catches the far field; this catches
+            # the annulus between "close enough to detect" and "close enough to
+            # pick".
+            if not self.within_reach(transformed_pose):
+                self.get_logger().warn(
+                    f"Detection '{label}' at {self.reach_distance(transformed_pose):.3f} m "
+                    f"is outside the {self.ur_type}'s {self.profile.planning_reach_m:.3f} m "
+                    "reach envelope; skipping"
+                )
+                return
 
             # choose the target bin from the detected material label
             target_pose = self.get_bin_pose_for_label(label)

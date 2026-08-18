@@ -18,21 +18,39 @@ Note: For basic pipeline tests without MoveIt, use test_e2e_pipeline.launch.py
 
 Usage:
   ros2 launch test_suite test_real_control_robot_motion.launch.py
+  ros2 launch test_suite test_real_control_robot_motion.launch.py ur_type:=ur3e
 """
 
 import os
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, ExecuteProcess, TimerAction, Shutdown, DeclareLaunchArgument
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+    Shutdown,
+    TimerAction,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
-from moveit_configs_utils import MoveItConfigsBuilder
+
+from recycle_bot.robot_profile import (
+    DEFAULT_UR_TYPE,
+    build_moveit_config,
+    resolve_ur_type,
+)
 
 
-def generate_launch_description():
-    """Generate launch description for real control + robot motion testing."""
+def launch_setup(context, *args, **kwargs):
+    """Build the launch actions once ur_type is a concrete string.
+
+    See recycle_bot's rec_bot.launch.py for why this needs OpaqueFunction.
+    """
+    ur_type = resolve_ur_type(LaunchConfiguration("ur_type").perform(context))
+
     debug_no_collision_objects = DeclareLaunchArgument(
         "debug_no_collision_objects",
         default_value="false",
@@ -61,6 +79,7 @@ def generate_launch_description():
         package='recycle_bot',
         executable='rec_bot_vision',
         name='rec_bot_vision',
+        parameters=[{"ur_type": ur_type}],
         output='screen'
     )
 
@@ -71,6 +90,7 @@ def generate_launch_description():
         package='recycle_bot',
         executable='rec_bot_core',
         name='rec_bot_core',
+        parameters=[{"ur_type": ur_type}],
         output='screen'
     )
 
@@ -86,7 +106,7 @@ def generate_launch_description():
             FindPackageShare("ur_robot_driver"), "/launch/ur_control.launch.py"
         ]),
         launch_arguments={
-            "ur_type": "ur16e",
+            "ur_type": ur_type,
             "robot_ip": "192.168.1.102",  # Not used with mock hardware, but required parameter
             "use_mock_hardware": "true",  # KEY: Enable virtual robot
             "mock_sensor_commands": "true",  # KEY: Enable mock sensors
@@ -98,22 +118,7 @@ def generate_launch_description():
     # =========================================================================
     # 5. MoveIt Configuration
     # =========================================================================
-    moveit_config = (
-        MoveItConfigsBuilder(
-            robot_name="ur16e",
-            package_name="ur16e_moveit_config"
-        )
-        .robot_description(file_path="config/ur16e.urdf.xacro")
-        .trajectory_execution(file_path="config/moveit_controllers.yaml")
-        .moveit_cpp(
-            file_path=os.path.join(
-                get_package_share_directory("ur16e_moveit_config"),
-                "config",
-                "moveit_cpp.yaml",
-            )
-        )
-        .to_moveit_configs()
-    )
+    moveit_config = build_moveit_config(ur_type)
 
     # =========================================================================
     # 6. Control Node (MoveIt + control logic)
@@ -124,6 +129,7 @@ def generate_launch_description():
         name='rec_bot_control',
         parameters=[
             moveit_config.to_dict(),
+            {"ur_type": ur_type},
             {"debug_no_collision_objects": LaunchConfiguration("debug_no_collision_objects")},
             {"debug_motion_log": LaunchConfiguration("debug_motion_log")},
         ],
@@ -165,7 +171,7 @@ def generate_launch_description():
     # =========================================================================
     # Launch Description
     # =========================================================================
-    return LaunchDescription([
+    return [
         debug_no_collision_objects,
         debug_motion_log,
         fake_camera,
@@ -175,4 +181,14 @@ def generate_launch_description():
         control_node,
         mock_gripper,
         run_test
-    ])
+    ]
+
+
+def generate_launch_description():
+    """Generate launch description for real control + robot motion testing."""
+    ur_type_arg = DeclareLaunchArgument(
+        "ur_type",
+        default_value=DEFAULT_UR_TYPE,
+        description="Which UR arm to test against (ur16e, ur3e).",
+    )
+    return LaunchDescription([ur_type_arg, OpaqueFunction(function=launch_setup)])

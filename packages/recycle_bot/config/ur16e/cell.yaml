@@ -1,0 +1,42 @@
+# Work-cell collision geometry for the UR16e cell.
+#
+# These values were previously hardcoded as default arguments of
+# rec_bot_control.setup_collision_objects(). They are unchanged — this file only
+# moves them out of the code so a second cell (see config/ur3e/cell.yaml) can
+# describe different geometry without touching Python.
+#
+# All boxes are axis-aligned and expressed in the "world" frame, which coincides
+# with base_link here. NOTE: this is NOT the UR "base" frame used by
+# sorting_sequence.yaml — base is base_link rotated 180 deg about Z, so x/y signs
+# flip between the two. A base-frame value written here puts the collision box on
+# the wrong side of the robot and MoveIt will happily plan straight through the
+# real object.
+#
+# size:     (x, y, z) full extents in meters
+# position: (x, y, z) of the box CENTER in meters
+
+# Box under the robot representing the mounting table.
+#
+#   top view:                          side view:
+#     +---------------------+            ============ world (z=0)
+#     |                     |            +----------+
+#     |    table (1.4 m)    |            |  table   |  0.05 m thick
+#     |         .------------ UR base    +----------+  center z = -0.05
+#     |                     |
+#     +---------------------+
+#            1.2 m
+table:
+  size: [1.4, 1.2, 0.05]
+  position: [0.0, 0.0, -0.05]
+
+# Vertical pole carrying the RealSense above the workspace.
+camera_stand:
+  size: [0.04, 0.04, 0.6]
+  position: [0.38, -0.52, 0.29]
+
+# Box around the RealSense D415 head (~99 x 25 x 25 mm plus clearance margin).
+# Its POSITION is not set here: rec_bot_control reads it from
+# calibration.yaml -> camera_transform.translation so the collision box can never
+# drift away from the TF the projection math uses. Only the size is configurable.
+camera:
+  size: [0.1, 0.1, 0.1]

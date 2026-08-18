@@ -1,0 +1,128 @@
+# YAML defining sorting target locations and neutral pose — UR3e cell.
+#
+# ############################################################################
+# # TODO(ur3e-cell): EVERY POSE HERE IS A PLACEHOLDER.                       #
+# # Measure the real cell on the teach pendant and replace them.             #
+# ############################################################################
+#
+# The values below are NOT the UR16e values rescaled — they are a fresh compact
+# layout chosen to sit inside the UR3e's usable envelope. rec_bot_control runs a
+# reach check over every pose in this file at startup and refuses to run if any
+# of them falls outside it, so a stale UR16e pose cannot survive here unnoticed.
+#
+# Reach budget:
+#   UR3e datasheet reach           0.500 m
+#   planning reach (0.90 derate)   0.450 m   <- what the startup check enforces
+# The derate covers the fact that the arm cannot achieve full extension at
+# arbitrary tool orientations, plus the E-Pick's own offset past the flange.
+#
+# PAYLOAD: the UR3e carries 3 kg, against the UR16e's 16 kg. That is comfortably
+# above a vacuum-gripped bottle or food packet, but it is now the same order of
+# magnitude as the gripper itself — check the E-Pick's own mass against the
+# payload budget before adding any tooling.
+#
+# Poses are defined in reference to the UR "base" frame (the controller frame
+# shown on the teach pendant — rec_bot_control publishes these with
+# frame_id "base"):
+# - position: cartesian coordinates (meters) - consistent with MoveIt
+# - orientation: quaternion [x, y, z, w]
+#
+# NOTE: "base" is NOT "base_link"! On UR robots base = base_link rotated 180 deg
+# about Z, so x/y signs flip between the two. Measure poses in "base" (e.g. via
+# the teach pendant TCP display), or negate x/y if you measured in base_link.
+
+# neutral pose: safe position above workspace for transit between pick and place
+# robot moves here after gripping before moving to place location
+neutral_pose:
+  position: [0.0, 0.25, 0.32]        # 0.406 m from base — inside the 0.450 m budget
+  orientation: [1.0, 0.0, 0.0, 0.0]  # face-down
+
+# joint-space neutral (preferred for safe, deterministic motion)
+#
+# Joint-space goals bypass IK entirely, so they are the safest way to define a
+# transit pose on a small arm where many Cartesian goals are unreachable. These
+# are a compact tucked configuration, NOT measured — jog the UR3e to a pose you
+# are happy with and copy the six joint values off the pendant.
+neutral_joint_pose:
+  shoulder_pan_joint: -1.57
+  shoulder_lift_joint: -1.57
+  elbow_joint: -1.57
+  wrist_1_joint: -1.57
+  wrist_2_joint: 1.57
+  wrist_3_joint: 0.0
+
+# joint-space pose under the camera (waypoint before descending to pick)
+under_camera_pose:
+  shoulder_pan_joint: -2.10
+  shoulder_lift_joint: -1.75
+  elbow_joint: -1.40
+  wrist_1_joint: -1.55
+  wrist_2_joint: 1.57
+  wrist_3_joint: 0.0
+
+# named drop-off bins
+# each bin is a position (meters) + orientation quaternion [x, y, z, w] in the
+# UR "base" frame (see note at the top of this file)
+#
+# On the UR16e all six labels could share one far-away bin pose because the arm
+# could reach anywhere on the table. The UR3e cannot, so the bins are spread
+# around the reachable arc instead — every one of these is 0.38-0.41 m from base.
+bins:
+  general_waste: { position: [0.30, -0.25, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.403 m
+  hdpe:          { position: [0.30,  0.25, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.403 m
+  pet:           { position: [0.35, -0.10, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.377 m
+  pp:            { position: [0.35,  0.10, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.377 m
+  pp_ps:         { position: [0.20, -0.32, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.390 m
+  tetra:         { position: [0.20,  0.32, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.390 m
+
+# label-to-bin routing: maps a detected YOLO class label (from model.names) to a
+# bin name defined under 'bins' above. Any label not listed here falls through
+# to 'default_bin'.
+#
+# Identical to the UR16e cell on purpose: routing is a property of the YOLO
+# model's class list, not of the arm. If you swap the model, update BOTH cells.
+bin_routing:
+  food_bottle_hdpe: hdpe
+  non-food_bottle_hdpe: hdpe
+  food_jar_pet: pet
+  non-food_bottle_pet: pet
+  non-food_jar_pet: pet
+  food_jar_pp: pp
+  food_packet_pp: pp
+  food_lid_pp-ps: pp_ps
+  food_tetra: tetra
+
+# bin used for any detected label without a bin_routing entry
+default_bin: general_waste
+
+approach_height_m: 0.05  # meters above pick/place for approach/retreat
+place_transit_height_m: 0.05  # optional higher Step 7 fallback height; keep equal to approach height unless a taller above-bin waypoint is known to be reachable
+place_yaw_candidates_deg: [90.0, -90.0, 180.0, 0.0]  # Step 7/8 may rotate wrist yaw while keeping the tool vertical, avoiding unreachable exact-quaternion place goals
+grasped_object_size: [0.05, 0.05, 0.05]  # meters (box attached to tool for planning)
+
+# small vertical clearance added to the detected pick height (meters).
+# starts at 0 like the UR16e cell; retune against the UR3e's own depth error once
+# the camera transform above is measured.
+pick_z_offset_m: 0.00
+
+# if the vacuum sensor doesn't confirm a grasp (Step 5b), the single retry
+# lowers the pick pose by this much (meters) before closing again.
+grasp_retry_extra_depth_m: 0.01
+
+# TCP orientation constraint applied to the carry transit moves (Steps 6 & 7)
+# so a grasped object does not tip onto its side mid-transit. Per-axis tolerances
+# are radians of allowed divergence from tool-down. ~3.14 = free, 0 = locked.
+#
+# Tolerances are tightened from the UR16e's 0.5 rad to 0.35 rad: the UR3e's
+# shorter links mean a given wrist deviation tips the payload through a larger
+# angle relative to the transit arc. If constrained OMPL planning becomes slow or
+# starts failing, loosen these back toward 0.5 before disabling the constraint.
+#
+# Note: only OMPL planners honor this; Pilz PTP/LIN ignore it.
+orientation_constraint:
+  enabled: true
+  link_name: "tool0"
+  absolute_x_axis_tolerance: 0.35
+  absolute_y_axis_tolerance: 0.35
+  absolute_z_axis_tolerance: 3.14
+  weight: 1.0

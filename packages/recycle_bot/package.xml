@@ -23,9 +23,12 @@
   <depend>tf2_ros</depend>
   <depend>tf_transformations</depend>
 
-  <!-- UR16e Robot Driver -->
+  <!-- UR Robot Driver + this repo's own MoveIt config package.
+       NOTE: the dependency below is recycle_bot_moveit_config, NOT the upstream
+       ur_moveit_config that ships with ur_robot_driver. The two are different
+       packages and the names are one word apart. -->
   <depend>ur_robot_driver</depend>
-  <depend>ur_moveit_config</depend>
+  <depend>recycle_bot_moveit_config</depend>
   
 
   <!-- ROS2 Controller Interfaces -->

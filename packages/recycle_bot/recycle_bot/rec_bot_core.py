@@ -17,11 +17,22 @@ from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPo
 from image_geometry import PinholeCameraModel
 from geometry_msgs.msg import Pose, Quaternion, TransformStamped
 
+from recycle_bot.robot_profile import config_path, profile, resolve_ur_type
+
 class RecBotCore(Node):
 
     def __init__(self):
         super().__init__("rec_bot_core")
-        self.get_logger().info("Hello world from the Python node rec_bot_core")
+
+        # which UR arm this cell is running. Selects config/<ur_type>/ for both
+        # the camera transform and the detection filter — the camera sits at a
+        # different height on each arm's cell, so loading the wrong one silently
+        # mis-projects every detection.
+        self.ur_type = resolve_ur_type(
+            self.declare_parameter("ur_type", "").value or None
+        )
+        self.profile = profile(self.ur_type)
+        self.get_logger().info(f"rec_bot_core starting for {self.profile}")
 
         # RGBD data (protected by rgbd_lock)
         self.rgbd_lock = Lock()  # protects: last_depth_image, last_camera_info, last_depth_info
@@ -100,7 +111,7 @@ class RecBotCore(Node):
             "max_depth_m": 1.5
         }
 
-        yaml_path = os.path.join(get_package_share_directory("recycle_bot"), "config", "calibration.yaml")
+        yaml_path = config_path(self.ur_type, "calibration.yaml")
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)
@@ -252,7 +263,7 @@ class RecBotCore(Node):
             "rotation": [-0.5, 0.5, 0.5, 0.5]
         }
 
-        yaml_path = os.path.join(get_package_share_directory("recycle_bot"), "config", "calibration.yaml")
+        yaml_path = config_path(self.ur_type, "calibration.yaml")
         try:
             with open(yaml_path, 'r') as file:
                 data = yaml.safe_load(file)

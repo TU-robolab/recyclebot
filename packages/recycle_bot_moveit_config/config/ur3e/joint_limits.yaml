@@ -1,0 +1,58 @@
+# joint_limits.yaml allows the dynamics properties specified in the URDF to be overwritten or augmented as needed
+#
+# UR3e values. Velocity limits are taken from the UR3e User Manual (via
+# ur_description/config/ur3e/joint_limits.yaml) and differ from the UR16e:
+#
+#   joint            UR16e        UR3e
+#   shoulder_pan     120 deg/s    180 deg/s
+#   shoulder_lift    120 deg/s    180 deg/s
+#   elbow            180 deg/s    180 deg/s
+#   wrist_1/2/3      180 deg/s    360 deg/s
+#
+# The UR3e is the faster arm per-joint, but it is also far smaller, so the same
+# joint velocity sweeps a much shorter arc at the TCP.
+
+# For beginners, we downscale velocity and acceleration limits.
+# You can always specify higher scaling factors (<= 1.0) in your motion requests.  # Increase the values below to 1.0 to always move at maximum speed.
+default_velocity_scaling_factor: 0.5
+default_acceleration_scaling_factor: 0.5
+
+# Specific joint properties can be changed with the keys [max_position, min_position, max_velocity, max_acceleration]
+# Joint limits can be turned off with [has_velocity_limits, has_acceleration_limits]
+joint_limits:
+  elbow_joint:
+    has_velocity_limits: true
+    max_velocity: 3.1415926535897931   # 180 deg/s
+    has_acceleration_limits: true
+    max_acceleration: 6.28318
+  shoulder_lift_joint:
+    has_velocity_limits: true
+    max_velocity: 3.1415926535897931   # 180 deg/s (UR16e: 120 deg/s)
+    has_acceleration_limits: true
+    max_acceleration: 6.28318
+  shoulder_pan_joint:
+    has_velocity_limits: true
+    max_velocity: 3.1415926535897931   # 180 deg/s (UR16e: 120 deg/s)
+    has_acceleration_limits: true
+    max_acceleration: 6.28318
+  wrist_1_joint:
+    has_velocity_limits: true
+    max_velocity: 6.2831853071795862   # 360 deg/s (UR16e: 180 deg/s)
+    has_acceleration_limits: true
+    max_acceleration: 6.28318
+  wrist_2_joint:
+    has_velocity_limits: true
+    max_velocity: 6.2831853071795862   # 360 deg/s (UR16e: 180 deg/s)
+    has_acceleration_limits: true
+    max_acceleration: 6.28318
+  wrist_3_joint:
+    has_velocity_limits: true
+    max_velocity: 6.2831853071795862   # 360 deg/s (UR16e: 180 deg/s)
+    has_acceleration_limits: true
+    max_acceleration: 6.28318
+
+# NOTE on acceleration: UR does not publish acceleration limits for any e-Series
+# arm, so 6.28318 rad/s^2 is carried over unchanged from the UR16e config rather
+# than derived. It is the conservative choice for the lighter UR3e — raise it if
+# motions feel sluggish, but re-test the Pilz LIN segments first, since Pilz
+# rejects a plan outright when the limits make the requested path infeasible.

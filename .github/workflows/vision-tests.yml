@@ -7,6 +7,9 @@ on:
       - dev/**
     paths:
       - 'packages/recycle_bot/**/*.py'
+      - 'packages/recycle_bot/config/**'
+      - 'packages/recycle_bot_moveit_config/**'
+      - 'test_suite/test/test_robot_profiles.py'
       - 'test_suite/test/test_vision_workflow.py'
       - 'test_suite/test_suite/**'
       - 'test_suite/scripts/**'
@@ -21,6 +24,9 @@ on:
       - dev/**
     paths:
       - 'packages/recycle_bot/**/*.py'
+      - 'packages/recycle_bot/config/**'
+      - 'packages/recycle_bot_moveit_config/**'
+      - 'test_suite/test/test_robot_profiles.py'
       - 'test_suite/test/test_vision_workflow.py'
       - 'test_suite/test_suite/**'
       - 'test_suite/scripts/**'
@@ -69,7 +75,17 @@ jobs:
           docker exec recyclebot-dev-1 bash -c "
             source /opt/ros/\${ROS_DISTRO}/setup.bash &&
             cd ~/ros2_ws &&
-            colcon build --packages-select recycle_bot test_suite --symlink-install
+            colcon build --packages-select recycle_bot recycle_bot_moveit_config test_suite --symlink-install
+          "
+
+      # Fast, hardware-free checks that both arms' config sets are complete and
+      # in-envelope. Runs first: it takes under a second and catches the whole
+      # class of ur16e/ur3e config drift before the 10-minute vision suite.
+      - name: Run robot profile config tests
+        run: |
+          docker exec recyclebot-dev-1 /ros_entrypoint.sh bash -c "
+            cd ~/ros2_ws/src/test_suite &&
+            python3 -m pytest test/test_robot_profiles.py -v
           "
 
       - name: Run vision workflow tests

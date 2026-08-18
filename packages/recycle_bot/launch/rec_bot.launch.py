@@ -6,6 +6,7 @@ from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
     IncludeLaunchDescription,
+    OpaqueFunction,
     RegisterEventHandler,
 )
 from launch.event_handlers import OnProcessExit
@@ -13,35 +14,25 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-from moveit_configs_utils import MoveItConfigsBuilder
+
+from recycle_bot.robot_profile import (
+    DEFAULT_UR_TYPE,
+    build_moveit_config,
+    kinematics_params_file,
+    resolve_ur_type,
+)
 
 
-def generate_launch_description():
-    moveit_config = (
-        MoveItConfigsBuilder(
-            robot_name="ur16e", package_name="ur16e_moveit_config"
-        )
-        .robot_description(file_path="config/ur16e.urdf.xacro")
-        .robot_description_semantic(file_path="config/ur16e.srdf")
-        .trajectory_execution(file_path="config/moveit_controllers.yaml")
-        .moveit_cpp(
-            file_path=os.path.join(
-                get_package_share_directory("ur16e_moveit_config"),
-                "config",
-                "moveit_cpp.yaml",
-            )
-        )
-        .to_moveit_configs()
-    )
+def launch_setup(context, *args, **kwargs):
+    """Build the launch actions once ur_type is a concrete string.
 
-    # Launch argument: seconds to wait for teach pendant before auto-continuing.
-    # 60 s gives the operator time to walk to the pendant; call the /launch_gate
-    # service to continue immediately.
-    wait_timeout_arg = DeclareLaunchArgument(
-        "wait_timeout",
-        default_value="60.0",
-        description="Seconds to wait for External Control URCap before launching remaining nodes",
-    )
+    MoveItConfigsBuilder loads the xacro and YAML eagerly, so it needs the actual
+    arm name — not a LaunchConfiguration substitution that only resolves later.
+    OpaqueFunction defers this whole body until the launch context exists, which
+    is what makes `ros2 launch ... ur_type:=ur3e` work.
+    """
+    ur_type = resolve_ur_type(LaunchConfiguration("ur_type").perform(context))
+    moveit_config = build_moveit_config(ur_type)
 
     # Robot IP: single-sourced from the environment (.env / export_env.sh);
     # falls back to the lab default.
@@ -59,29 +50,44 @@ def generate_launch_description():
     # =========================================================================
     # Stage 2a: UR Robot Driver (real hardware)
     # =========================================================================
+    driver_args = {
+        "ur_type": ur_type,
+        "robot_ip": robot_ip,
+        "launch_rviz": "false",
+        "initial_joint_controller": "scaled_joint_trajectory_controller",
+        "use_tool_communication": "true",
+        "tool_device_name": "/tmp/ttyUR",
+        "tool_voltage": "24",
+        "tool_parity": "0",
+        "tool_baud_rate": "115200",
+        "tool_stop_bits": "1",
+        "tool_rx_idle_chars": "1.5",
+        "tool_tx_idle_chars": "3.5",
+    }
+
+    # Per-robot kinematic calibration exported from that arm's teach pendant.
+    # It is unique per physical robot, so it cannot be shared or invented. When
+    # the file is absent the driver falls back to ur_description's nominal
+    # kinematics, which is fine for bring-up but leaves centimetre-scale FK error
+    # on real hardware — hence the loud warning rather than a silent default.
+    kinematics_file = kinematics_params_file(ur_type)
+    if kinematics_file:
+        driver_args["kinematics_params_file"] = kinematics_file
+    else:
+        print(
+            f"\n[rec_bot.launch] WARNING: no my_robot_calibration.yaml for "
+            f"'{ur_type}'.\n"
+            f"  Expected: recycle_bot/config/{ur_type}/my_robot_calibration.yaml\n"
+            f"  Falling back to nominal ur_description kinematics. Export the\n"
+            f"  calibration from this arm's teach pendant before trusting any\n"
+            f"  measured pose.\n"
+        )
+
     ur_robot_driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             FindPackageShare("ur_robot_driver"), "/launch/ur_control.launch.py"
         ]),
-        launch_arguments={
-            "ur_type": "ur16e",
-            "robot_ip": robot_ip,
-            "kinematics_params_file": os.path.join(
-                get_package_share_directory("recycle_bot"),
-                "config",
-                "my_robot_calibration.yaml",
-            ),
-            "launch_rviz": "false",
-            "initial_joint_controller": "scaled_joint_trajectory_controller",
-            "use_tool_communication": "true",
-            "tool_device_name": "/tmp/ttyUR",
-            "tool_voltage": "24",
-            "tool_parity": "0",
-            "tool_baud_rate": "115200",
-            "tool_stop_bits": "1",
-            "tool_rx_idle_chars": "1.5",
-            "tool_tx_idle_chars": "3.5",
-        }.items()
+        launch_arguments=driver_args.items()
     )
 
     # =========================================================================
@@ -101,11 +107,15 @@ def generate_launch_description():
     # =========================================================================
     # Stage 3: Remaining nodes (after gate)
     # =========================================================================
+    # ur_type is passed to every recycle_bot node so they all resolve the same
+    # config/<ur_type>/ directory. Leaving it off one node would mix two cells'
+    # calibration in a single run.
     vision_node = Node(
         package="recycle_bot",
         executable="rec_bot_vision",
         name="rec_bot_vision",
         output="screen",
+        parameters=[{"ur_type": ur_type}],
     )
 
     core_node = Node(
@@ -113,6 +123,7 @@ def generate_launch_description():
         executable="rec_bot_core",
         name="rec_bot_core",
         output="screen",
+        parameters=[{"ur_type": ur_type}],
     )
 
     control_node = Node(
@@ -120,7 +131,7 @@ def generate_launch_description():
         package="recycle_bot",
         executable="rec_bot_control",
         output="both",
-        parameters=[moveit_config.to_dict()],
+        parameters=[moveit_config.to_dict(), {"ur_type": ur_type}],
     )
 
     realsense_launch = IncludeLaunchDescription(
@@ -154,8 +165,16 @@ def generate_launch_description():
         package="rviz2",
         executable="rviz2",
         name="rviz2",
-        parameters=[moveit_config.to_dict()], 
+        parameters=[moveit_config.to_dict()],
         output="screen",
+    )
+
+    viz_node = Node(
+        package="recycle_bot",
+        executable="rec_bot_viz",
+        name="rec_bot_viz",
+        output="screen",
+        parameters=[{"ur_type": ur_type}],
     )
 
     # Stage 2: after cleanup → start UR driver + wait gate
@@ -167,13 +186,6 @@ def generate_launch_description():
                 wait_gate,
             ],
         )
-    )
-
-    viz_node = Node(
-        package="recycle_bot",
-        executable="rec_bot_viz",
-        name="rec_bot_viz",
-        output="screen",
     )
 
     # Stage 3: after gate exits → start remaining nodes
@@ -192,11 +204,30 @@ def generate_launch_description():
         )
     )
 
+    return [cleanup, start_after_cleanup, start_after_gate]
+
+
+def generate_launch_description():
+    # Launch argument: seconds to wait for teach pendant before auto-continuing.
+    # 60 s gives the operator time to walk to the pendant; call the /launch_gate
+    # service to continue immediately.
+    wait_timeout_arg = DeclareLaunchArgument(
+        "wait_timeout",
+        default_value="60.0",
+        description="Seconds to wait for External Control URCap before launching remaining nodes",
+    )
+
+    ur_type_arg = DeclareLaunchArgument(
+        "ur_type",
+        default_value=DEFAULT_UR_TYPE,
+        description="Which UR arm to drive (ur16e, ur3e). Selects the MoveIt "
+                    "config and the recycle_bot config/<ur_type>/ directory.",
+    )
+
     return LaunchDescription(
         [
             wait_timeout_arg,
-            cleanup,
-            start_after_cleanup,
-            start_after_gate,
+            ur_type_arg,
+            OpaqueFunction(function=launch_setup),
         ]
     )

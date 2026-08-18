@@ -96,7 +96,7 @@ def main():
 
         # use current state as the start and the pose_goal as the target, start plan
         arm.set_start_state_to_current_state()
-        arm.set_goal_state(pose_stamped_msg=pose_goal, pose_link="tool0")       # tool0 = UR16e TCP link
+        arm.set_goal_state(pose_stamped_msg=pose_goal, pose_link="tool0")       # tool0 = UR TCP link (same name on every UR arm)
         plan_result = arm.plan()
 
         if not plan_result:
