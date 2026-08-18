@@ -1,6 +1,24 @@
+# Consumed by the MoveIt Setup Assistant, and — less obviously — parsed by
+# MoveItConfigsBuilder.__init__ on every launch.
+#
+# The 'package' key below is REQUIRED. MoveItConfigsBuilder first looks for
+# config/<robot_name>.urdf.xacro directly; only when that is missing does it fall
+# back to this file, and that fallback does urdf_config["package"] with no .get()
+# guard. While the URDFs lived at config/ur16e.urdf.xacro the direct lookup always
+# won and the missing key never surfaced. They now live in per-arm subdirectories,
+# so this path is always taken and a missing 'package' raises KeyError: 'package'
+# before any launch argument is even read.
+#
+# These values only seed the Setup Assistant and MoveItConfigsBuilder's inference.
+# Every launch overrides them explicitly via build_moveit_config() in
+# recycle_bot/robot_profile.py, which is what actually selects the per-arm URDF
+# and SRDF. Pointing at ur16e here is therefore a default, not a constraint —
+# test_moveit_config_selects_the_right_arm asserts each arm really does get its
+# own description.
 moveit_setup_assistant_config:
   urdf:
-    relative_path: config/ur16e/ur16e.urdf
+    package: recycle_bot_moveit_config
+    relative_path: config/ur16e/ur16e.urdf.xacro
   srdf:
     relative_path: config/ur16e/ur16e.srdf
   package_settings:

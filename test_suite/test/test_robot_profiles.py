@@ -418,6 +418,81 @@ def test_robot_ip_resolution_order(monkeypatch):
     assert robot_profile.robot_ip("ur3e") == "10.0.0.5"
 
 
+@pytest.mark.parametrize("ur_type", ALL_ARMS)
+def test_moveit_config_builds_for_each_arm(ur_type):
+    """build_moveit_config() must actually construct, and pick this arm's files.
+
+    Two failures this catches, both of which reached a launch before being
+    noticed:
+
+    1. MoveItConfigsBuilder.__init__ parses .setup_assistant and does
+       urdf_config["package"] with no guard, but only when
+       config/<robot_name>.urdf.xacro is absent. Moving the URDFs into per-arm
+       subdirectories made that path always taken, turning a missing 'package'
+       key into KeyError before any launch argument was read.
+
+    2. .setup_assistant can only name one arm's URDF. Every launch overrides it
+       explicitly, but if that override were ever dropped, the non-default arm
+       would silently load the other arm's description — same joint names, wrong
+       link lengths, no error.
+    """
+    pytest.importorskip(
+        "moveit_configs_utils", reason="MoveIt Python utils not available"
+    )
+    from recycle_bot.robot_profile import build_moveit_config
+
+    config = build_moveit_config(ur_type)
+
+    description = config.robot_description["robot_description"]
+    assert f'name="{ur_type}"' in description, (
+        f"build_moveit_config({ur_type!r}) returned a description for a "
+        f"different robot — check the explicit .robot_description() override"
+    )
+
+    assert '0.150 0 0' in description, (
+        f"{ur_type} description is missing the E-Pick tool offset"
+    )
+
+    semantic = config.robot_description_semantic["robot_description_semantic"]
+    assert '<group name="ur_arm">' in semantic
+
+    # Joint limits must come from config/<ur_type>/joint_limits.yaml. They are
+    # loaded explicitly because the per-arm layout defeats MoveItConfigsBuilder's
+    # convention-based discovery, which would silently fall back to the URDF's
+    # own limits instead.
+    limits = config.joint_limits["robot_description_planning"]["joint_limits"]
+    assert "wrist_1_joint" in limits, f"{ur_type} joint limits did not load"
+
+
+def test_arms_get_distinct_joint_limits():
+    """The per-arm joint limit files must actually differ where the arms do.
+
+    A silent fallback to shared or URDF-default limits would make every arm look
+    identical here, which is exactly what the explicit .joint_limits() call in
+    build_moveit_config exists to prevent.
+    """
+    pytest.importorskip(
+        "moveit_configs_utils", reason="MoveIt Python utils not available"
+    )
+    from recycle_bot.robot_profile import build_moveit_config
+
+    if len(ALL_ARMS) < 2:
+        pytest.skip("only one arm configured")
+
+    wrist_speeds = {}
+    for ur_type in ALL_ARMS:
+        limits = build_moveit_config(ur_type).joint_limits[
+            "robot_description_planning"
+        ]["joint_limits"]
+        wrist_speeds[ur_type] = limits["wrist_1_joint"]["max_velocity"]
+
+    # UR3e wrists run at 360 deg/s against the UR16e's 180 deg/s.
+    assert len(set(wrist_speeds.values())) > 1, (
+        f"all arms report the same wrist_1 max_velocity {wrist_speeds} — "
+        "per-arm joint limits are not being loaded"
+    )
+
+
 def test_profiles_are_ordered_by_reach():
     """Sanity check on the profile table itself.
 
