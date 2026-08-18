@@ -39,6 +39,14 @@ def launch_setup(context, *args, **kwargs):
     ur_type = resolve_ur_type(LaunchConfiguration("ur_type").perform(context))
     moveit_config = build_moveit_config(ur_type)
 
+    # RViz layout: full pipeline (robot + planning scene + vision overlays).
+    # An empty rviz_config means "let RViz use its built-in default", which is
+    # what these launches did before — a bare grid, no robot, no camera. Passing
+    # no -d at all is how you ask RViz for that, so build the argument list
+    # rather than substituting a path.
+    rviz_config = LaunchConfiguration("rviz_config").perform(context).strip()
+    rviz_args = ["-d", rviz_config] if rviz_config else []
+
     # Robot IP: resolved per-arm (UR3E_ROBOT_IP / UR16E_ROBOT_IP), falling back
     # to the single-robot REMOTE_IP that export_env.sh writes.
     robot_ip = resolve_robot_ip(ur_type)
@@ -185,6 +193,7 @@ def launch_setup(context, *args, **kwargs):
         package="rviz2",
         executable="rviz2",
         name="rviz2",
+        arguments=rviz_args,
         parameters=[moveit_config.to_dict()],
         output="screen",
     )
@@ -237,6 +246,14 @@ def generate_launch_description():
         description="Seconds to wait for External Control URCap before launching remaining nodes",
     )
 
+    rviz_config_arg = DeclareLaunchArgument(
+        "rviz_config",
+        default_value=os.path.join(
+            get_package_share_directory("recycle_bot"), "config", "rec_bot.rviz"
+        ),
+        description="RViz layout file. Pass an empty string for RViz's own default.",
+    )
+
     verify_robot_arg = DeclareLaunchArgument(
         "verify_robot",
         default_value="true",
@@ -256,6 +273,7 @@ def generate_launch_description():
             wait_timeout_arg,
             ur_type_arg,
             verify_robot_arg,
+            rviz_config_arg,
             OpaqueFunction(function=launch_setup),
         ]
     )

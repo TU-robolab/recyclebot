@@ -1,0 +1,120 @@
+# Full-pipeline RViz layout: robot + planning scene + vision, in one window.
+#
+# Merges the two configs that already existed but were never shown together:
+#   moveit.rviz        - MotionPlanning (robot model, planning scene, planned path)
+#   vision_debug.rviz  - camera feed, YOLO overlay, detection markers
+#
+# Used by rec_bot.launch.py and rec_bot_2.launch.py. Override with
+# rviz_config:=/path/to/other.rviz.
+#
+# Shared across arms on purpose: this is a view preset, not cell geometry. The
+# camera distance below is a compromise between the UR16e's 0.9 m reach and the
+# UR3e's 0.5 m — scroll to taste.
+#
+# Fixed Frame is "world", not "base_link" as in vision_debug.rviz. Collision
+# objects from rec_bot_control are published in "world", so anything else leaves
+# the table and camera boxes floating relative to the robot.
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /MotionPlanning1
+  - Class: rviz_common/Views
+    Name: Views
+
+Visualization Manager:
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Value: true
+
+    # Robot model, monitored planning scene (table / camera stand / camera
+    # collision boxes) and the animated planned path.
+    - Class: moveit_rviz_plugin/MotionPlanning
+      Name: MotionPlanning
+      Planned Path:
+        Loop Animation: true
+        State Display Time: 0.05 s
+        Trajectory Topic: display_planned_path
+      Planning Scene Topic: monitored_planning_scene
+      Robot Description: robot_description
+      Scene Geometry:
+        Scene Alpha: 1
+      Scene Robot:
+        Robot Alpha: 0.5
+      Value: true
+
+    # Names are off deliberately: with the full arm plus camera_link the labels
+    # overlap into an unreadable smear. Axes alone are enough to eyeball whether
+    # camera_link sits where the calibration says it does.
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Value: true
+      Marker Scale: 0.2
+      Show Arrows: false
+      Show Axes: true
+      Show Names: false
+
+    - Class: rviz_default_plugins/Image
+      Name: Camera Feed
+      Value: true
+      Topic:
+        Value: /rec_bot/camera_image
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+
+    - Class: rviz_default_plugins/Image
+      Name: YOLO Detections
+      Value: true
+      Topic:
+        Value: /rec_bot/detection_image
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+
+    # Detections in 3D, from rec_bot_viz. This replaces vision_debug.rviz's
+    # "Detected Object Pose" display, which pointed a rviz_default_plugins/Pose
+    # (geometry_msgs/PoseStamped) at /vision/detected_object — a
+    # vision_msgs/Detection3D topic. RViz rejects that on type mismatch, so the
+    # display never rendered anything.
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Detection Markers
+      Value: true
+      Topic:
+        Value: /rec_bot/detection_markers
+        Depth: 5
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+
+  Global Options:
+    Fixed Frame: world
+    Background Color: 48; 48; 48
+
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+
+  Value: true
+
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 1.6
+      Focal Point:
+        X: 0.0
+        Y: 0.0
+        Z: 0.25
+      Name: Current View
+      Pitch: 0.45
+      Target Frame: world
+      Yaw: 0.9
+
+Window Geometry:
+  Height: 1000
+  Width: 1400
