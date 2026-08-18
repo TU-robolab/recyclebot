@@ -34,7 +34,12 @@
   <exec_depend>moveit_ros_move_group</exec_depend>
   <exec_depend>moveit_ros_visualization</exec_depend>
   <exec_depend>moveit_setup_assistant</exec_depend>
-  <exec_depend>recycle_bot</exec_depend>
+  <!-- NOTE: deliberately does NOT depend on recycle_bot.
+       The dependency runs the other way: recycle_bot's robot_profile.py resolves
+       this package's share directory to build the MoveIt config. This package is
+       a leaf holding only description and limits data, and referencing
+       recycle_bot here creates a cycle that colcon refuses to order:
+         recycle_bot -> recycle_bot_moveit_config -> recycle_bot -->
   <exec_depend>rviz2</exec_depend>
   <exec_depend>rviz_common</exec_depend>
   <exec_depend>rviz_default_plugins</exec_depend>

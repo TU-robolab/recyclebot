@@ -234,6 +234,63 @@ def test_calibration_checker_rejects_the_wrong_arm():
         )
 
 
+def test_no_circular_package_dependencies():
+    """The repo's packages must order topologically.
+
+    colcon refuses to build at all when two packages depend on each other, with
+    an error that names the cycle but not the offending <depend> tag. The live
+    case: recycle_bot needs recycle_bot_moveit_config to resolve the MoveIt
+    config, so recycle_bot_moveit_config must stay a leaf and must not depend
+    back on recycle_bot.
+
+    Reads package.xml from the source tree rather than the install space, since
+    a cycle prevents the install space from existing in the first place.
+    """
+    import collections
+    import pathlib
+    import xml.etree.ElementTree as ET
+
+    # test/ -> test_suite/ -> repo root
+    repo = pathlib.Path(__file__).resolve().parents[2]
+    manifests = list((repo / "packages").glob("*/package.xml"))
+    manifests.append(repo / "test_suite" / "package.xml")
+    manifests = [m for m in manifests if m.exists()]
+    if not manifests:
+        pytest.skip("source tree not available (running from an install space)")
+
+    graph = {}
+    for manifest in manifests:
+        root = ET.parse(manifest).getroot()
+        name = root.find("name").text.strip()
+        deps = set()
+        for tag in ("depend", "exec_depend", "build_depend", "buildtool_depend"):
+            for d in root.findall(tag):
+                if d.text:
+                    deps.add(d.text.strip())
+        graph[name] = deps
+
+    local = set(graph)
+    graph = {p: (d & local) for p, d in graph.items()}
+
+    indegree = {p: len(graph[p]) for p in graph}
+    ready = collections.deque(p for p in graph if indegree[p] == 0)
+    ordered = []
+    while ready:
+        p = ready.popleft()
+        ordered.append(p)
+        for q in graph:
+            if p in graph[q]:
+                indegree[q] -= 1
+                if indegree[q] == 0:
+                    ready.append(q)
+
+    unresolved = sorted(set(graph) - set(ordered))
+    assert not unresolved, (
+        "circular package dependency — colcon cannot order these:\n  "
+        + "\n  ".join(f"{p} -> {sorted(graph[p])}" for p in unresolved)
+    )
+
+
 def test_profiles_are_ordered_by_reach():
     """Sanity check on the profile table itself.
 
