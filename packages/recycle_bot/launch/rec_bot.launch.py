@@ -15,12 +15,17 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
+from recycle_bot.robot_identity import verify_robot_model
 from recycle_bot.robot_profile import (
     DEFAULT_UR_TYPE,
     build_moveit_config,
     kinematics_params_file,
     resolve_ur_type,
 )
+from recycle_bot.robot_profile import robot_ip as resolve_robot_ip
+
+
+LAUNCH_TAG = "rec_bot.launch"
 
 
 def launch_setup(context, *args, **kwargs):
@@ -34,9 +39,24 @@ def launch_setup(context, *args, **kwargs):
     ur_type = resolve_ur_type(LaunchConfiguration("ur_type").perform(context))
     moveit_config = build_moveit_config(ur_type)
 
-    # Robot IP: single-sourced from the environment (.env / export_env.sh);
-    # falls back to the lab default.
-    robot_ip = os.environ.get("REMOTE_IP", "192.168.1.102")
+    # Robot IP: resolved per-arm (UR3E_ROBOT_IP / UR16E_ROBOT_IP), falling back
+    # to the single-robot REMOTE_IP that export_env.sh writes.
+    robot_ip = resolve_robot_ip(ur_type)
+
+    # Pre-flight: refuse to drive the wrong arm.
+    #
+    # ur_type picks the URDF, limits and cell geometry; robot_ip picks which
+    # controller receives the trajectories. Nothing else ties those together, so
+    # a stale REMOTE_IP or a swapped arm would send this configuration's motion
+    # to a different robot. One read-only dashboard query closes that gap.
+    # An unreachable controller only warns — the driver reports that better.
+    if LaunchConfiguration("verify_robot").perform(context).lower() != "false":
+        ok, detail = verify_robot_model(ur_type, ip=robot_ip, strict=False)
+        if not ok:
+            raise RuntimeError(
+                f"{detail}\n\n  Pass verify_robot:=false to bypass this check."
+            )
+        print(f"[{LAUNCH_TAG}] robot check: {detail}")
 
     # =========================================================================
     # Stage 1: Kill leftover ROS processes to avoid controller conflicts
@@ -217,6 +237,13 @@ def generate_launch_description():
         description="Seconds to wait for External Control URCap before launching remaining nodes",
     )
 
+    verify_robot_arg = DeclareLaunchArgument(
+        "verify_robot",
+        default_value="true",
+        description="Query the robot's dashboard server and abort if the "
+                    "connected arm does not match ur_type.",
+    )
+
     ur_type_arg = DeclareLaunchArgument(
         "ur_type",
         default_value=DEFAULT_UR_TYPE,
@@ -228,6 +255,7 @@ def generate_launch_description():
         [
             wait_timeout_arg,
             ur_type_arg,
+            verify_robot_arg,
             OpaqueFunction(function=launch_setup),
         ]
     )

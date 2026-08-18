@@ -32,10 +32,23 @@ class RobotProfile:
     applies that derating, and is what the reach check actually enforces.
     """
 
-    def __init__(self, ur_type, max_reach_m, payload_kg, reach_derate=0.90):
+    def __init__(
+        self,
+        ur_type,
+        max_reach_m,
+        payload_kg,
+        dashboard_model,
+        reach_derate=0.90,
+    ):
         self.ur_type = ur_type
         self.max_reach_m = max_reach_m
         self.payload_kg = payload_kg
+        # What this arm's dashboard server returns for "get robot model". It is
+        # the product FAMILY, not the variant: a UR3e and a CB3 UR3 both answer
+        # "UR3". That is still enough to separate a UR3e from a UR16e, which is
+        # the dangerous confusion; e-Series vs CB3 is settled by the kinematic
+        # calibration instead (see calibration_check.py).
+        self.dashboard_model = dashboard_model
         self.reach_derate = reach_derate
 
     @property
@@ -69,8 +82,12 @@ class RobotProfile:
 # config/<ur_type>/ directory in both recycle_bot and recycle_bot_moveit_config
 # is the whole port — no code changes needed.
 PROFILES = {
-    "ur16e": RobotProfile("ur16e", max_reach_m=0.900, payload_kg=16.0),
-    "ur3e": RobotProfile("ur3e", max_reach_m=0.500, payload_kg=3.0),
+    "ur16e": RobotProfile(
+        "ur16e", max_reach_m=0.900, payload_kg=16.0, dashboard_model="UR16"
+    ),
+    "ur3e": RobotProfile(
+        "ur3e", max_reach_m=0.500, payload_kg=3.0, dashboard_model="UR3"
+    ),
 }
 
 
@@ -95,6 +112,36 @@ def resolve_ur_type(explicit=None):
 def profile(ur_type=None):
     """RobotProfile for the given (or resolved) arm."""
     return PROFILES[resolve_ur_type(ur_type)]
+
+
+# Fallback used only when neither a per-arm nor a generic IP is configured.
+DEFAULT_ROBOT_IP = "192.168.1.102"
+
+
+def robot_ip(ur_type=None):
+    """IP address for an arm's controller.
+
+    Resolution order, most specific first:
+
+      1. ``<UR_TYPE>_ROBOT_IP``  e.g. UR3E_ROBOT_IP=192.168.1.102
+      2. ``REMOTE_IP``           the single-robot variable export_env.sh has
+                                 always written; still correct when the cell has
+                                 one arm at a time, including when two arms share
+                                 an address because they are swapped in and out
+      3. ``DEFAULT_ROBOT_IP``
+
+    Per-arm variables matter once two arms are on the network simultaneously: a
+    single REMOTE_IP cannot describe both, and pointing a UR16e configuration at
+    a UR3e is exactly the mistake verify_robot_model() exists to stop.
+    """
+    ur_type = resolve_ur_type(ur_type)
+    specific = os.environ.get(f"{ur_type.upper()}_ROBOT_IP")
+    if specific:
+        return specific.strip()
+    generic = os.environ.get("REMOTE_IP")
+    if generic:
+        return generic.strip()
+    return DEFAULT_ROBOT_IP
 
 
 def config_path(ur_type, filename):

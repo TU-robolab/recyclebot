@@ -291,6 +291,133 @@ def test_no_circular_package_dependencies():
     )
 
 
+class _FakeDashboard:
+    """Minimal stand-in for a UR dashboard server, so these tests need no robot.
+
+    Speaks just enough of the protocol: a greeting banner, then a canned reply to
+    "get robot model".
+    """
+
+    def __init__(self, model):
+        import socket
+        import threading
+
+        self.model = model
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._sock.bind(("127.0.0.1", 0))
+        self._sock.listen(1)
+        self.port = self._sock.getsockname()[1]
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self):
+        try:
+            conn, _ = self._sock.accept()
+        except OSError:
+            return
+        with conn:
+            try:
+                conn.sendall(b"Connected: Universal Robots Dashboard Server\n")
+                conn.recv(4096)
+                conn.sendall(self.model.encode() + b"\n")
+            except OSError:
+                pass
+
+    def close(self):
+        self._sock.close()
+
+
+@pytest.mark.parametrize(
+    "connected_model,expected_ur_type,should_pass",
+    [
+        ("UR3", "ur3e", True),
+        ("UR16", "ur16e", True),
+        ("UR3", "ur16e", False),   # the live hazard: ur16e config, ur3e on the wire
+        ("UR16", "ur3e", False),
+        ("UR5", "ur3e", False),    # a model no profile claims
+    ],
+)
+def test_robot_model_matching(connected_model, expected_ur_type, should_pass):
+    """Model string -> ur_type resolution, without touching the network."""
+    from recycle_bot.robot_identity import model_to_ur_types
+
+    matches = model_to_ur_types(connected_model)
+    assert (expected_ur_type in matches) == should_pass, (
+        f"model '{connected_model}' resolved to {matches}; expected "
+        f"{expected_ur_type} to {'match' if should_pass else 'not match'}"
+    )
+
+
+def test_query_robot_model_reads_the_dashboard():
+    """The dashboard client speaks the protocol correctly against a fake server."""
+    from recycle_bot.robot_identity import query_robot_model
+
+    server = _FakeDashboard("UR3")
+    try:
+        model = query_robot_model("127.0.0.1", timeout=5, port=server.port)
+    finally:
+        server.close()
+    assert model == "UR3"
+
+
+def test_unreachable_robot_warns_rather_than_blocking():
+    """A controller we cannot reach must not block a launch.
+
+    The driver reports a genuine connection failure far better than a timed-out
+    pre-flight check would, and failing here on a transient network blip would
+    make the check something people routinely disable.
+    """
+    from recycle_bot.robot_identity import verify_robot_model
+
+    # 127.0.0.1 with nothing listening on the dashboard port: refused instantly.
+    ok, message = verify_robot_model("ur3e", ip="127.0.0.1", timeout=1, strict=False)
+    assert ok, "an unreachable controller must not fail the check"
+    assert "could not reach" in message
+
+
+def test_every_profile_has_a_distinct_dashboard_model():
+    """Two arms sharing a model string would make the check unable to separate them.
+
+    Not fatal on its own — ur3e and ur3 would legitimately collide if both were
+    configured — but it must be a deliberate choice, so assert the current set is
+    unambiguous.
+    """
+    seen = {}
+    for ur_type, prof in PROFILES.items():
+        seen.setdefault(prof.dashboard_model, []).append(ur_type)
+    ambiguous = {m: arms for m, arms in seen.items() if len(arms) > 1}
+    assert not ambiguous, (
+        f"these arms cannot be told apart by dashboard model: {ambiguous}. "
+        "verify_robot_model will accept either one for the other."
+    )
+
+
+def test_robot_ip_resolution_order(monkeypatch):
+    """Per-arm variable beats REMOTE_IP beats the built-in default."""
+    from recycle_bot import robot_profile
+
+    monkeypatch.delenv("UR3E_ROBOT_IP", raising=False)
+    monkeypatch.delenv("UR16E_ROBOT_IP", raising=False)
+    monkeypatch.delenv("REMOTE_IP", raising=False)
+    assert robot_profile.robot_ip("ur3e") == robot_profile.DEFAULT_ROBOT_IP
+
+    monkeypatch.setenv("REMOTE_IP", "10.0.0.5")
+    assert robot_profile.robot_ip("ur3e") == "10.0.0.5"
+    assert robot_profile.robot_ip("ur16e") == "10.0.0.5"
+
+    monkeypatch.setenv("UR3E_ROBOT_IP", "10.0.0.9")
+    assert robot_profile.robot_ip("ur3e") == "10.0.0.9"
+    assert robot_profile.robot_ip("ur16e") == "10.0.0.5", (
+        "a per-arm override must not leak onto another arm"
+    )
+
+    # An empty per-arm value (how docker-compose passes an unset override)
+    # must fall through rather than resolve to an empty address.
+    monkeypatch.setenv("UR3E_ROBOT_IP", "")
+    assert robot_profile.robot_ip("ur3e") == "10.0.0.5"
+
+
 def test_profiles_are_ordered_by_reach():
     """Sanity check on the profile table itself.
 

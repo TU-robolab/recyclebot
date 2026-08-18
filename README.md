@@ -263,6 +263,56 @@ ros2 launch recycle_bot rec_bot_fake.launch.py ur_type:=ur3e \
   --ros-args -p enforce_reach_check:=false
 ```
 
+### Robot identity check
+
+`ur_type` selects the URDF, limits, reach envelope and cell geometry.
+`robot_ip` selects which controller receives the resulting trajectories. Nothing
+structurally ties those together, so a stale address or a swapped arm would send
+one arm's motion to another — a 900 mm arm's trajectories on a 500 mm one.
+
+Every hardware launch (`rec_bot`, `rec_bot_smoke`, `rec_bot_2`) therefore makes
+one read-only query to the robot's dashboard server before starting the driver,
+and refuses to continue on a mismatch:
+
+```
+WRONG ROBOT: the arm at 192.168.1.102 reports model 'UR3', which is ur3e —
+but this launch is configured for 'ur16e' (expects 'UR16').
+  Launching would send ur16e-scale trajectories to a ur3e.
+  Either pass ur_type:=ur3e, or point this launch at the ur16e by setting
+  UR16E_ROBOT_IP (or REMOTE_IP).
+```
+
+An **unreachable** controller only warns — the driver reports a real connection
+failure more clearly, and failing on a network blip would train people to
+disable the check. Bypass explicitly with `verify_robot:=false`.
+
+Run it standalone at any time:
+
+```bash
+ros2 run recycle_bot check_robot --ur-type ur3e
+ros2 run recycle_bot check_robot --ur-type ur3e --robot-ip 192.168.1.102
+```
+
+Resolution granularity: the dashboard returns the product *family*, so a UR3e and
+a CB3 UR3 both report `UR3`. That separates a UR3e from a UR16e, which is the
+damaging confusion. e-Series vs CB3 is settled by the kinematic calibration
+instead — see [Exporting a kinematic calibration](#exporting-a-kinematic-calibration).
+
+### Robot addresses
+
+`robot_ip` resolves most-specific-first:
+
+| Source | Example | When to use |
+|---|---|---|
+| `<UR_TYPE>_ROBOT_IP` | `UR3E_ROBOT_IP=192.168.1.102` | Two or more arms on the network at once |
+| `REMOTE_IP` | `REMOTE_IP=192.168.1.102` | One arm at a time (the default) |
+| built-in default | `192.168.1.102` | Nothing configured |
+
+`export_env.sh` writes `REMOTE_IP` and has the per-arm variables commented out.
+All three are passed into the container by `docker-compose.base.yml` — a value
+in `.env` alone does **not** reach the container, it only feeds compose's own
+substitution.
+
 ### Before running a UR3e on hardware
 
 Every pose in `config/ur3e/` is a placeholder marked `TODO(ur3e-cell)`. They are

@@ -74,6 +74,7 @@ setup(
             'launch_gate = recycle_bot.launch_gate:main',
             'rec_bot_viz = recycle_bot.rec_bot_viz:main',
             'check_calibration = recycle_bot.calibration_check:main',
+            'check_robot = recycle_bot.robot_identity:main',
         ],
     },
 )
