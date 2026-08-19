@@ -10,4 +10,8 @@ path/to/venv/
 
 # Test suite generated visualization files
 test_suite/test_output/
+
+# Run logs captured from the container (bind-mounted at ~/logs)
+logs/*
+!logs/.gitkeep
 CLAUDE.md

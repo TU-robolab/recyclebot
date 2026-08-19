@@ -11,4 +11,7 @@ services:
       - ${HOME}/.ssh:/home/${USER_NAME}/.ssh:ro   # mac-friendly SSH mount
       - ./packages:/home/${USER_NAME}/ros2_ws/src:rw # ROS2 packages
       - ./test_suite:/home/${USER_NAME}/ros2_ws/src/test_suite:rw # Test suite with fake publishers
+      # NOTE: `volumes` REPLACES the dev service's list rather than extending it,
+      # so every mount the mac service needs has to be repeated here.
+      - ./logs:/home/${USER_NAME}/logs:rw # run logs, readable from the host
     command: bash -c "while true; do sleep 3600; done"

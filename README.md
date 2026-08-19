@@ -542,6 +542,19 @@ docker exec <container> cat /tmp/e2e_pipeline_test_report.txt
 docker cp <container>:/tmp/e2e_pipeline_test_report.txt ./
 ```
 
+**Capturing a run log on the host:** the container's `/tmp` is its own, so
+anything written there is invisible outside the container. `logs/` in the repo is
+bind-mounted to `~/logs` inside it, so tee there instead:
+
+```bash
+ros2 launch recycle_bot rec_bot_fake.launch.py ur_type:=ur3e 2>&1 | tee ~/logs/run.log
+```
+
+The file then appears at `logs/run.log` in the repo on the host. Its contents are
+gitignored. The mount is declared in **both** `docker-compose.dev.yml` and
+`docker-compose.mac.yml` — compose's `extends` replaces the `volumes` list rather
+than merging it, so the mac service has to repeat every mount.
+
 ### E2E Pipeline Test Details
 
 The `test_e2e_pipeline` suite validates the complete system end-to-end: fake_rgbd → YOLO detection → 3D projection → MoveIt planning → mock gripper. 13 tests covering RGBD publishing, vision service, detection format, TF, joint states, gripper commands, full pipeline flow, and depth validation.
