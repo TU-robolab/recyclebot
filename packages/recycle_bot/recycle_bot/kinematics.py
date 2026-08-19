@@ -112,17 +112,64 @@ def urdf_path_for(ur_type):
     )
 
 
-def link_poses(joint_angles, ur_type=None, urdf_path=None, tip="tool0",
-               base="base_link"):
-    """Position of every link from `base` to `tip`, in `base` coordinates.
+def matrix_to_quaternion(m):
+    """Rotation part of a 4x4 (or a 3x3) -> quaternion [x, y, z, w]."""
+    trace = m[0][0] + m[1][1] + m[2][2]
+    if trace > 0.0:
+        s = math.sqrt(trace + 1.0) * 2.0
+        w, x = 0.25 * s, (m[2][1] - m[1][2]) / s
+        y, z = (m[0][2] - m[2][0]) / s, (m[1][0] - m[0][1]) / s
+    elif m[0][0] > m[1][1] and m[0][0] > m[2][2]:
+        s = math.sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2.0
+        w, x = (m[2][1] - m[1][2]) / s, 0.25 * s
+        y, z = (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s
+    elif m[1][1] > m[2][2]:
+        s = math.sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2.0
+        w, x = (m[0][2] - m[2][0]) / s, (m[0][1] + m[1][0]) / s
+        y, z = 0.25 * s, (m[1][2] + m[2][1]) / s
+    else:
+        s = math.sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2.0
+        w, x = (m[1][0] - m[0][1]) / s, (m[0][2] + m[2][0]) / s
+        y, z = (m[1][2] + m[2][1]) / s, 0.25 * s
+    return [x, y, z, w]
 
-    joint_angles: {joint_name: radians}. Returns {link_name: (x, y, z)}.
 
-    Uses nominal kinematics from the URDF, not the robot's own calibration, so
-    results sit a couple of millimetres from the controller's own numbers. That
-    is far below the 150 mm question this is here to answer, but it does mean
-    this is not a substitute for the driver's calibrated FK when millimetres
-    matter.
+# base_link -> base is a rotation of pi about Z (see the URDF's
+# base_link-base_fixed_joint). Applied on the left, it re-expresses a pose given
+# in base_link into the UR "base" frame the teach pendant and
+# sorting_sequence.yaml both use.
+_RZ_PI = [
+    [-1.0, 0.0, 0.0, 0.0],
+    [0.0, -1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+    [0.0, 0.0, 0.0, 1.0],
+]
+
+
+def to_ur_base_frame(transform):
+    """Re-express a base_link transform in the UR "base" frame."""
+    return _matmul(_RZ_PI, transform)
+
+
+def quaternion_angle_between(q1, q2):
+    """Smallest rotation angle between two quaternions, in radians.
+
+    Used to check a taught orientation against a canonical one. Quaternions
+    double-cover rotations, so q and -q are the same orientation; abs() on the
+    dot product handles that.
+    """
+    dot = abs(sum(a * b for a, b in zip(q1, q2)))
+    return 2.0 * math.acos(max(-1.0, min(1.0, dot)))
+
+
+def link_transforms(joint_angles, ur_type=None, urdf_path=None, tip="tool0",
+                    base="base_link"):
+    """Full 4x4 transform of every link from `base` to `tip`.
+
+    link_poses() gives only positions; orientation matters when teaching poses,
+    because tool0 is rotated relative to the flange by the URDF's flange-tool0
+    joint. Reading the controller's reported orientation would give the FLANGE's,
+    which is not what a sorting_sequence.yaml pose means.
     """
     if urdf_path is None:
         if ur_type is None:
@@ -143,7 +190,7 @@ def link_poses(joint_angles, ur_type=None, urdf_path=None, tip="tool0",
     chain.reverse()
 
     transform = [row[:] for row in IDENTITY]
-    poses = {}
+    transforms = {}
     for name, joint in chain:
         transform = _matmul(transform, _origin_transform(joint["xyz"], joint["rpy"]))
         if joint["type"] in ("revolute", "continuous") and joint["axis"]:
@@ -151,9 +198,25 @@ def link_poses(joint_angles, ur_type=None, urdf_path=None, tip="tool0",
             if angle is None:
                 raise ValueError(f"no angle supplied for joint {name!r}")
             transform = _matmul(transform, _axis_transform(joint["axis"], angle))
-        poses[joint["child"]] = (
-            transform[0][3],
-            transform[1][3],
-            transform[2][3],
-        )
-    return poses
+        transforms[joint["child"]] = [row[:] for row in transform]
+    return transforms
+
+
+def link_poses(joint_angles, ur_type=None, urdf_path=None, tip="tool0",
+               base="base_link"):
+    """Position of every link from `base` to `tip`, in `base` coordinates.
+
+    joint_angles: {joint_name: radians}. Returns {link_name: (x, y, z)}.
+
+    Uses nominal kinematics from the URDF, not the robot's own calibration, so
+    results sit a couple of millimetres from the controller's own numbers. That
+    is far below the 150 mm question this is here to answer, but it does mean
+    this is not a substitute for the driver's calibrated FK when millimetres
+    matter.
+    """
+    transforms = link_transforms(
+        joint_angles, ur_type=ur_type, urdf_path=urdf_path, tip=tip, base=base
+    )
+    return {
+        link: (t[0][3], t[1][3], t[2][3]) for link, t in transforms.items()
+    }

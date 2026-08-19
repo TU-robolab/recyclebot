@@ -1,20 +1,28 @@
 # YAML defining sorting target locations and neutral pose — UR3e cell.
 #
 # ############################################################################
-# # TODO(ur3e-cell): EVERY POSE HERE IS A PLACEHOLDER.                       #
-# # Measure the real cell on the teach pendant and replace them.             #
+# # ALL POSES TAUGHT 2026-08-18 on the real cell. No placeholders remain.    #
 # ############################################################################
 #
-# The values below are NOT the UR16e values rescaled — they are a fresh compact
-# layout chosen to sit inside the UR3e's usable envelope. rec_bot_control runs a
-# reach check over every pose in this file at startup and refuses to run if any
-# of them falls outside it, so a stale UR16e pose cannot survive here unnoticed.
+# Poses come from jogging the arm and computing tool0 by forward kinematics from
+# the reported joint angles — NOT from the controller's reported TCP. PolyScope's
+# TCP offset on this cell is zero, so the controller reports the flange, 150 mm
+# short of the vacuum cup. See recycle_bot/read_tcp.py.
 #
-# Reach budget:
-#   UR3e datasheet reach           0.500 m
-#   planning reach (0.90 derate)   0.450 m   <- what the startup check enforces
-# The derate covers the fact that the arm cannot achieve full extension at
-# arbitrary tool orientations, plus the E-Pick's own offset past the flange.
+# The 150 mm offset itself was verified against a physical surface: with the cup
+# resting on the table, FK put tool0 within 2.4 mm of the independently measured
+# table height.
+#
+# rec_bot_control reach-checks every pose here at startup and refuses to run if
+# any falls outside the envelope, so a pose copied from another cell cannot
+# survive unnoticed.
+#
+# Reach budget (measured from the SHOULDER, at z = 0.15185, not from base_link):
+#   max tool0 reach, sampled from the URDF   0.7318 m
+#   planning reach (0.85 derate)             0.6220 m  <- what the check enforces
+# The datasheet "reach" of 0.500 m is the horizontal working radius and is NOT
+# this quantity; using it rejected poses the arm had physically achieved. See
+# RobotProfile in robot_profile.py.
 #
 # PAYLOAD: the UR3e carries 3 kg, against the UR16e's 16 kg. That is comfortably
 # above a vacuum-gripped bottle or food packet, but it is now the same order of
@@ -33,47 +41,101 @@
 
 # neutral pose: safe position above workspace for transit between pick and place
 # robot moves here after gripping before moving to place location
+#
+# TAUGHT 2026-08-18. tool0 computed by forward kinematics from the taught joint
+# angles below, then expressed in the UR "base" frame. It is NOT the controller's
+# reported pose: PolyScope's TCP offset is zero, so the controller reports the
+# flange, 150 mm short of the cup.
+#
+# 0.326 m from the shoulder, well inside the 0.622 m envelope.
+#
+# The orientation is not the canonical face-down [1, 0, 0, 0] used by the UR16e
+# cell, and that is deliberate. The taught pose points the tool EXACTLY straight
+# down (0.00 deg off vertical); it differs from [1, 0, 0, 0] only by 87.6 deg of
+# yaw about that vertical axis. For a round vacuum cup yaw is meaningless, and
+# keeping the taught value guarantees this exact orientation is reachable here —
+# whereas substituting the canonical one would assert a wrist configuration
+# nobody has checked.
 neutral_pose:
-  position: [0.0, 0.25, 0.32]        # 0.406 m from base — inside the 0.450 m budget
-  orientation: [1.0, 0.0, 0.0, 0.0]  # face-down
+  position: [-0.13105, -0.29855, 0.15330]
+  orientation: [0.721629, 0.692280, 0.0, 0.0]  # tool straight down, yaw as taught
 
 # joint-space neutral (preferred for safe, deterministic motion)
 #
 # Joint-space goals bypass IK entirely, so they are the safest way to define a
-# transit pose on a small arm where many Cartesian goals are unreachable. These
-# are a compact tucked configuration, NOT measured — jog the UR3e to a pose you
-# are happy with and copy the six joint values off the pendant.
+# transit pose on a small arm where many Cartesian goals are unreachable.
+#
+# TAUGHT 2026-08-18, read from the controller. Values are kept exactly as the
+# arm reported them rather than normalised to the nearest right angle: UR joints
+# range over +/-2 pi, so wrist_1 at +4.71239 (270 deg) is a different joint value
+# from -1.57080 (-90 deg) even though the arm is in the same physical place, and
+# planning to the one the arm is actually at avoids a needless full-turn wrist
+# rotation on the first move.
 neutral_joint_pose:
-  shoulder_pan_joint: -1.57
-  shoulder_lift_joint: -1.57
-  elbow_joint: -1.57
-  wrist_1_joint: -1.57
-  wrist_2_joint: 1.57
-  wrist_3_joint: 0.0
+  shoulder_pan_joint: -1.57079
+  shoulder_lift_joint: -1.57081
+  elbow_joint: -1.57079
+  wrist_1_joint: 4.71239
+  wrist_2_joint: 1.57078
+  wrist_3_joint: 1.61231
 
 # joint-space pose under the camera (waypoint before descending to pick)
+#
+# TAUGHT 2026-08-18. Joint space, so no IK and no tool-offset ambiguity.
+#
+# For reference, this puts tool0 at [-0.23151, -0.08888, 0.10959] in the "base"
+# frame: 0.108 m above the table, 0.100 m horizontally from the camera axis, with
+# the tool 0.16 deg off vertical.
+#
+# It is offset from the camera axis rather than directly beneath it because the
+# table under the camera is inside the arm's inner dead zone and cannot be
+# reached at all — see cell.yaml.
+#
+# The arm does sit in the camera's view here, which is harmless: rec_bot_vision
+# gates capture on /rec_bot/robot_busy, so no detection is taken while the robot
+# is moving through this waypoint.
 under_camera_pose:
-  shoulder_pan_joint: -2.10
-  shoulder_lift_joint: -1.75
-  elbow_joint: -1.40
-  wrist_1_joint: -1.55
-  wrist_2_joint: 1.57
-  wrist_3_joint: 0.0
+  shoulder_pan_joint: -2.21774
+  shoulder_lift_joint: -1.20586
+  elbow_joint: -2.06701
+  wrist_1_joint: 4.84644
+  wrist_2_joint: 1.57036
+  wrist_3_joint: 1.56463
 
 # named drop-off bins
 # each bin is a position (meters) + orientation quaternion [x, y, z, w] in the
 # UR "base" frame (see note at the top of this file)
 #
-# On the UR16e all six labels could share one far-away bin pose because the arm
-# could reach anywhere on the table. The UR3e cannot, so the bins are spread
-# around the reachable arc instead — every one of these is 0.38-0.41 m from base.
+# TAUGHT 2026-08-18. There are THREE physical bins, in a row behind the robot,
+# roughly 100 mm apart. The six routing names below therefore share those three
+# positions — several names mapping to one pose is normal and is exactly how the
+# UR16e cell works too.
+#
+#   bin 1  y=+0.138   general_waste          (also default_bin)
+#   bin 2  y=+0.035   hdpe, pet, pp, pp_ps   (all plastics)
+#   bin 3  y=-0.062   tetra                  (cartons)
+#
+# Positions are tool0 — the cup tip — computed by forward kinematics from the
+# taught joint angles, NOT the controller's reported flange pose. Each is the
+# RELEASE point; approach_height_m is added on top for the approach.
+#
+# All three sit 0.32-0.35 m from the shoulder, comfortably inside the 0.622 m
+# envelope, and all are within 0.3 deg of vertical.
+#
+# NOTE they are ~141 mm PAST the table's back edge, so they are not over the
+# table at all and the table collision box does not apply to them.
+#
+# Orientations are the taught ones rather than the canonical face-down
+# [1, 0, 0, 0]: the tool is vertical either way, and these differ only in yaw,
+# which is meaningless for a round vacuum cup. Keeping them guarantees each
+# orientation is reachable at its own position.
 bins:
-  general_waste: { position: [0.30, -0.25, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.403 m
-  hdpe:          { position: [0.30,  0.25, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.403 m
-  pet:           { position: [0.35, -0.10, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.377 m
-  pp:            { position: [0.35,  0.10, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.377 m
-  pp_ps:         { position: [0.20, -0.32, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.390 m
-  tetra:         { position: [0.20,  0.32, 0.10], orientation: [1.0, 0.0, 0.0, 0.0] }  # 0.390 m
+  general_waste: { position: [0.31610, 0.13786, 0.16548], orientation: [-0.077525, 0.996989, -0.001387, 0.001258] }  # bin 1
+  hdpe:          { position: [0.31879, 0.03504, 0.16558], orientation: [-0.077446, 0.996995, -0.001621, 0.000888] }  # bin 2
+  pet:           { position: [0.31879, 0.03504, 0.16558], orientation: [-0.077446, 0.996995, -0.001621, 0.000888] }  # bin 2
+  pp:            { position: [0.31879, 0.03504, 0.16558], orientation: [-0.077446, 0.996995, -0.001621, 0.000888] }  # bin 2
+  pp_ps:         { position: [0.31879, 0.03504, 0.16558], orientation: [-0.077446, 0.996995, -0.001621, 0.000888] }  # bin 2
+  tetra:         { position: [0.31837, -0.06170, 0.16578], orientation: [-0.077455, 0.996993, -0.002207, 0.000600] }  # bin 3
 
 # label-to-bin routing: maps a detected YOLO class label (from model.names) to a
 # bin name defined under 'bins' above. Any label not listed here falls through
@@ -101,8 +163,9 @@ place_yaw_candidates_deg: [90.0, -90.0, 180.0, 0.0]  # Step 7/8 may rotate wrist
 grasped_object_size: [0.05, 0.05, 0.05]  # meters (box attached to tool for planning)
 
 # small vertical clearance added to the detected pick height (meters).
-# starts at 0 like the UR16e cell; retune against the UR3e's own depth error once
-# the camera transform above is measured.
+# Still 0, carried over from the UR16e cell. Retune against this cell's own depth
+# error once the camera ROTATION is verified — until then the projected pick
+# height is not trustworthy enough to calibrate an offset against.
 pick_z_offset_m: 0.00
 
 # if the vacuum sensor doesn't confirm a grasp (Step 5b), the single retry
