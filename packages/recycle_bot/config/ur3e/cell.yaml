@@ -1,50 +1,77 @@
 # Work-cell collision geometry for the UR3e cell.
 #
-# ############################################################################
-# # TODO(ur3e-cell): EVERY VALUE HERE IS A PLACEHOLDER.                      #
-# # Measure the real cell and replace them before running on hardware.       #
-# ############################################################################
-#
-# The numbers below describe a compact cell sized to the UR3e's 500 mm reach.
-# They are internally consistent and safe to plan against in simulation
-# (rec_bot_fake.launch.py), but they are NOT your cell.
+# MEASURED 2026-08-18 by touching each feature with the bare flange and reading
+# the controller's TCP (PolyScope TCP offset is zero, so the reported pose is the
+# flange face, and the flange frame origin sits on that face — the contact point
+# is the reading, with nothing to subtract).
 #
 # All boxes are axis-aligned and expressed in the "world" frame, which coincides
 # with base_link. NOTE: this is NOT the UR "base" frame used by
 # sorting_sequence.yaml — base is base_link rotated 180 deg about Z, so x/y signs
-# flip between the two. A base-frame value written here puts the collision box on
-# the wrong side of the robot and MoveIt will plan straight through the real
-# object.
+# flip. Every number below has already been converted to base_link.
+#
+# Raw measurements, for anyone re-deriving these (base_link, metres):
+#   table surface          [ 0.21961,  0.05386,  0.00196]
+#   camera underside       [ 0.16646,  0.01297,  0.54795]
+#   post, +Y face, low     [ 0.16893, -0.13821,  0.04223]
+#   post, -X face, top     [ 0.15220, -0.17472,  0.60199]
 #
 # size:     (x, y, z) full extents in meters
 # position: (x, y, z) of the box CENTER in meters
 
-# Mounting table. Scaled down from the UR16e's 1.4 x 1.2 m: a table wider than
-# the arm's reach adds no useful collision information, but it does slow every
-# collision check. Roughly 2x the planning reach per side is plenty.
-table:
-  size: [0.9, 0.9, 0.05]
-  position: [0.0, 0.0, -0.05]
-
-# Vertical pole carrying the RealSense above the workspace.
+# Mounting table: 640 mm (x) x 800 mm (y), robot centred on the long side.
 #
-# The stand must sit OUTSIDE the arm's reachable envelope or the arm will
-# repeatedly fail to plan around its own camera mount. With a 0.45 m planning
-# reach, a stand at radius sqrt(0.28^2 + 0.30^2) = 0.41 m is inside that envelope
-# and will constrain planning — it is placed here anyway because on a small cell
-# there is nowhere else to put it, which is exactly why the arm needs it in the
-# planning scene. Verify it does not block your pick area.
-camera_stand:
-  size: [0.04, 0.04, 0.55]
-  position: [0.28, -0.30, 0.275]
+# Orientation was ambiguous from the description alone ("465 mm from the front,
+# 175 mm from the back"). It is resolved by the table touch point at x = +0.220:
+# that only lies on the table if +X points toward the FRONT, giving
+#   back edge  x = -0.175
+#   front edge x = +0.465
+# so the centre is at x = (-0.175 + 0.465) / 2 = +0.145.
+#
+# Top surface measured at z = +0.00196, i.e. the table top is level with the
+# robot's own base mount. Thickness is not measured and does not matter for
+# planning — only the top face does — so 50 mm is assumed and the centre placed
+# to put the top at the measured height: 0.002 - 0.05/2 = -0.023.
+table:
+  size: [0.640, 0.800, 0.05]
+  position: [0.145, 0.0, -0.023]
 
-# Box around the RealSense D415 head (~99 x 25 x 25 mm plus clearance margin).
+# Camera stand: 40 x 40 mm square post, axis-aligned with base_link.
+#
+# Centre solved from two touches on two DIFFERENT faces, each offset inward by
+# half the 40 mm width:
+#   +Y face at y = -0.13821  ->  centre y = -0.13821 - 0.020 = -0.1582
+#   -X face at x = +0.15220  ->  centre x = +0.15220 + 0.020 = +0.1722
+# Each touch cross-checks against the other axis (3 mm and 17 mm off-centre
+# along their respective faces, both inside the +/-20 mm half-width), which also
+# confirms the post is axis-aligned rather than rotated.
+#
+# Runs from the table top (0.002) to the measured top (0.602): height 0.600,
+# centre z = 0.302.
+#
+# ASSUMED VERTICAL. Both touches were on different faces, so they cannot detect
+# a lean. If the post is visibly tilted this box is wrong along its length.
+#
+# This post is a real collision hazard, not a formality: it stands 0.60 m tall
+# only 0.235 m from the base axis, well inside the arm's reachable envelope.
+camera_stand:
+  size: [0.04, 0.04, 0.600]
+  position: [0.1722, -0.1582, 0.302]
+
+# Box around the RealSense D415 head (99 x 20 x 23 mm) plus mounting clearance.
 # Its POSITION is not set here: rec_bot_control reads it from
 # calibration.yaml -> camera_transform.translation so the collision box can never
-# drift away from the TF the projection math uses. Only the size is configurable.
-#
-# The margin matters more on the UR3e than on the UR16e: the camera sits
-# proportionally much closer to the arm, so a camera box that is too small is a
-# real crash risk rather than a theoretical one.
+# drift away from the TF the projection math uses.
 camera:
-  size: [0.12, 0.12, 0.12]
+  size: [0.13, 0.07, 0.06]
+
+# TODO(ur3e-cell): the camera support arm is NOT modelled.
+#
+# The post centre is at y = -0.158 and the camera at y = +0.013, so roughly
+# 0.17 m of horizontal arm spans between them at around z = 0.55-0.60. That bar
+# sits directly over the workspace and is invisible to MoveIt, which will plan
+# straight through it.
+#
+# Modelling it needs an extra box, which the current schema does not support —
+# rec_bot_control reads exactly the three keys above. Either extend the schema to
+# take a list of additional boxes, or grow the camera box to swallow the arm.

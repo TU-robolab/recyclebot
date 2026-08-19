@@ -2,31 +2,42 @@
 # Camera transform and detection filtering parameters.
 #
 # ############################################################################
-# # TODO(ur3e-cell): camera_transform is a PLACEHOLDER.                      #
-# # Measure it with the UR3e tool tip and replace before running on hardware.#
+# # TRANSLATION MEASURED 2026-08-18. ROTATION IS STILL UNVERIFIED.           #
 # ############################################################################
 
 # camera transform: static transform from base_link to camera_link (meters)
 # used for projecting detections into the robot frame.
 #
-# Measurement procedure (same as the UR16e cell):
-#   1. Jog the tool tip to a known point in the camera's view.
-#   2. Read the TCP position off the teach pendant.
-#   3. Solve for the camera pose that maps the detected pixel to that point.
+# How the translation was obtained: the bare flange was pressed up against the
+# underside of the camera and the controller's TCP read directly. The PolyScope
+# TCP offset is zero, so the reported pose is the flange face, and the flange
+# frame origin lies on that face — the contact point is the reading.
+#
+#   camera underside (base_link) = [0.16646, 0.01297, 0.54795]
+#
+# camera_link sits inside the housing rather than on its underside, so 12 mm is
+# added in z (about half the D415's 23 mm body height) to reach the middle of the
+# case. That 12 mm is an ESTIMATE, not a measurement, and it is the largest known
+# error in this transform.
 #
 # NOTE the frame: parent is base_link (REP-103, X+ forward / Y+ left / Z+ up),
 # NOT the UR "base" frame that sorting_sequence.yaml uses. Mixing them up flips
-# the x/y signs and mirrors every detection through the robot's origin.
+# the x/y signs and mirrors every detection through the robot's origin. The
+# numbers below are already in base_link.
 #
-# The rotation below is unchanged from the UR16e cell: it encodes a camera
-# looking straight down with the usual optical-frame convention, which is a
-# mounting choice, not an arm property. Re-derive it only if the UR3e camera is
-# mounted at a different angle.
+# ROTATION IS NOT MEASURED. Touch points give position only — they say nothing
+# about how the camera is aimed. The quaternion below is carried over unchanged
+# from the UR16e cell and encodes a camera looking straight down in the usual
+# optical-frame convention. Verify it before trusting any detection: put a known
+# object under the camera, compare what /vision/detected_object reports against
+# where the flange actually touches that object, and adjust. A rotation error
+# shows up as a detection offset that GROWS with distance from the image centre,
+# which is how to tell it apart from a translation error (constant offset).
 camera_transform:
   parent_frame: "base_link"
   child_frame: "camera_link"
-  translation: [0.25, -0.20, 0.50]  # TODO(ur3e-cell): measure with UR3e tool tip
-  rotation: [-0.5, 0.5, 0.5, 0.5]   # quaternion [x, y, z, w], camera looking down
+  translation: [0.16646, 0.01297, 0.55995]  # measured underside + 12 mm in z
+  rotation: [-0.5, 0.5, 0.5, 0.5]   # TODO(ur3e-cell): UNVERIFIED — see above
 
 # detection filter thresholds
 # RealSense D415 range: 0.3 m - 10 m (optimal 0.5 m - 3 m)
@@ -34,14 +45,15 @@ detection_filter:
   min_confidence: 0.75  # matched to the UR16e cell; this is a property of the
                         # YOLO model, not the arm, so keep the two in sync
 
-  # Depth window, tightened for the UR3e cell.
+  # Depth window, derived from the measured camera height.
   #
-  # This is the one filter value that genuinely must change with the arm. On the
-  # UR16e the camera sits ~0.61 m up and the window is [0.1, 1.5] m. Here the
-  # camera is ~0.50 m up, and anything the UR3e can actually reach lies within
-  # ~0.45 m of the base — so a detection reported at 1.4 m is guaranteed to be
-  # outside the workspace (a person walking past, the floor, the far wall).
-  # Rejecting it here is much cheaper than letting rec_bot_control queue a task
-  # that the reach check then has to throw away.
-  min_depth_m: 0.1
-  max_depth_m: 0.7   # TODO(ur3e-cell): retune once the camera height is measured
+  # Camera underside is at z = 0.548 and the table top at z = 0.002, so the
+  # camera looks down 0.546 m onto the table.
+  #
+  # max 0.62 m: the table surface sits at ~0.55 m plus a little slack for an
+  #   uneven surface. Anything beyond that is past the table — the floor, or
+  #   somebody walking by — and cannot be a pickable object.
+  # min 0.30 m: allows objects up to ~0.25 m tall while staying at the D415's
+  #   rated close range. Anything nearer is the arm itself passing through frame.
+  min_depth_m: 0.30
+  max_depth_m: 0.62
