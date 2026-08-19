@@ -58,12 +58,33 @@ camera_stand:
   size: [0.04, 0.04, 0.600]
   position: [0.1722, -0.1582, 0.302]
 
-# Box around the RealSense D415 head (99 x 20 x 23 mm) plus mounting clearance.
-# Its POSITION is not set here: rec_bot_control reads it from
-# calibration.yaml -> camera_transform.translation so the collision box can never
-# drift away from the TF the projection math uses.
+# Box around the RealSense D415 head plus the mounting hardware above it.
+#
+# The camera assembly is taller than the camera. Measured:
+#   camera underside            z = 0.548
+#   bracket, +Y face            z = 0.650   (touched; 102 mm above the underside,
+#                                            far more than a D415's ~20 mm
+#                                            vertical extent when aimed down)
+# so the box spans z 0.545 .. 0.665 to enclose both.
+#
+# The y extent is confirmed from two faces: the bracket's +Y face at y = 0.0649
+# minus half the D415's 99 mm length puts the centre at y = 0.0154, agreeing to
+# 2.4 mm with the underside touch at y = 0.013. That also establishes that the
+# camera's long axis runs along Y.
+#
+# ANCHORING: the box centre comes from calibration.yaml ->
+# camera_transform.translation, so it can never drift from the TF the projection
+# maths uses. Only `size` and `offset` are set here. `offset` shifts the box
+# relative to camera_link, which is needed because the bracket sits above the
+# optical body rather than around it — without it, covering the bracket would
+# mean growing the box symmetrically and swallowing 100 mm of free space
+# underneath the camera, where the arm legitimately needs to travel.
+#
+#   camera_link z = 0.55995,  offset +0.045  ->  box centre 0.60495
+#   size z 0.12               ->  spans 0.545 .. 0.665   [OK]
 camera:
-  size: [0.13, 0.07, 0.06]
+  size: [0.13, 0.12, 0.12]
+  offset: [0.0, 0.0, 0.045]
 
 # TODO(ur3e-cell): the camera support arm is NOT modelled.
 #

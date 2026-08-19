@@ -300,7 +300,9 @@ class cobot_control(Node):
     DEFAULT_CELL = {
         "table": {"size": (1.4, 1.2, 0.05), "position": (0.0, 0.0, -0.05)},
         "camera_stand": {"size": (0.04, 0.04, 0.6), "position": (0.38, -0.52, 0.29)},
-        "camera": {"size": (0.1, 0.1, 0.1)},
+        # offset shifts the box relative to camera_link, for a camera whose
+        # mounting hardware is not centred on the optical body.
+        "camera": {"size": (0.1, 0.1, 0.1), "offset": (0.0, 0.0, 0.0)},
     }
 
     def load_cell_config(self):
@@ -352,6 +354,14 @@ class cobot_control(Node):
         camera_stand_size = cell["camera_stand"]["size"]
         camera_stand_position = cell["camera_stand"]["position"]
         camera_size = cell["camera"]["size"]
+        # The camera box is anchored to camera_link (from calibration.yaml) so it
+        # can never drift from the TF the projection maths uses, but a bracket or
+        # clamp is rarely centred on the optical body. offset shifts the box
+        # without breaking that anchoring.
+        camera_offset = cell["camera"].get("offset", (0.0, 0.0, 0.0))
+        camera_position = tuple(
+            camera_position[i] + camera_offset[i] for i in range(3)
+        )
 
         planning_scene_monitor = self.moveit.get_planning_scene_monitor()
 
@@ -555,17 +565,26 @@ class cobot_control(Node):
             return None, None, None, {}, {}, None
 
     def reach_distance(self, pose: PoseStamped) -> float:
-        """Straight-line distance from the base origin to a pose, in meters.
+        """Distance from the SHOULDER joint to a pose, in meters.
 
-        Poses arrive in the UR "base" frame, whose origin sits on the base joint
-        axis, so the vector magnitude is directly comparable to the datasheet
-        reach. This is a necessary condition, not a sufficient one: a pose inside
-        the sphere can still be unreachable at a given tool orientation, or
-        blocked by a joint limit. It is meant to catch the gross case — a pose
-        carried over from a larger arm — not to replace IK.
+        Measured from the shoulder, not the base origin: the arm's working
+        envelope is a sphere centred on the shoulder joint, which sits
+        profile.shoulder_height_m above base_link. Measuring from base_link
+        inflates the distance to anything high up, and rejects poses the arm can
+        comfortably reach. Poses arrive in the UR "base" frame, which shares its
+        origin and Z axis with base_link (it is only rotated 180 degrees about
+        Z), so subtracting the shoulder height in z is valid without converting
+        frames first.
+
+        This is a necessary condition, not a sufficient one: a pose inside the
+        sphere can still be unreachable at a given tool orientation, or blocked
+        by a joint limit or the cell's own collision geometry. It is meant to
+        catch the gross case — a pose carried over from a larger arm — not to
+        replace IK.
         """
         p = pose.pose.position
-        return math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z)
+        dz = p.z - self.profile.shoulder_height_m
+        return math.sqrt(p.x * p.x + p.y * p.y + dz * dz)
 
     def within_reach(self, pose: PoseStamped) -> bool:
         return self.reach_distance(pose) <= self.profile.planning_reach_m
@@ -601,8 +620,9 @@ class cobot_control(Node):
         if not offenders:
             self.get_logger().info(
                 f"Reach check passed: all configured poses within {limit:.3f} m "
-                f"({self.ur_type} datasheet reach {self.profile.max_reach_m:.3f} m "
-                f"x {self.profile.reach_derate:.2f} derate)"
+                f"of the shoulder ({self.ur_type} max tool reach "
+                f"{self.profile.max_tool_reach_m:.3f} m x "
+                f"{self.profile.reach_derate:.2f} derate)"
             )
             return
 
@@ -612,11 +632,12 @@ class cobot_control(Node):
         )
         message = (
             f"{len(offenders)} configured pose(s) are outside the {self.ur_type}'s "
-            f"reach envelope of {limit:.3f} m:\n{detail}\n"
+            f"reach envelope of {limit:.3f} m (measured from the shoulder at "
+            f"z={self.profile.shoulder_height_m:.3f} m):\n{detail}\n"
             f"  These come from {config_path(self.ur_type, 'sorting_sequence.yaml')}.\n"
             f"  A pose copied from a larger arm's cell is the usual cause — the "
-            f"UR16e reaches {PROFILES['ur16e'].max_reach_m:.3f} m, the UR3e only "
-            f"{PROFILES['ur3e'].max_reach_m:.3f} m."
+            f"UR16e's tool reaches {PROFILES['ur16e'].max_tool_reach_m:.3f} m, the "
+            f"UR3e's only {PROFILES['ur3e'].max_tool_reach_m:.3f} m."
         )
         if self.enforce_reach_check:
             raise RuntimeError(message)

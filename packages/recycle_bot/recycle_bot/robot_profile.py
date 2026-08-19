@@ -25,11 +25,30 @@ DEFAULT_UR_TYPE = "ur16e"
 class RobotProfile:
     """Physical envelope of one UR arm.
 
-    ``max_reach_m`` is the manufacturer spec measured from the base joint axis to
-    the tool flange. The usable envelope for planning is smaller: the arm cannot
-    actually achieve a straight-line reach at arbitrary orientations, and the
-    E-Pick gripper adds its own offset past the flange. ``planning_reach_m``
-    applies that derating, and is what the reach check actually enforces.
+    Reach is measured from the SHOULDER, not from base_link, and against the
+    arm's real geometry rather than the datasheet number. Both corrections came
+    from measuring the UR3e cell on 2026-08-18, where three of five poses the arm
+    had physically just achieved were rejected by the original check:
+
+      * Origin. The working envelope is centred on the shoulder joint, which
+        sits ``shoulder_height_m`` above base_link. Measuring from base_link
+        overestimates the distance to anything high up — a pose at z = 0.65 read
+        as 0.674 m from base_link but only 0.529 m from the shoulder.
+
+      * Radius. ``max_reach_m`` (the datasheet "reach") is the horizontal working
+        radius, NOT the maximum flange distance. The UR3e is sold as 500 mm but
+        reaches 600 mm flange-to-shoulder, and was measured at 529 mm in this
+        cell. Using the datasheet figure rejected valid poses.
+
+    ``max_tool_reach_m`` is therefore the real quantity: the furthest tool0 can
+    get from the shoulder, sampled over joint space from this arm's own URDF.
+    tool0 is what MoveIt plans to and what sorting_sequence.yaml poses mean, so
+    it already includes the E-Pick's 150 mm offset — change the end effector and
+    this must be re-derived. test_reach_envelope_matches_urdf does that
+    re-derivation and fails if the constant drifts.
+
+    ``planning_reach_m`` derates it, since a pose at full extension is reachable
+    at exactly one orientation and useless in practice.
     """
 
     def __init__(
@@ -38,11 +57,15 @@ class RobotProfile:
         max_reach_m,
         payload_kg,
         dashboard_model,
-        reach_derate=0.90,
+        shoulder_height_m,
+        max_tool_reach_m,
+        reach_derate=0.85,
     ):
         self.ur_type = ur_type
         self.max_reach_m = max_reach_m
         self.payload_kg = payload_kg
+        self.shoulder_height_m = shoulder_height_m
+        self.max_tool_reach_m = max_tool_reach_m
         # What this arm's dashboard server returns for "get robot model". It is
         # the product FAMILY, not the variant: a UR3e and a CB3 UR3 both answer
         # "UR3". That is still enough to separate a UR3e from a UR16e, which is
@@ -53,7 +76,8 @@ class RobotProfile:
 
     @property
     def planning_reach_m(self):
-        return self.max_reach_m * self.reach_derate
+        """Envelope the reach check enforces, measured from the shoulder."""
+        return self.max_tool_reach_m * self.reach_derate
 
     @property
     def urdf_path(self):
@@ -73,20 +97,28 @@ class RobotProfile:
 
     def __repr__(self):
         return (
-            f"RobotProfile({self.ur_type}, reach={self.max_reach_m}m, "
-            f"planning_reach={self.planning_reach_m:.3f}m, payload={self.payload_kg}kg)"
+            f"RobotProfile({self.ur_type}, datasheet_reach={self.max_reach_m}m, "
+            f"max_tool_reach={self.max_tool_reach_m:.3f}m, "
+            f"planning_reach={self.planning_reach_m:.3f}m from shoulder "
+            f"@z={self.shoulder_height_m:.3f}m, payload={self.payload_kg}kg)"
         )
 
 
 # Reach and payload from the UR datasheets. Adding an arm here plus a
 # config/<ur_type>/ directory in both recycle_bot and recycle_bot_moveit_config
 # is the whole port — no code changes needed.
+# shoulder_height_m and max_tool_reach_m are derived from each arm's URDF by
+# sampling joint space; see test_reach_envelope_matches_urdf, which recomputes
+# them and fails if these constants go stale. They are stored rather than
+# computed at startup because the sampling is far too slow to run per launch.
 PROFILES = {
     "ur16e": RobotProfile(
-        "ur16e", max_reach_m=0.900, payload_kg=16.0, dashboard_model="UR16"
+        "ur16e", max_reach_m=0.900, payload_kg=16.0, dashboard_model="UR16",
+        shoulder_height_m=0.18070, max_tool_reach_m=1.1476,
     ),
     "ur3e": RobotProfile(
-        "ur3e", max_reach_m=0.500, payload_kg=3.0, dashboard_model="UR3"
+        "ur3e", max_reach_m=0.500, payload_kg=3.0, dashboard_model="UR3",
+        shoulder_height_m=0.15185, max_tool_reach_m=0.7318,
     ),
 }
 

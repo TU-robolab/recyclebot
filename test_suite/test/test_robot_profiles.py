@@ -43,8 +43,16 @@ def _load(path):
         return yaml.safe_load(f)
 
 
-def _distance(position):
-    return math.sqrt(sum(float(v) * float(v) for v in position))
+def _distance(position, shoulder_height_m=0.0):
+    """Distance from the shoulder joint, matching rec_bot_control.reach_distance.
+
+    The working envelope is centred on the shoulder, not on base_link. Measuring
+    from base_link rejects poses the arm can reach — see RobotProfile's docstring
+    for the measured evidence.
+    """
+    x, y, z = (float(v) for v in position)
+    dz = z - shoulder_height_m
+    return math.sqrt(x * x + y * y + dz * dz)
 
 
 ALL_ARMS = sorted(PROFILES)
@@ -94,9 +102,9 @@ def test_configured_poses_within_reach(ur_type):
     assert poses, f"{ur_type} sorting_sequence.yaml defines no poses at all"
 
     over = [
-        (name, _distance(pos))
+        (name, _distance(pos, prof.shoulder_height_m))
         for name, pos in poses
-        if _distance(pos) > prof.planning_reach_m
+        if _distance(pos, prof.shoulder_height_m) > prof.planning_reach_m
     ]
     assert not over, (
         f"{ur_type} pose(s) outside the {prof.planning_reach_m:.3f} m planning "
@@ -548,6 +556,104 @@ def test_forward_kinematics_chain_resolves(ur_type):
         assert link in frames, f"{ur_type}: FK chain is missing {link}"
 
 
+def test_reach_envelope_matches_urdf():
+    """The stored envelope constants must still match the arms' actual geometry.
+
+    shoulder_height_m and max_tool_reach_m are hardcoded in PROFILES because
+    deriving them means sampling joint space, which is far too slow to do per
+    launch. That makes them capable of going stale — a regenerated URDF, a
+    different end effector, a new arm — so re-derive them here and fail if they
+    have drifted.
+
+    This matters because the constants are what the reach check enforces. A stale
+    max_tool_reach_m either rejects valid poses or waves through unreachable ones.
+    """
+    import random
+
+    from recycle_bot.kinematics import link_poses
+
+    names = (
+        "shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+        "wrist_1_joint", "wrist_2_joint", "wrist_3_joint",
+    )
+
+    for ur_type, prof in sorted(PROFILES.items()):
+        zero = link_poses({n: 0.0 for n in names}, ur_type=ur_type)
+        shoulder_z = zero["shoulder_link"][2]
+        assert abs(shoulder_z - prof.shoulder_height_m) < 1e-4, (
+            f"{ur_type}: shoulder_height_m is {prof.shoulder_height_m}, but the "
+            f"URDF puts the shoulder at {shoulder_z:.5f}"
+        )
+
+        # Seeded so a failure is reproducible rather than intermittent.
+        rng = random.Random(0)
+        furthest = 0.0
+        for _ in range(4000):
+            q = {n: rng.uniform(-math.pi, math.pi) for n in names}
+            tool = link_poses(q, ur_type=ur_type)["tool0"]
+            furthest = max(furthest, _distance(tool, shoulder_z))
+
+        # Sampling under-estimates the true maximum, so the stored constant
+        # should be at least what we found and not wildly beyond it.
+        assert furthest <= prof.max_tool_reach_m + 1e-3, (
+            f"{ur_type}: sampling reached {furthest:.4f} m, beyond the stored "
+            f"max_tool_reach_m of {prof.max_tool_reach_m} — the constant is stale "
+            f"and the reach check will reject valid poses"
+        )
+        assert furthest > prof.max_tool_reach_m * 0.95, (
+            f"{ur_type}: stored max_tool_reach_m {prof.max_tool_reach_m} is much "
+            f"larger than the sampled {furthest:.4f} m — the check is too "
+            f"permissive and will wave through unreachable poses"
+        )
+
+
+def test_reach_check_still_catches_a_cross_arm_pose():
+    """The looser envelope must not stop catching the failure it exists for.
+
+    Widening the envelope (datasheet reach -> real tool reach, base -> shoulder)
+    risks making the guard useless. Assert the original hazard still trips it:
+    the UR16e's own poses, evaluated against the UR3e.
+    """
+    if not {"ur16e", "ur3e"} <= set(PROFILES):
+        pytest.skip("needs both arms configured")
+
+    ur16e_poses = _load(
+        os.path.join(_robot_config_dir("ur16e"), "sorting_sequence.yaml")
+    )
+    ur3e = PROFILES["ur3e"]
+
+    checked = []
+    if ur16e_poses.get("neutral_pose"):
+        checked.append(("neutral_pose", ur16e_poses["neutral_pose"]["position"]))
+    for name, data in (ur16e_poses.get("bins") or {}).items():
+        checked.append((f"bins.{name}", data["position"]))
+
+    assert checked, "ur16e config defines no poses to cross-check"
+
+    # The property that matters is that the CONFIG is rejected, not that every
+    # individual pose is. validate_configured_poses raises if any pose offends,
+    # so one is enough to block startup.
+    #
+    # Not every UR16e pose has to fail: bins.hdpe at [0.436, -0.055, 0.576] sits
+    # 0.611 m from the UR3e's shoulder, inside its 0.732 m tool envelope, so it
+    # may well be reachable. A pose from another cell that happens to land in
+    # range is not a reach error — it is simply in the wrong place, which is a
+    # different problem and not one a reach check can see.
+    offenders = [
+        name for name, pos in checked
+        if _distance(pos, ur3e.shoulder_height_m) > ur3e.planning_reach_m
+    ]
+    assert offenders, (
+        "no UR16e pose trips the UR3e reach check — the envelope has been "
+        "widened so far that a cross-arm config would start up cleanly"
+    )
+    # And it should be the clear majority, or the guard is barely working.
+    assert len(offenders) >= len(checked) // 2, (
+        f"only {len(offenders)} of {len(checked)} UR16e poses trip the UR3e "
+        f"check; expected most of them"
+    )
+
+
 def test_profiles_are_ordered_by_reach():
     """Sanity check on the profile table itself.
 
@@ -555,8 +661,9 @@ def test_profiles_are_ordered_by_reach():
     defeating every reach check above.
     """
     assert PROFILES["ur3e"].max_reach_m < PROFILES["ur16e"].max_reach_m
+    assert PROFILES["ur3e"].max_tool_reach_m < PROFILES["ur16e"].max_tool_reach_m
     assert PROFILES["ur3e"].payload_kg < PROFILES["ur16e"].payload_kg
     for ur_type, prof in PROFILES.items():
         assert isinstance(prof, RobotProfile)
         assert 0.0 < prof.reach_derate <= 1.0, f"{ur_type} derate out of range"
-        assert prof.planning_reach_m < prof.max_reach_m
+        assert prof.planning_reach_m < prof.max_tool_reach_m
