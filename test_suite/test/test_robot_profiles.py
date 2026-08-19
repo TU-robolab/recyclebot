@@ -746,6 +746,44 @@ def test_dead_zone_is_between_the_measured_bounds():
     )
 
 
+def test_cartesian_limits_scale_with_arm_size():
+    """A smaller arm must not carry a larger arm's Pilz Cartesian limits.
+
+    Pilz LIN plans a straight Cartesian line, runs IK along it, and rejects the
+    whole plan if any joint exceeds its limits. The joint acceleration a given
+    tool acceleration demands scales with the Jacobian — on a shorter arm the
+    same tool motion sweeps a proportionally larger joint angle.
+
+    Copying the UR16e's values to the UR3e broke the Step 3 pick descent on the
+    first simulated run (elbow wanted 6.73 rad/s^2 against a 6.28 limit), so
+    assert the smaller arm's translational limits really are smaller.
+    """
+    import yaml as _yaml
+
+    limits = {}
+    for ur_type in ALL_ARMS:
+        path = os.path.join(_moveit_config_dir(ur_type), "pilz_cartesian_limits.yaml")
+        with open(path) as f:
+            limits[ur_type] = _yaml.safe_load(f)["cartesian_limits"]
+
+    if not {"ur16e", "ur3e"} <= set(limits):
+        pytest.skip("needs both arms configured")
+
+    small, large = limits["ur3e"], limits["ur16e"]
+    for key in ("max_trans_vel", "max_trans_acc"):
+        assert small[key] < large[key], (
+            f"ur3e {key} ({small[key]}) is not below ur16e's ({large[key]}). "
+            "The UR3e reaches 0.5 m against the UR16e's 0.9 m; identical "
+            "Cartesian limits demand far more joint acceleration on the smaller "
+            "arm and make Pilz LIN reject valid short moves."
+        )
+    # deceleration is negative, so a gentler limit is the LARGER value
+    assert small["max_trans_dec"] > large["max_trans_dec"], (
+        f"ur3e max_trans_dec ({small['max_trans_dec']}) should be gentler "
+        f"(less negative) than ur16e's ({large['max_trans_dec']})"
+    )
+
+
 def test_profiles_are_ordered_by_reach():
     """Sanity check on the profile table itself.
 

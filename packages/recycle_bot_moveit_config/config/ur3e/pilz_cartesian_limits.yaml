@@ -1,6 +1,43 @@
-# Limits for the Pilz planner
+# Limits for the Pilz planner — UR3e.
+#
+# Scaled down from the UR16e's values (which are upstream's defaults) by the
+# reach ratio 0.500 / 0.900 = 0.556.
+#
+# WHY THIS IS PER-ARM, not shared:
+#
+# Pilz LIN plans a straight line in Cartesian space, then runs IK along it and
+# rejects the whole plan if any joint exceeds its velocity or acceleration
+# limit. How much joint acceleration a given Cartesian acceleration demands
+# depends on the Jacobian — and on a shorter arm, the same tool motion sweeps a
+# proportionally larger joint angle. Identical Cartesian limits therefore ask
+# much more of a UR3e's joints than a UR16e's.
+#
+# This was not theoretical. With the UR16e values copied verbatim, the Step 3
+# pick descent failed on the first simulated run:
+#
+#   Joint acceleration limit of elbow_joint violated. Actual joint acceleration
+#   is -6.73016, while the limit is 6.28318.
+#
+# That was a 50 mm vertical descent, already at 0.5 velocity/acceleration
+# scaling, at a pick 0.289 m from the shoulder — a folded configuration where
+# the Jacobian amplifies. 1.1 m/s^2 of tool acceleration demanded 6.7 rad/s^2 at
+# the elbow.
+#
+# Scaling max_trans_acc by 0.556 puts the same move at roughly
+# 6.73 * (1.25 / 2.25) = 3.7 rad/s^2, a comfortable margin under the limit.
+#
+# The alternative fix — raising the joint acceleration limit in
+# config/ur3e/joint_limits.yaml — was rejected: that limit is an invented
+# conservative value (UR publishes no acceleration figures), and raising an
+# invented number until a specific plan passes is not a reason, it is a
+# coincidence. Lowering the Cartesian dynamics to suit a smaller arm is the
+# physical explanation.
+#
+# max_rot_vel is left alone. It is a rotational limit and does not couple to
+# link length the way translation does; the UR3e's wrists are in fact faster
+# than the UR16e's.
 cartesian_limits:
-  max_trans_vel: 1.0
-  max_trans_acc: 2.25
-  max_trans_dec: -5.0
+  max_trans_vel: 0.55
+  max_trans_acc: 1.25
+  max_trans_dec: -2.75
   max_rot_vel: 1.57
