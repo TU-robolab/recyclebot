@@ -493,6 +493,61 @@ def test_arms_get_distinct_joint_limits():
     )
 
 
+def test_forward_kinematics_matches_the_real_robot():
+    """FK from the URDF must agree with what the controller actually reported.
+
+    Frozen from a live UR3e reading on 2026-08-18 while measuring the cell. The
+    controller's PolyScope TCP is zero, so its reported pose is the flange; this
+    asserts our URDF-derived flange lands in the same place.
+
+    Guards the 150 mm trap: if the flange/tool0 chain in the URDF were altered —
+    the E-Pick offset dropped by a URDF regeneration, say — this catches it
+    against real hardware rather than against another copy of the same URDF.
+    """
+    import math
+
+    from recycle_bot.kinematics import link_poses
+
+    joints = {
+        "shoulder_pan_joint": -2.18478,
+        "shoulder_lift_joint": -0.86409,
+        "elbow_joint": -1.68174,
+        "wrist_1_joint": -2.19123,
+        "wrist_2_joint": -1.57698,
+        "wrist_3_joint": +0.00326,
+    }
+    # Controller-reported TCP (== flange, TCP offset zero), converted from the
+    # UR "base" frame to base_link by negating x and y.
+    reported_flange = (0.16646, 0.01297, 0.54795)
+
+    frames = link_poses(joints, ur_type="ur3e")
+
+    flange_error_mm = math.dist(frames["flange"], reported_flange) * 1000.0
+    assert flange_error_mm < 15.0, (
+        f"URDF flange is {flange_error_mm:.1f} mm from what the robot reported; "
+        "expected a few mm of nominal-vs-calibrated kinematics error only"
+    )
+
+    # tool0 must sit exactly the E-Pick offset beyond the flange.
+    offset_mm = math.dist(frames["flange"], frames["tool0"]) * 1000.0
+    assert abs(offset_mm - 150.0) < 1.0, (
+        f"flange->tool0 is {offset_mm:.1f} mm, expected 150 mm (E-Pick TCP offset)"
+    )
+
+
+@pytest.mark.parametrize("ur_type", ALL_ARMS)
+def test_forward_kinematics_chain_resolves(ur_type):
+    """Every arm's URDF must expose a base_link -> tool0 chain FK can walk."""
+    from recycle_bot.kinematics import link_poses
+
+    zero = {name: 0.0 for name in (
+        "shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+        "wrist_1_joint", "wrist_2_joint", "wrist_3_joint")}
+    frames = link_poses(zero, ur_type=ur_type)
+    for link in ("shoulder_link", "forearm_link", "wrist_3_link", "flange", "tool0"):
+        assert link in frames, f"{ur_type}: FK chain is missing {link}"
+
+
 def test_profiles_are_ordered_by_reach():
     """Sanity check on the profile table itself.
 
