@@ -698,6 +698,54 @@ def test_reach_check_still_catches_a_cross_arm_pose():
     )
 
 
+@pytest.mark.parametrize("ur_type", ALL_ARMS)
+def test_poses_outside_the_inner_dead_zone(ur_type):
+    """No configured pose may sit inside the arm's inner dead zone.
+
+    A UR arm cannot reach straight down close to its own base. The outer reach
+    check cannot catch this: a pose in the dead zone is CLOSE to the shoulder, so
+    it passes every distance test while being unreachable. A bin taught there
+    would pass startup validation and then fail on every single place.
+    """
+    data = _load(os.path.join(_robot_config_dir(ur_type), "sorting_sequence.yaml"))
+    inner = float(data.get("min_reach_radius_m", 0.0))
+    if inner <= 0.0:
+        pytest.skip(f"{ur_type} has no dead-zone radius configured")
+
+    checked = []
+    if data.get("neutral_pose"):
+        checked.append(("neutral_pose", data["neutral_pose"]["position"]))
+    for name, b in (data.get("bins") or {}).items():
+        checked.append((f"bins.{name}", b["position"]))
+
+    inside = [
+        (n, math.hypot(float(p[0]), float(p[1])))
+        for n, p in checked
+        if math.hypot(float(p[0]), float(p[1])) < inner
+    ]
+    assert not inside, (
+        f"{ur_type} pose(s) inside the {inner:.3f} m dead zone: "
+        + ", ".join(f"{n} at r={r:.3f} m" for n, r in inside)
+    )
+
+
+def test_dead_zone_is_between_the_measured_bounds():
+    """The UR3e dead-zone radius must stay inside its empirical bracket.
+
+    It is not derivable — forward kinematics alone says 0.066 m, ignoring
+    self-collision and the table. It was measured by jogging: r = 0.167 m could
+    not be reached at table height, r = 0.226 m could. A value outside that
+    bracket is either discarding reachable objects or letting through
+    unreachable ones.
+    """
+    data = _load(os.path.join(_robot_config_dir("ur3e"), "sorting_sequence.yaml"))
+    inner = float(data.get("min_reach_radius_m", 0.0))
+    assert 0.167 <= inner <= 0.226, (
+        f"ur3e min_reach_radius_m is {inner}, outside the measured bracket "
+        "[0.167, 0.226]. Re-measure before moving it out of that range."
+    )
+
+
 def test_profiles_are_ordered_by_reach():
     """Sanity check on the profile table itself.
 

@@ -504,6 +504,9 @@ class cobot_control(Node):
                 for value in data.get("place_yaw_candidates_deg", [0.0, 90.0, -90.0, 180.0])
             ]
             self.pick_z_offset_m = float(data.get("pick_z_offset_m", 0.0))
+            # Inner dead zone: UR arms cannot fold tightly enough to reach
+            # straight down close to their own base. 0.0 disables the check.
+            self.min_reach_radius_m = float(data.get("min_reach_radius_m", 0.0))
             self.grasp_retry_extra_depth_m = float(data.get("grasp_retry_extra_depth_m", 0.01))
             size = data.get("grasped_object_size", [0.05, 0.05, 0.05])
             self.grasped_object_size = [float(size[0]), float(size[1]), float(size[2])]
@@ -559,6 +562,7 @@ class cobot_control(Node):
             self.place_transit_height_m = 0.10
             self.place_yaw_candidates_deg = [0.0, 90.0, -90.0, 180.0]
             self.pick_z_offset_m = 0.0
+            self.min_reach_radius_m = 0.0
             self.grasp_retry_extra_depth_m = 0.01
             self.grasped_object_size = [0.05, 0.05, 0.05]
             self._load_orientation_constraint(None)
@@ -586,8 +590,31 @@ class cobot_control(Node):
         dz = p.z - self.profile.shoulder_height_m
         return math.sqrt(p.x * p.x + p.y * p.y + dz * dz)
 
+    def reach_radius(self, pose: PoseStamped) -> float:
+        """Horizontal distance from the base axis, in meters."""
+        p = pose.pose.position
+        return math.sqrt(p.x * p.x + p.y * p.y)
+
     def within_reach(self, pose: PoseStamped) -> bool:
-        return self.reach_distance(pose) <= self.profile.planning_reach_m
+        """Both the outer envelope and the inner dead zone.
+
+        The outer check alone is not enough. A UR arm cannot fold tightly enough
+        to reach straight down near its own base, so there is a cylindrical dead
+        zone around the base axis that a sphere check cannot express — a pose
+        there is close to the shoulder, and so passes an outer-radius test, while
+        being entirely unreachable.
+
+        This is not academic on this cell: the camera sits 0.167 m from the base
+        axis, so the middle of its field of view lands inside the dead zone.
+        Without this, every object under the camera is detected, queued, and then
+        fails during planning.
+        """
+        if self.reach_distance(pose) > self.profile.planning_reach_m:
+            return False
+        if self.min_reach_radius_m > 0.0:
+            if self.reach_radius(pose) < self.min_reach_radius_m:
+                return False
+        return True
 
     def validate_configured_poses(self):
         """Check every configured pose against the arm's reach envelope.
@@ -600,10 +627,17 @@ class cobot_control(Node):
         limit = self.profile.planning_reach_m
         offenders = []
 
+        inner = self.min_reach_radius_m
+
         if self.neutral_pose is not None:
             d = self.reach_distance(self.neutral_pose)
             if d > limit:
                 offenders.append(("neutral_pose", d))
+            elif inner > 0.0 and self.reach_radius(self.neutral_pose) < inner:
+                offenders.append(
+                    ("neutral_pose (inside dead zone)",
+                     self.reach_radius(self.neutral_pose))
+                )
 
         for bin_name, bin_data in (self.bins or {}).items():
             try:
@@ -616,6 +650,10 @@ class cobot_control(Node):
             d = self.reach_distance(pose)
             if d > limit:
                 offenders.append((f"bins.{bin_name}", d))
+            elif inner > 0.0 and self.reach_radius(pose) < inner:
+                offenders.append(
+                    (f"bins.{bin_name} (inside dead zone)", self.reach_radius(pose))
+                )
 
         if not offenders:
             self.get_logger().info(
@@ -734,11 +772,21 @@ class cobot_control(Node):
             # the annulus between "close enough to detect" and "close enough to
             # pick".
             if not self.within_reach(transformed_pose):
-                self.get_logger().warn(
-                    f"Detection '{label}' at {self.reach_distance(transformed_pose):.3f} m "
-                    f"is outside the {self.ur_type}'s {self.profile.planning_reach_m:.3f} m "
-                    "reach envelope; skipping"
-                )
+                radius = self.reach_radius(transformed_pose)
+                if (self.min_reach_radius_m > 0.0
+                        and radius < self.min_reach_radius_m):
+                    self.get_logger().warn(
+                        f"Detection '{label}' at {radius:.3f} m from the base axis "
+                        f"is inside the {self.min_reach_radius_m:.3f} m dead zone "
+                        "the arm cannot reach into; skipping"
+                    )
+                else:
+                    self.get_logger().warn(
+                        f"Detection '{label}' at "
+                        f"{self.reach_distance(transformed_pose):.3f} m is outside the "
+                        f"{self.ur_type}'s {self.profile.planning_reach_m:.3f} m "
+                        "reach envelope; skipping"
+                    )
                 return
 
             # choose the target bin from the detected material label

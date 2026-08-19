@@ -162,6 +162,28 @@ place_transit_height_m: 0.05  # optional higher Step 7 fallback height; keep equ
 place_yaw_candidates_deg: [90.0, -90.0, 180.0, 0.0]  # Step 7/8 may rotate wrist yaw while keeping the tool vertical, avoiding unreachable exact-quaternion place goals
 grasped_object_size: [0.05, 0.05, 0.05]  # meters (box attached to tool for planning)
 
+# Inner dead-zone radius (meters), measured horizontally from the base axis.
+# 0.0 disables the check.
+#
+# A UR arm cannot fold tightly enough to reach straight down close to its own
+# base, so there is a cylinder around the base axis it simply cannot service.
+# An outer-radius check cannot express this: a pose in the dead zone is CLOSE to
+# the shoulder, so it passes every distance test while being unreachable.
+#
+# This matters on this cell specifically. The camera sits only 0.167 m from the
+# base axis, so the centre of its field of view — where objects naturally sit —
+# falls inside the dead zone. Without this check those objects are detected,
+# routed, queued, and only then fail during planning.
+#
+# EMPIRICAL, not derived. Pure forward kinematics says the UR3e can get to
+# 0.066 m, but that ignores self-collision and the table; the real limit was
+# found by jogging. Two measurements bracket it at table height:
+#     r = 0.167 m   could NOT be reached (the point under the camera)
+#     r = 0.226 m   reached comfortably
+# 0.20 sits between them. Raise it if tasks still fail during planning near the
+# base; lower it if pickable objects are being skipped.
+min_reach_radius_m: 0.20
+
 # small vertical clearance added to the detected pick height (meters).
 # Still 0, carried over from the UR16e cell. Retune against this cell's own depth
 # error once the camera ROTATION is verified — until then the projected pick

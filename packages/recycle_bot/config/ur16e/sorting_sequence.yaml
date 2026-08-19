@@ -74,6 +74,13 @@ default_bin: general_waste
 sorting_sequence:
   - target_bin_1: { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
 
+# Inner dead-zone radius (meters) from the base axis; 0.0 disables the check.
+# Left disabled: the UR16e has a dead zone like any UR arm, but its camera sits
+# far enough out that the field of view never covered it, so no bound has ever
+# been measured on this cell. Measure before enabling — an invented value would
+# silently discard pickable objects.
+min_reach_radius_m: 0.0
+
 approach_height_m: 0.05  # meters above pick/place for approach/retreat
 place_transit_height_m: 0.05  # optional higher Step 7 fallback height; keep equal to approach height unless a taller above-bin waypoint is known to be reachable
 place_yaw_candidates_deg: [90.0, -90.0, 180.0, 0.0]  # Step 7/8 may rotate wrist yaw while keeping the tool vertical, avoiding unreachable exact-quaternion place goals. 90 deg first: yaw=0 is consistently unreachable for the place pose, so trying it first wasted two planning attempts.
