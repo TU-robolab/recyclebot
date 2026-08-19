@@ -543,6 +543,50 @@ def test_forward_kinematics_matches_the_real_robot():
     )
 
 
+def test_tool_offset_verified_against_a_physical_surface():
+    """The 150 mm E-Pick offset must be the RIGHT value, not merely present.
+
+    test_gripper_tool_offset_present only checks the URDF says 150 mm, and
+    test_forward_kinematics_matches_the_real_robot only checks the flange. Both
+    would still pass if 150 mm were simply the wrong number for the gripper
+    actually bolted on.
+
+    This closes that gap with a measurement taken on 2026-08-18 with the E-Pick
+    mounted and its cup tip resting on the table: FK must put tool0 on the table
+    surface, whose height was measured independently by touching it with the bare
+    flange.
+
+    If the end effector is changed without updating the URDF, this fails.
+    """
+    from recycle_bot.kinematics import link_poses
+
+    joints = {
+        "shoulder_pan_joint": -1.76011,
+        "shoulder_lift_joint": -2.21096,
+        "elbow_joint": -1.41399,
+        "wrist_1_joint": +5.17531,
+        "wrist_2_joint": +1.58632,
+        "wrist_3_joint": +1.01959,
+    }
+    TABLE_TOP_Z = 0.00196  # measured with the bare flange, base_link frame
+
+    tool0 = link_poses(joints, ur_type="ur3e")["tool0"]
+    error_mm = abs(tool0[2] - TABLE_TOP_Z) * 1000.0
+    assert error_mm < 10.0, (
+        f"with the cup tip resting on the table, FK puts tool0 at z={tool0[2]:.5f}, "
+        f"{error_mm:.1f} mm from the measured table top {TABLE_TOP_Z}. The "
+        f"flange->tool0 offset in the URDF does not match the fitted gripper."
+    )
+
+    # The cup must point down in this pose; a sign error would put tool0 300 mm
+    # off while leaving the magnitude correct.
+    flange = link_poses(joints, ur_type="ur3e")["flange"]
+    assert tool0[2] < flange[2], (
+        "tool0 is above the flange in a tool-down pose — the offset direction is "
+        "inverted"
+    )
+
+
 @pytest.mark.parametrize("ur_type", ALL_ARMS)
 def test_forward_kinematics_chain_resolves(ur_type):
     """Every arm's URDF must expose a base_link -> tool0 chain FK can walk."""
