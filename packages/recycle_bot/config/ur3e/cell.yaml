@@ -49,8 +49,8 @@ table:
 # Runs from the table top (0.002) to the measured top (0.602): height 0.600,
 # centre z = 0.302.
 #
-# ASSUMED VERTICAL. Both touches were on different faces, so they cannot detect
-# a lean. If the post is visibly tilted this box is wrong along its length.
+# Confirmed vertical by inspection (the two touches were on different faces and
+# so could not have detected a lean themselves).
 #
 # This post is a real collision hazard, not a formality: it stands 0.60 m tall
 # only 0.235 m from the base axis, well inside the arm's reachable envelope.
@@ -82,17 +82,19 @@ camera_stand:
 #
 #   camera_link z = 0.55995,  offset +0.045  ->  box centre 0.60495
 #   size z 0.12               ->  spans 0.545 .. 0.665   [OK]
+#
+# The box is also stretched in -Y to swallow the support arm running back to the
+# post, rather than modelling that arm separately. Deliberately coarse: the whole
+# volume between the post and the camera is somewhere the arm must never go, so
+# enclosing it as one solid block loses nothing and needs no measurement.
+#
+#   y: centre 0.01297 - 0.0555 = -0.0425, size 0.235  ->  spans -0.160 .. +0.075
+#      reaching the post centre (-0.158) at one end and past the camera's +Y
+#      face (0.065) at the other.
+#   x: spans 0.102 .. 0.232, which covers the post's 0.152 .. 0.192 footprint.
 camera:
-  size: [0.13, 0.12, 0.12]
-  offset: [0.0, 0.0, 0.045]
+  size: [0.13, 0.235, 0.12]
+  offset: [0.0, -0.0555, 0.045]
 
-# TODO(ur3e-cell): the camera support arm is NOT modelled.
-#
-# The post centre is at y = -0.158 and the camera at y = +0.013, so roughly
-# 0.17 m of horizontal arm spans between them at around z = 0.55-0.60. That bar
-# sits directly over the workspace and is invisible to MoveIt, which will plan
-# straight through it.
-#
-# Modelling it needs an extra box, which the current schema does not support —
-# rec_bot_control reads exactly the three keys above. Either extend the schema to
-# take a list of additional boxes, or grow the camera box to swallow the arm.
+# The camera support arm is covered by the stretched camera box above rather than
+# modelled on its own, which is why the schema still needs only three boxes.
