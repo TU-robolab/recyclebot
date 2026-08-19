@@ -991,7 +991,15 @@ class cobot_control(Node):
         return False
 
     def _build_place_pose_candidates(self, place_pose: PoseStamped, height_offsets: list[float]) -> list[PoseStamped]:
-        """Build tool-down place candidates across a small yaw and height grid."""
+        """Build tool-down place candidates across a small yaw and height grid.
+
+        The bin's OWN configured orientation is tried first, before any
+        synthesised yaw. That orientation was taught by jogging the arm to the
+        bin, so it is known to be reachable at this exact position; a synthesised
+        yaw is only a guess that happens to keep the tool pointing down. Trying
+        the guesses first means the one orientation with evidence behind it may
+        never be attempted at all.
+        """
         candidates = []
         seen = set()
 
@@ -999,6 +1007,22 @@ class cobot_control(Node):
             candidate = self.offset_pose_z(place_pose, dz)
             if candidate is None:
                 continue
+
+            # The configured orientation first — see the docstring.
+            taught = self._copy_pose_with_orientation(
+                candidate, place_pose.pose.orientation
+            )
+            if taught is not None:
+                key = (
+                    round(taught.pose.position.z, 4),
+                    round(taught.pose.orientation.x, 4),
+                    round(taught.pose.orientation.y, 4),
+                    round(taught.pose.orientation.z, 4),
+                    round(taught.pose.orientation.w, 4),
+                )
+                if key not in seen:
+                    seen.add(key)
+                    candidates.append(taught)
 
             for yaw_deg in self.place_yaw_candidates_deg:
                 qx, qy, qz, qw = quaternion_from_euler(math.pi, 0.0, math.radians(yaw_deg))
@@ -1026,28 +1050,6 @@ class cobot_control(Node):
                 candidates.append(candidate_yaw)
 
         return candidates
-
-    def _move_to_any_place_candidate(
-        self,
-        place_pose: PoseStamped,
-        height_offsets: list[float],
-        planners: list[tuple[str, int]],
-    ) -> PoseStamped | None:
-        """Try reachable tool-down place candidates and return the first success."""
-        for candidate in self._build_place_pose_candidates(place_pose, height_offsets):
-            p = candidate.pose.position
-            o = candidate.pose.orientation
-            self.get_logger().info(
-                "Trying place candidate: "
-                f"z={p.z:.3f}, quat=({o.x:.3f},{o.y:.3f},{o.z:.3f},{o.w:.3f})"
-            )
-            if self._plan_with_planner_fallbacks(
-                lambda planner: lambda: self.move_to_pose(candidate, planner=planner),
-                planners,
-            ):
-                return candidate
-
-        return None
 
     def _copy_pose_with_orientation(self, pose: PoseStamped, orientation: Quaternion) -> PoseStamped | None:
         """Copy a pose while replacing only its orientation."""
@@ -1338,41 +1340,81 @@ class cobot_control(Node):
         if self.place_transit_height_m > self.approach_height_m:
             height_offsets.append(self.place_transit_height_m)
 
-        selected_pre_place = self._move_to_any_place_candidate(
-            place_pose,
-            height_offsets,
-            [("ompl_rrtc", 1), ("ompl_prmstar", 1)],
-        )
-        if selected_pre_place is None:
-            self.get_logger().error("Failed to reach pre-place pose, releasing and returning to neutral")
-            self._abort_task(release_object=True, move_to_neutral=True)
-            return
+        # A candidate is only usable if BOTH the approach and the descent work.
+        #
+        # Previously the candidate was chosen by whether Step 7 alone succeeded,
+        # then Step 8 was committed to that choice with no way back. Those two
+        # steps are planned very differently: the approach uses OMPL, which is
+        # sampling-based and forgiving, while the descent uses Pilz LIN, which
+        # follows an exact Cartesian line and rejects the plan outright if IK
+        # along it crosses a singularity. Succeeding at the approach therefore
+        # says almost nothing about the descent, and a single bad descent aborted
+        # the whole task while other candidates were still untried.
+        #
+        # Observed on the UR3e cell: the first candidate reached pre-place
+        # cleanly, then the descent demanded 62.9 rad/s at shoulder_lift against a
+        # 3.14 limit — a 20x overshoot, the signature of an IK branch flip rather
+        # than anything a limit could absorb. The remaining candidates were never
+        # attempted.
+        selected_place_pose = None
+        candidates = self._build_place_pose_candidates(place_pose, height_offsets)
+        for index, candidate in enumerate(candidates, start=1):
+            p_c = candidate.pose.position
+            o_c = candidate.pose.orientation
+            self.get_logger().info(
+                f"Trying place candidate {index}/{len(candidates)}: "
+                f"z={p_c.z:.3f}, quat=({o_c.x:.3f},{o_c.y:.3f},{o_c.z:.3f},{o_c.w:.3f})"
+            )
 
-        selected_pre_place_pose = self._copy_pose_with_orientation(
-            self.offset_pose_z(place_pose, self.approach_height_m),
-            selected_pre_place.pose.orientation,
-        )
-        selected_place_pose = self._copy_pose_with_orientation(
-            place_pose,
-            selected_pre_place.pose.orientation,
-        )
-        if selected_pre_place_pose is None or selected_place_pose is None:
-            self.get_logger().error("Failed to derive selected place poses from the successful Step 7 candidate")
-            self._abort_task(release_object=True, move_to_neutral=True)
-            return
+            if not self._plan_with_planner_fallbacks(
+                lambda planner, c=candidate: lambda: self.move_to_pose(c, planner=planner),
+                [("ompl_rrtc", 1), ("ompl_prmstar", 1)],
+            ):
+                self.get_logger().warn(
+                    f"Candidate {index}: approach unreachable; trying the next"
+                )
+                continue
 
-        if (
-            abs(selected_pre_place.pose.position.z - selected_pre_place_pose.pose.position.z) > 1e-6
-            and not self.move_to_pose(selected_pre_place_pose, planner="pilz_lin")
-        ):
-            self.get_logger().error("Failed to lower from the selected transit height to the true pre-place height")
-            self._abort_task(release_object=True, move_to_neutral=True)
-            return
+            pre_place_at_height = self._copy_pose_with_orientation(
+                self.offset_pose_z(place_pose, self.approach_height_m),
+                candidate.pose.orientation,
+            )
+            place_at_candidate = self._copy_pose_with_orientation(
+                place_pose, candidate.pose.orientation
+            )
+            if pre_place_at_height is None or place_at_candidate is None:
+                self.get_logger().warn(
+                    f"Candidate {index}: could not derive place poses; trying the next"
+                )
+                continue
 
-        # 8. move to place
-        self.get_logger().info("\033[94m Step 8/10: Moving to place pose (LIN)\033[0m")
-        if not self.move_to_pose(selected_place_pose, planner="pilz_lin"):
-            self.get_logger().error("Failed to reach place pose, releasing and returning to neutral")
+            # Descend from a taller transit height to the real approach height.
+            if (
+                abs(candidate.pose.position.z - pre_place_at_height.pose.position.z) > 1e-6
+                and not self.move_to_pose(pre_place_at_height, planner="pilz_lin")
+            ):
+                self.get_logger().warn(
+                    f"Candidate {index}: could not lower to the pre-place height; "
+                    "trying the next"
+                )
+                continue
+
+            # 8. move to place — the strict test, and the reason the loop exists
+            self.get_logger().info("\033[94m Step 8/10: Moving to place pose (LIN)\033[0m")
+            if self.move_to_pose(place_at_candidate, planner="pilz_lin"):
+                selected_place_pose = place_at_candidate
+                break
+
+            self.get_logger().warn(
+                f"Candidate {index}: approach succeeded but the LIN descent failed; "
+                "trying the next candidate"
+            )
+
+        if selected_place_pose is None:
+            self.get_logger().error(
+                f"No place candidate completed both approach and descent "
+                f"({len(candidates)} tried), releasing and returning to neutral"
+            )
             self._abort_task(release_object=True, move_to_neutral=True)
             return
 
