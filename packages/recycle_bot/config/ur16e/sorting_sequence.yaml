@@ -46,26 +46,40 @@ under_camera_pose:
 # UR "base" frame (see note at the top of this file)
 bins:
   general_waste: { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
-  hdpe:          { position: [0.436, -0.055, 0.576], orientation: [0.707, 0.707, 0, 0] }
-  pet:           { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
-  pp:            { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
-  pp_ps:         { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
-  tetra:         { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
+  gelber_sack:          { position: [0.436, -0.055, 0.576], orientation: [0.707, 0.707, 0, 0] }
+  glas_papier:         { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }
 # TODO: replace the placeholder coordinates above with each bin's measured pose
 
 # label-to-bin routing: maps a detected YOLO class label (from model.names) to a
 # bin name defined under 'bins' above. Any label not listed here falls through
 # to 'default_bin'.
+#
+# Rewritten for Minimuell.pt (9 classes). The previous routing was written for
+# RecycleBotDIS3Obj_full.pt and shared none of these labels — under it, 7 of the
+# 9 new classes fell silently through to general_waste.
+#
+# Grouped by German kerbside separation: the Gelber Sack takes plastics and metal
+# packaging together, glass and paper are collected separately, and anything
+# unrecognised is residual waste.
+#
+# LABELS ARE COPIED VERBATIM FROM model.names AND ARE NOT CONSISTENTLY SPELLED.
+# Note that 'non-food_bottle_pet' uses a HYPHEN while 'non_food_can_metal' and
+# 'non_food_packet_PE' use UNDERSCORES, and that PE is uppercase. Matching is
+# exact string comparison, so 'correcting' any of these to a consistent style
+# silently sends that class to default_bin with no error.
 bin_routing:
-  food_bottle_hdpe: hdpe
-  non-food_bottle_hdpe: hdpe
-  food_jar_pet: pet
-  non-food_bottle_pet: pet
-  non-food_jar_pet: pet
-  food_jar_pp: pp
-  food_packet_pp: pp
-  food_lid_pp-ps: pp_ps
-  food_tetra: tetra
+  # --- Gelber Sack: plastics ---
+  food_bottle_pet: gelber_sack
+  non-food_bottle_pet: gelber_sack
+  food_packet_pp: gelber_sack
+  food_packet_ps: gelber_sack
+  non_food_packet_PE: gelber_sack
+  # --- Gelber Sack: metal packaging ---
+  food_can_metal: gelber_sack
+  non_food_can_metal: gelber_sack
+  # --- glass and paper ---
+  food_jar_glass: glas_papier
+  food_packet_cardboard: glas_papier
 
 # bin used for any detected label without a bin_routing entry
 default_bin: general_waste

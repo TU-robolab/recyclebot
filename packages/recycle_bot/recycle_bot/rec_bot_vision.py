@@ -35,10 +35,21 @@ class VisionDetector(Node):
         
 
         # initialize yolo model  (model in pkg_resources location)
+        # Active YOLO model. Alternatives sit alongside it in pkg_resources/:
+        #   Minimuell.pt                          9 classes (ACTIVE)
+        #   RecycleBotDIS3Obj_full.pt             3 classes
+        #   rb-lab-data-hannover-messe-v3-...pt   9 classes, but its labels are
+        #                                         misspelled "bootle"
+        #   DIS.pt                                1 class, box only
+        #
+        # pkg_resources is installed via data_files, NOT symlinked, so changing
+        # this line needs `colcon build --packages-select recycle_bot` to take
+        # effect. Class labels come from model.names, so a swap silently changes
+        # what bin_routing must map — see config/<ur_type>/sorting_sequence.yaml.
         tmp_model_path = os.path.join(
             get_package_share_directory("recycle_bot"),
             "pkg_resources",
-            "RecycleBotDIS3Obj_full.pt", #rb-lab-data-hannover-messe-v3-171025.pt, DIS.pt # The DIS is only the BOX
+            "Minimuell.pt",
         )
         self.model = YOLO(tmp_model_path)
 

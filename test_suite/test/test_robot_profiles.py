@@ -784,6 +784,149 @@ def test_cartesian_limits_scale_with_arm_size():
     )
 
 
+ACTIVE_MODEL = "Minimuell.pt"
+
+
+def _model_class_names(model_path):
+    """Class names from a YOLO .pt without importing torch or ultralytics.
+
+    A .pt is a zip holding a pickle. Reading the names out directly keeps this
+    test in the fast, dependency-free suite instead of requiring the full
+    inference stack just to compare a list of strings.
+    """
+    import struct
+    import zipfile
+
+    with zipfile.ZipFile(model_path) as z:
+        entry = [n for n in z.namelist() if n.endswith("data.pkl")]
+        if not entry:
+            return None
+        raw = z.read(entry[0])
+
+    start = raw.find(b"names")
+    if start < 0:
+        return None
+    window, found, i = raw[start:start + 900], [], 0
+    while i < len(window) - 5:
+        op = window[i]
+        if op == 0x58:  # BINUNICODE
+            (n,) = struct.unpack("<I", window[i + 1:i + 5])
+            if 0 < n < 64:
+                try:
+                    found.append(window[i + 5:i + 5 + n].decode())
+                    i += 5 + n
+                    continue
+                except UnicodeDecodeError:
+                    pass
+            i += 1
+        elif op == 0x8C:  # SHORT_BINUNICODE
+            n = window[i + 1]
+            try:
+                found.append(window[i + 2:i + 2 + n].decode())
+                i += 2 + n
+                continue
+            except UnicodeDecodeError:
+                i += 1
+        else:
+            i += 1
+
+    stop = {"end2end", "args", "task", "model", "yaml", "nc", "ch", "stride", "inplace"}
+    classes = []
+    for token in found:
+        if token == "names":
+            continue
+        if token in stop:
+            break
+        classes.append(token)
+    return classes or None
+
+
+@pytest.mark.parametrize("ur_type", ALL_ARMS)
+def test_every_model_class_is_routed(ur_type):
+    """Every class the active YOLO model can emit must have a bin_routing rule.
+
+    Labels come from model.names at load time, so swapping the model silently
+    changes what routing has to cover — with no error when they disagree. An
+    unrouted class does not fail; it falls through to default_bin, so mis-sorted
+    objects are the only symptom.
+
+    This bit for real: switching to Minimuell.pt left 7 of its 9 classes
+    unrouted, because the previous routing was written for a model that shared
+    none of the same labels.
+
+    Exact string matching also makes spelling load-bearing. Minimuell mixes
+    'non-food_bottle_pet' (hyphen) with 'non_food_can_metal' (underscore), and
+    an earlier model in this repo spells it 'bootle'. Comparing against the
+    model's own names is the only reliable check.
+    """
+    model = os.path.join(_share("recycle_bot"), "pkg_resources", ACTIVE_MODEL)
+    if not os.path.exists(model):
+        pytest.skip(f"{ACTIVE_MODEL} not installed at {model}")
+
+    classes = _model_class_names(model)
+    if not classes:
+        pytest.skip(f"could not read class names from {ACTIVE_MODEL}")
+
+    data = _load(os.path.join(_robot_config_dir(ur_type), "sorting_sequence.yaml"))
+    routing = data.get("bin_routing") or {}
+    unrouted = [c for c in classes if c not in routing]
+    assert not unrouted, (
+        f"{ur_type}: {len(unrouted)} of {len(classes)} classes in {ACTIVE_MODEL} "
+        f"have no bin_routing rule and would fall through to "
+        f"'{data.get('default_bin')}': {unrouted}"
+    )
+
+
+@pytest.mark.parametrize("ur_type", ALL_ARMS)
+def test_no_routing_rules_for_classes_the_model_cannot_emit(ur_type):
+    """bin_routing must not carry rules for labels the active model never emits.
+
+    Dead rules are not harmful at runtime, but they describe a model that is not
+    loaded — which is how a stale routing table survives a model swap unnoticed.
+    """
+    model = os.path.join(_share("recycle_bot"), "pkg_resources", ACTIVE_MODEL)
+    if not os.path.exists(model):
+        pytest.skip(f"{ACTIVE_MODEL} not installed")
+    classes = _model_class_names(model)
+    if not classes:
+        pytest.skip("could not read class names")
+
+    data = _load(os.path.join(_robot_config_dir(ur_type), "sorting_sequence.yaml"))
+    routing = data.get("bin_routing") or {}
+    dead = sorted(set(routing) - set(classes))
+    assert not dead, (
+        f"{ur_type}: bin_routing has {len(dead)} rule(s) for labels "
+        f"{ACTIVE_MODEL} cannot emit: {dead}"
+    )
+
+
+def test_active_model_matches_the_vision_node():
+    """ACTIVE_MODEL here must match the filename hardcoded in rec_bot_vision.
+
+    Without this, the routing tests above could happily validate against a model
+    the vision node does not load, and pass while production mis-sorts.
+
+    Locates the module via find_spec and reads it as TEXT rather than importing
+    it. Importing rec_bot_vision pulls in torch, cv2 and ultralytics, which would
+    drag the whole inference stack into a suite whose entire value is running in
+    milliseconds without it.
+    """
+    import importlib.util
+
+    spec = importlib.util.find_spec("recycle_bot.rec_bot_vision")
+    if spec is None or not spec.origin:
+        pytest.skip("cannot locate rec_bot_vision source")
+
+    with open(spec.origin) as f:
+        text = f.read()
+
+    assert f'"{ACTIVE_MODEL}"' in text, (
+        f"rec_bot_vision.py does not load {ACTIVE_MODEL}, so the routing tests "
+        f"are validating against the wrong model. Update ACTIVE_MODEL in this "
+        f"file whenever the model in rec_bot_vision.py changes."
+    )
+
+
 def test_profiles_are_ordered_by_reach():
     """Sanity check on the profile table itself.
 
