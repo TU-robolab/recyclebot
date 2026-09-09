@@ -636,12 +636,30 @@ ls -l /var/run/docker.sock  # Should show group 'docker'
 docker volume rm build_cache
 ```
 
-### Wayland GUI Access
+### GUI from the container: "Can't open display: :0"
+
+`source ./export_env.sh` now grants X access automatically, so the usual fix is
+simply to source it again:
 
 ```bash
-xhost +si:localuser:$USER
+source ./export_env.sh    # prints "[export_env] X access granted to localuser:root"
+```
+
+It recurs after a reboot or logout because `xhost` grants live in the running X
+server, not in a file — nothing in the repo changes, the X session does. To apply
+them by hand:
+
+```bash
+xhost +si:localuser:root
 xhost +local:root
 ```
+
+Check what is currently granted with a bare `xhost`; `access control enabled`
+with nothing listed underneath means no grants and GUIs will fail. Revoke with
+`xhost -local:root && xhost -SI:localuser:root`.
+
+On Wayland (`XDG_SESSION_TYPE=wayland`) this still applies — GUI tools reach the
+display through XWayland, so the X grants are what matter.
 
 ### Maintenance
 

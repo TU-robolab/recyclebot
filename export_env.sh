@@ -27,6 +27,36 @@ echo "REMOTE_IP=${REMOTE_IP:-192.168.1.102}" >> ${ENV_FILE}
 # echo "UR3E_ROBOT_IP=192.168.1.102" >> ${ENV_FILE}
 # echo "UR16E_ROBOT_IP=192.168.1.103" >> ${ENV_FILE}
 
+# Grant the container access to the X display.
+#
+# Without this, any GUI from the container (RViz, rqt, realsense-viewer) dies
+# with "Error: Can't open display: :0". The container runs as a different user
+# than the one owning the X session, so X refuses the connection.
+#
+# These grants live in the running X server, not in a file: they are wiped by
+# every logout and reboot, which is why the error keeps coming back after a
+# restart even though nothing in the repo changed. Applying them here means the
+# `source ./export_env.sh` already required before `docker compose up` also
+# repairs the display access, instead of it being something to remember.
+#
+# Scope: `+local:root` admits any local root process to the display, and the
+# container's processes arrive as root from X's point of view. That is a
+# deliberate, modest widening on a single-user workstation — it is not
+# network-wide (`xhost +` would be, and is never appropriate). Revoke with:
+#     xhost -local:root && xhost -SI:localuser:root
+#
+# Skipped when no display is present, so this stays usable over SSH and in CI.
+if [ -n "${DISPLAY}" ] && command -v xhost >/dev/null 2>&1; then
+    xhost +si:localuser:root >/dev/null 2>&1 \
+        && echo "[export_env] X access granted to localuser:root" \
+        || echo "[export_env] WARNING: xhost +si:localuser:root failed"
+    xhost +local:root >/dev/null 2>&1 \
+        || echo "[export_env] WARNING: xhost +local:root failed"
+else
+    echo "[export_env] no DISPLAY (or no xhost) — skipping X access grant;" \
+         "GUI tools in the container will not open"
+fi
+
 # Export Docker build optimizations (shell environment only)
 export DOCKER_BUILDKIT=1  # Enable BuildKit for cache mounts and faster builds
 export COMPOSE_BAKE=true  # Enable Bake for efficient multi-service build orchestration
