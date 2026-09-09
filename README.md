@@ -477,7 +477,33 @@ realsense-viewer
 ros2 launch grip_command_package master.launch.py debug:=true
 ```
 
-This starts the UR driver, serial interface, and gripper node.
+This starts the serial bridge (`remote_serial`) and the gripper node. It does
+**not** start the UR driver — that block is commented out in the launch file.
+
+**The UR driver must already be running, with tool communication enabled.** The
+gripper talks Modbus over the UR's tool serial port, which the driver exposes as
+a pty at `/tmp/ttyUR` when launched with `use_tool_communication:=true`. Without
+it there is no device for `remote_serial` to open, so it never subscribes and the
+gripper node waits forever:
+
+```
+Waiting for serial bridge to subscribe before activating gripper...
+```
+
+That message means the chain broke upstream, not that the gripper is faulty.
+Check in order:
+
+```bash
+ros2 node list | grep remote_serial            # is the bridge running at all?
+ls -l /tmp/ttyUR                               # did the driver create the device?
+ros2 topic info /serial/com1/inject/output -v  # any subscriber?
+```
+
+`rec_bot.launch.py` already launches the driver with the right tool-communication
+arguments and includes `master.launch.py` after the gate, so the full pipeline
+handles this. To exercise the gripper on its own, start the driver first and
+release the launch gate so External Control is running on the pendant — a robot
+sitting at `programState: STOPPED` has no tool comms.
 
 **Commands:**
 ```bash

@@ -53,9 +53,33 @@ class GripperNode(Node):
 
         self._init_attempts += 1
         if self.publisher.get_subscription_count() < 1:
-            self.get_logger().info(
-                "Waiting for serial bridge to subscribe before activating gripper..."
-            )
+            # remote_serial is the only subscriber to this topic, and it can only
+            # start once the serial device exists. That device is a pty created by
+            # ur_robot_driver when use_tool_communication:=true — so "no
+            # subscriber" almost always means the UR driver is not up, not that
+            # anything is wrong with the gripper itself.
+            #
+            # Say so, rather than leaving the chain to be traced by hand. Only on
+            # the first attempt and then every 10 s, to stay readable.
+            if self._init_attempts == 1 or self._init_attempts % 10 == 0:
+                self.get_logger().warn(
+                    "Waiting for the serial bridge (remote_serial) to subscribe to "
+                    f"{self.publisher.topic_name} — attempt {self._init_attempts}.\n"
+                    "  remote_serial cannot start until /tmp/ttyUR exists, and that "
+                    "device is created by ur_robot_driver with\n"
+                    "  use_tool_communication:=true. Check, in order:\n"
+                    "    1. ros2 node list | grep remote_serial      (is the bridge running at all?)\n"
+                    "    2. ls -l /tmp/ttyUR                          (did the driver create the device?)\n"
+                    "    3. ros2 topic info /serial/com1/inject/output -v\n"
+                    "  NOTE: master.launch.py does NOT start the UR driver — that\n"
+                    "  block is commented out. Bring the driver up first, e.g. via\n"
+                    "  rec_bot.launch.py, and release the launch gate so External\n"
+                    "  Control is running on the pendant."
+                )
+            else:
+                self.get_logger().info(
+                    "Waiting for serial bridge to subscribe before activating gripper..."
+                )
             return
 
         init_msg = UInt8MultiArray()
