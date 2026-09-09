@@ -507,6 +507,37 @@ The test suite provides automated validation of the vision and control pipeline.
 
 See [test_suite/README.md](test_suite/README.md) for full documentation.
 
+### Checking the YOLO model on its own
+
+Two ways to see what the model detects, both without the robot:
+
+```bash
+# Live: real RealSense -> YOLO -> annotated overlay + 3D markers in RViz.
+# No MoveIt, no gripper, no arm. Watch the "YOLO Detections" panel.
+ros2 launch recycle_bot rec_bot_vision_only.launch.py ur_type:=ur3e
+
+# ...or with synthetic frames instead of the camera
+ros2 launch recycle_bot rec_bot_vision_only.launch.py ur_type:=ur3e use_fake_camera:=true
+```
+
+```bash
+# Offline: run the model over image files. No camera, no ROS graph.
+ros2 run recycle_bot test_model --image bottle.jpg
+ros2 run recycle_bot test_model --dir ~/samples --save-dir /tmp/annotated
+ros2 run recycle_bot test_model --list-classes
+```
+
+`test_model` defaults to whatever model `rec_bot_vision.py` currently loads and
+to the cell's own `min_confidence`, so it reports what the pipeline would
+actually do. Two things it surfaces that a live view does not:
+
+- **Detections below the threshold** are still listed, marked as such. "The model
+  saw it but the filter dropped it" and "the model saw nothing" look identical
+  otherwise, and have completely different fixes.
+- **Each detection's destination bin**, plus a warning for any model class with
+  no `bin_routing` rule — those are placed in `default_bin` at runtime with no
+  error.
+
 ### Available Tests
 
 | Test Suite | Command | Description |

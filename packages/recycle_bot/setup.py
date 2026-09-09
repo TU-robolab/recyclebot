@@ -76,6 +76,7 @@ setup(
             'check_calibration = recycle_bot.calibration_check:main',
             'check_robot = recycle_bot.robot_identity:main',
             'read_tcp = recycle_bot.read_tcp:main',
+            'test_model = recycle_bot.test_model:main',
         ],
     },
 )
