@@ -58,6 +58,11 @@ bins:
 # RecycleBotDIS3Obj_full.pt and shared none of these labels — under it, 7 of the
 # 9 new classes fell silently through to general_waste.
 #
+# The 2026-09-11 retrain of Minimuell.pt adds a 10th class, 'unbekannt' (German
+# for "unknown"). It is routed to general_waste explicitly: default_bin would
+# send it there anyway, but an explicit rule keeps the routing test able to tell
+# a deliberate catch-all from a label someone forgot.
+#
 # Grouped by German kerbside separation: the Gelber Sack takes plastics and metal
 # packaging together, glass and paper are collected separately, and anything
 # unrecognised is residual waste.
@@ -80,6 +85,8 @@ bin_routing:
   # --- glass and paper ---
   food_jar_glass: glas_papier
   food_packet_cardboard: glas_papier
+  # --- residual waste ---
+  unbekannt: general_waste
 
 # bin used for any detected label without a bin_routing entry
 default_bin: general_waste
