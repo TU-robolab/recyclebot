@@ -1,7 +1,7 @@
 # YAML defining sorting target locations and neutral pose — UR3e cell.
 #
 # ############################################################################
-# # ALL POSES TAUGHT 2026-08-18 on the real cell. No placeholders remain.    #
+# # ALL POSES TAUGHT on the real cell: 2026-08-18, bins re-taught 2026-09-11 #
 # ############################################################################
 #
 # Poses come from jogging the arm and computing tool0 by forward kinematics from
@@ -108,31 +108,41 @@ under_camera_pose:
 # each bin is a position (meters) + orientation quaternion [x, y, z, w] in the
 # UR "base" frame (see note at the top of this file)
 #
-# TAUGHT 2026-08-18. Positions are UNCHANGED by the Minimuell model swap — only
-# the bin NAMES and the routing below were rewritten, because the new model
-# detects different materials. Three physical bins in a row behind the robot,
-# roughly 100 mm apart:
+# RE-TAUGHT 2026-09-11 after the bins were moved. The 2026-08-18 positions (three
+# bins behind the robot at base x = +0.32) no longer apply. Three physical bins
+# now sit in a row along the table's side edge, roughly 100 mm apart:
 #
-#   bin 1  y=+0.138   general_waste   catch-all, also default_bin
-#   bin 2  y=+0.035   gelber_sack     plastics + metal cans
-#   bin 3  y=-0.062   glas_papier     glass + cardboard
+#   bin 1  x=+0.178   general_waste   catch-all, also default_bin
+#   bin 2  x=+0.071   gelber_sack     plastics + metal cans
+#   bin 3  x=-0.021   glas_papier     glass + cardboard
 #
-# Positions are tool0 — the cup tip — computed by forward kinematics from the
-# taught joint angles, NOT the controller's reported flange pose. Each is the
-# RELEASE point; approach_height_m is added on top for the approach.
+# What was taught is the PRE-PLACE pose over each bin (tool0 at z ~ 0.196). The
+# positions below are the RELEASE points, derived as the taught pose minus
+# approach_height_m (0.05), so pre-place = position + approach_height_m lands
+# back exactly on the taught pose. The release height itself was NOT jogged to:
+# the bins are not in the collision model, so if the cup meets a bin rim on the
+# Step 8 descent, raise z here (or re-teach) rather than trusting the planner.
 #
-# All three sit 0.32-0.35 m from the shoulder, inside the 0.622 m envelope, and
-# within 0.3 deg of vertical. They are ~141 mm past the table's back edge, so the
-# table collision box does not apply to them.
+# Taught joint angles (rad; pan, lift, elbow, w1, w2, w3) at each pre-place:
+#   bin 1  [-0.83416, -2.12386, -0.63673, 4.33424, 1.56426, 0.73741]
+#   bin 2  [-1.06516, -2.00132, -0.82573, 4.38478, 1.56363, 0.50691]
+#   bin 3  [-1.28283, -1.94680, -0.90631, 4.41151, 1.56056, 0.28947]
+#
+# Positions are tool0 — the cup tip — computed by forward kinematics from those
+# joint angles, NOT the controller's reported flange pose.
+#
+# All three sit 0.40-0.44 m from the shoulder, inside the 0.622 m envelope, and
+# within 1 deg of vertical. They lie over the table's side edge (base_link
+# y ~ +0.40), but ~0.14 m above its top, so the table box does not obstruct them.
 #
 # Orientations are the taught ones, not the canonical face-down [1, 0, 0, 0].
 # They are tried FIRST when placing (see _build_place_pose_candidates): a taught
 # orientation is known reachable at its own position, whereas a synthesised yaw
 # is only a guess.
 bins:
-  general_waste: { position: [0.31610, 0.13786, 0.16548], orientation: [-0.077525, 0.996989, -0.001387, 0.001258] }  # bin 1
-  gelber_sack:   { position: [0.31879, 0.03504, 0.16558], orientation: [-0.077446, 0.996995, -0.001621, 0.000888] }  # bin 2
-  glas_papier:   { position: [0.31837, -0.06170, 0.16578], orientation: [-0.077455, 0.996993, -0.002207, 0.000600] }  # bin 3
+  general_waste: { position: [0.17847, -0.39420, 0.14652], orientation: [0.000379, 0.999994, -0.003244, -0.001468] }  # bin 1
+  gelber_sack:   { position: [0.07106, -0.40251, 0.14595], orientation: [0.000614, 0.999972, 0.003972, -0.006300] }  # bin 2
+  glas_papier:   { position: [-0.02120, -0.39860, 0.14591], orientation: [0.000720, 0.999967, 0.004490, -0.006671] }  # bin 3
 
 # label-to-bin routing: maps a detected YOLO class label (from model.names) to a
 # bin name defined under 'bins' above. Any label not listed here falls through
