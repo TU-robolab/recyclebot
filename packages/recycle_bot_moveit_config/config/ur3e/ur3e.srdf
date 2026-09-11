@@ -29,6 +29,18 @@
     <disable_collisions link1="wrist_2_link" link2="wrist_3_link" reason="Adjacent"/>
     <disable_collisions link1="wrist_1_link" link2="wrist_3_link" reason="Never"/>
 
+    <!-- E-Pick (URDF link "epick", fixed to the flange). It is bolted to
+         wrist_3_link and touches it in every state, so that pair alone is off.
+
+         Every OTHER epick pair stays enabled — they are the whole point of
+         modelling the gripper. Sampled over 5000 random states (measured
+         E-Pick dimensions) it hit upper_arm_link 11%, forearm_link 11%,
+         shoulder_link 3% and base_link_inertia 3%. wrist_1_link and
+         wrist_2_link were never hit, but
+         are left enabled too: unobserved is not impossible, and checking them is
+         cheap. Do not let the Setup Assistant mark those "Never". -->
+    <disable_collisions link1="epick" link2="wrist_3_link" reason="Adjacent"/>
+
     <!-- DELIBERATELY NOT DISABLED (unlike config/ur16e/ur16e.srdf):
              base_link_inertia <-> upper_arm_link   ("Never" on the UR16e)
              base_link_inertia <-> wrist_1_link     ("Never" on the UR16e)

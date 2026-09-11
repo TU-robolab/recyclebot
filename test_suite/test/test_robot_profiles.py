@@ -12,6 +12,7 @@ What they protect:
   - no configured pose sits outside its own arm's reach envelope (the failure
     mode that makes a UR16e cell "work" right up until the arm stalls mid-place)
   - the E-Pick tool offset is present in every URDF, on every arm
+  - the E-Pick is modelled for collision, and exempt only from wrist_3_link
   - the two cells agree on the things that are model-driven, not arm-driven
 """
 
@@ -144,6 +145,62 @@ def test_gripper_tool_offset_present(ur_type):
     assert marker in urdf, (
         f"{ur_type}.urdf.xacro is missing the E-Pick tool offset ({marker}) on "
         "the flange-tool0 joint"
+    )
+
+
+@pytest.mark.parametrize("ur_type", ALL_ARMS)
+def test_gripper_collision_geometry_present(ur_type):
+    """The E-Pick must be modelled for collision, and only exempt from wrist_3.
+
+    Without the "epick" link MoveIt believes the flange is bare and will fold the
+    gripper into the arm. Like the tool0 offset, it is a hand edit that a URDF
+    regeneration silently drops. The SRDF side guards the opposite mistake: the
+    Setup Assistant marking epick "Never" against the upper arm or forearm,
+    which random sampling shows it hits in ~11% of states each.
+    """
+    import xml.etree.ElementTree as ET
+
+    root = ET.parse(
+        os.path.join(_moveit_config_dir(ur_type), f"{ur_type}.urdf.xacro")
+    ).getroot()
+
+    link = root.find("link[@name='epick']")
+    assert link is not None, f"{ur_type}.urdf.xacro has no 'epick' link"
+    collisions = link.findall("collision")
+    assert collisions, f"{ur_type} epick link has no collision geometry"
+
+    joint = next(
+        (j for j in root.findall("joint") if j.find("child").get("link") == "epick"),
+        None,
+    )
+    assert joint is not None and joint.find("parent").get("link") == "flange", (
+        f"{ur_type} epick must be fixed to the flange"
+    )
+
+    # The model must stop short of tool0 (x = 0.150 in the flange frame): the
+    # cup lip touches the object, so modelling it would reject every pick's final
+    # LIN descent. Each cylinder is pitched onto flange X, so it spans
+    # origin_x +/- length/2.
+    far_end = max(
+        float(c.find("origin").get("xyz").split()[0])
+        + float(c.find("geometry/cylinder").get("length")) / 2.0
+        for c in collisions
+    )
+    assert far_end < 0.150, (
+        f"{ur_type} epick geometry reaches x={far_end:.3f}, at or past tool0 (0.150)"
+    )
+
+    srdf = ET.parse(
+        os.path.join(_moveit_config_dir(ur_type), f"{ur_type}.srdf")
+    ).getroot()
+    exempt = {
+        (d.get("link2") if d.get("link1") == "epick" else d.get("link1"))
+        for d in srdf.findall("disable_collisions")
+        if "epick" in (d.get("link1"), d.get("link2"))
+    }
+    assert exempt == {"wrist_3_link"}, (
+        f"{ur_type}.srdf exempts epick from {sorted(exempt)}; only wrist_3_link "
+        "(which it is bolted to) may be disabled"
     )
 
 
@@ -459,6 +516,9 @@ def test_moveit_config_builds_for_each_arm(ur_type):
 
     assert '0.150 0 0' in description, (
         f"{ur_type} description is missing the E-Pick tool offset"
+    )
+    assert 'link name="epick"' in description, (
+        f"{ur_type} description is missing the E-Pick collision link"
     )
 
     semantic = config.robot_description_semantic["robot_description_semantic"]

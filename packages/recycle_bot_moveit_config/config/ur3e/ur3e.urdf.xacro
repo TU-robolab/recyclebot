@@ -299,4 +299,69 @@
     <parent link="flange"/>
     <child link="tool0"/>
   </joint>
+  <!-- Robotiq E-Pick collision geometry. NOT stock ur_description: the second
+       hand edit in this file, alongside the tool0 offset above, and dropped the
+       same way by a regeneration. Identical in ur16e/ur16e.urdf.xacro — the
+       gripper is the same on both arms.
+
+       Without it MoveIt believes the flange is bare, and happily plans the wrist
+       to fold the gripper back into the arm, the table or the camera.
+
+       Frame: the flange's own, whose X axis points out of the tool face — tool0
+       is at x = 0.150. URDF cylinders run along their local Z, so rpy pitches
+       them +90 deg onto X.
+
+       Two cylinders, flange face outward:
+         body        x 0.000 .. 0.115   radius 0.0425
+         suction cup x 0.115 .. 0.140   radius 0.015
+       MEASURED 2026-09-11: body 115 mm long from the flange face, 85 mm
+       diameter; suction cup 40 mm long, 30 mm diameter.
+
+       115 + 40 = 155 mm, 5 mm past tool0 at 150. The 150 was verified with the
+       cup resting on the table (see test_tool_offset_verified_against_a_physical
+       _surface), so it stays: the cup compresses on contact and/or its fitting
+       overlaps the body. Either way the cup occupies roughly 0.115 .. 0.150.
+
+       The model stops 10 mm short of tool0 on purpose. The cup lip is what
+       touches the object, and the table under a flat one, so modelling it would
+       make every pick's final LIN descent "collide" and be rejected. The
+       grasped-object box rec_bot_control attaches at tool0 lists epick as a touch
+       link for the same reason. Keep the cup end short of 0.150. -->
+  <link name="epick">
+    <visual>
+      <origin rpy="0 1.5707963267948966 0" xyz="0.0575 0 0"/>
+      <geometry>
+        <cylinder radius="0.0425" length="0.115"/>
+      </geometry>
+      <material name="epick_grey">
+        <color rgba="0.35 0.35 0.38 1.0"/>
+      </material>
+    </visual>
+    <visual>
+      <origin rpy="0 1.5707963267948966 0" xyz="0.1275 0 0"/>
+      <geometry>
+        <cylinder radius="0.015" length="0.025"/>
+      </geometry>
+      <material name="epick_grey">
+        <color rgba="0.35 0.35 0.38 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0 1.5707963267948966 0" xyz="0.0575 0 0"/>
+      <geometry>
+        <cylinder radius="0.0425" length="0.115"/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin rpy="0 1.5707963267948966 0" xyz="0.1275 0 0"/>
+      <geometry>
+        <cylinder radius="0.015" length="0.025"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="flange-epick" type="fixed">
+    <parent link="flange"/>
+    <child link="epick"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+  </joint>
 </robot>

@@ -1619,7 +1619,9 @@ class cobot_control(Node):
         try:
             aco = AttachedCollisionObject()
             aco.link_name = "tool0"
-            aco.touch_links = ["tool0"]
+            # The held object sits against the E-Pick's cup, so contact with the
+            # gripper's own collision geometry (URDF link "epick") is expected.
+            aco.touch_links = ["tool0", "epick"]
 
             aco.object = CollisionObject()
             aco.object.id = "grasped_object"
