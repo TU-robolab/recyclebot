@@ -12,9 +12,19 @@
 #
 # Raw measurements, for anyone re-deriving these (base_link, metres):
 #   table surface          [ 0.21961,  0.05386,  0.00196]
-#   camera underside       [ 0.16646,  0.01297,  0.54795]
+#   camera underside       [ 0.16646,  0.01297,  0.54795]   SUPERSEDED, see below
 #   post, +Y face, low     [ 0.16893, -0.13821,  0.04223]
-#   post, -X face, top     [ 0.15220, -0.17472,  0.60199]
+#   post, -X face, top     [ 0.15220, -0.17472,  0.60199]   x is 150 mm short
+#
+# CORRECTED 2026-09-11. The post and camera readings placed both 0.14-0.15 m too
+# close to the robot in x. The camera was re-measured by the camera itself (see
+# calibration.yaml): it sits at x = 0.307, not 0.166. The post's -X face reading
+# is short by 0.150 — exactly the E-Pick's flange->tool0 length, as if the cup
+# tip, not the bare flange, touched the post with the tool pointing +X. The
+# corrected face at x = 0.302 puts the post centre at x = 0.322, which the depth
+# image confirms independently (post back-projects to x ~ 0.32, directly under
+# the camera, as a side photo of the cell also shows). The table reading is
+# unaffected: the robot is bolted to that table, so z = 0.002 is right.
 #
 # size:     (x, y, z) full extents in meters
 # position: (x, y, z) of the box CENTER in meters
@@ -40,11 +50,14 @@ table:
 #
 # Centre solved from two touches on two DIFFERENT faces, each offset inward by
 # half the 40 mm width:
-#   +Y face at y = -0.13821  ->  centre y = -0.13821 - 0.020 = -0.1582
-#   -X face at x = +0.15220  ->  centre x = +0.15220 + 0.020 = +0.1722
-# Each touch cross-checks against the other axis (3 mm and 17 mm off-centre
-# along their respective faces, both inside the +/-20 mm half-width), which also
-# confirms the post is axis-aligned rather than rotated.
+#   +Y face at y = -0.13821            ->  centre y = -0.13821 - 0.020 = -0.1582
+#   -X face at x = +0.15220 + 0.150    ->  centre x = +0.30220 + 0.020 = +0.3222
+# The +0.150 is the E-Pick correction described at the top of this file. A shift
+# common to both touches (tool pointing +X for both) leaves their relative
+# geometry intact, which is why the original cross-check — each touch 3 mm and
+# 17 mm off-centre along the other face — passed without catching it. The y
+# value is unaffected by a +X shift and is kept; the depth image agrees with it
+# to within its few-cm resolution.
 #
 # Runs from the table top (0.002) to the measured top (0.602): height 0.600,
 # centre z = 0.302.
@@ -53,48 +66,49 @@ table:
 # so could not have detected a lean themselves).
 #
 # This post is a real collision hazard, not a formality: it stands 0.60 m tall
-# only 0.235 m from the base axis, well inside the arm's reachable envelope.
+# 0.36 m from the base axis, inside the arm's reachable envelope.
 camera_stand:
   size: [0.04, 0.04, 0.600]
-  position: [0.1722, -0.1582, 0.302]
+  position: [0.3222, -0.1582, 0.302]
 
-# Box around the RealSense D415 head plus the mounting hardware above it.
+# Box around the RealSense D415, its mount, and the support arm back to the post.
 #
-# The camera assembly is taller than the camera. Measured:
-#   camera underside            z = 0.548
-#   bracket, +Y face            z = 0.650   (touched; 102 mm above the underside,
-#                                            far more than a D415's ~20 mm
-#                                            vertical extent when aimed down)
-# so the box spans z 0.545 .. 0.665 to enclose both.
+# RE-DERIVED 2026-09-11 against the corrected camera position. The earlier
+# version assumed a bracket ABOVE a camera hanging at z = 0.548, below the top
+# of its own post; in reality the camera sits on a ball-head mount on a plate
+# across the top of the post, with its lens face at z = 0.644 (calibration.yaml).
+# From the side, bottom to top:
+#   thumbscrew knob under the plate   down to ~0.56
+#   post top / plate                  ~0.60
+#   ball head
+#   camera lens face (camera_link)    0.644
+#   camera back + cable plug          up to ~0.67
+# so the box spans z 0.56 .. 0.68.
 #
-# The y extent is confirmed from two faces: the bracket's +Y face at y = 0.0649
-# minus half the D415's 99 mm length puts the centre at y = 0.0154, agreeing to
-# 2.4 mm with the underside touch at y = 0.013. That also establishes that the
-# camera's long axis runs along Y.
+# The camera's long axis runs along X, not Y: the image width axis is base_link
+# +X (verified by projecting the robot and post into the image), and the D415's
+# long side faces a viewer looking along Y.
 #
 # ANCHORING: the box centre comes from calibration.yaml ->
 # camera_transform.translation, so it can never drift from the TF the projection
 # maths uses. Only `size` and `offset` are set here. `offset` shifts the box
-# relative to camera_link, which is needed because the bracket sits above the
-# optical body rather than around it — without it, covering the bracket would
-# mean growing the box symmetrically and swallowing 100 mm of free space
-# underneath the camera, where the arm legitimately needs to travel.
+# relative to camera_link because the mount and support arm are below and behind
+# the optical body rather than around it.
 #
-#   camera_link z = 0.55995,  offset +0.045  ->  box centre 0.60495
-#   size z 0.12               ->  spans 0.545 .. 0.665   [OK]
+# Deliberately coarse, like before: the whole volume between post and camera
+# is somewhere the arm must never go, so one solid block loses nothing.
 #
-# The box is also stretched in -Y to swallow the support arm running back to the
-# post, rather than modelling that arm separately. Deliberately coarse: the whole
-# volume between the post and the camera is somewhere the arm must never go, so
-# enclosing it as one solid block loses nothing and needs no measurement.
-#
-#   y: centre 0.01297 - 0.0555 = -0.0425, size 0.235  ->  spans -0.160 .. +0.075
-#      reaching the post centre (-0.158) at one end and past the camera's +Y
-#      face (0.065) at the other.
-#   x: spans 0.102 .. 0.232, which covers the post's 0.152 .. 0.192 footprint.
+#   x: camera_link 0.307, offset 0.000, size 0.13  ->  spans 0.242 .. 0.372
+#      covering the camera (0.257 .. 0.357) and the post (0.302 .. 0.342).
+#   y: camera_link 0.058, offset -0.103, size 0.27 ->  spans -0.180 .. +0.090
+#      from the post's far face (-0.178) to past the camera body (~0.07).
+#   z: camera_link 0.630, offset -0.010, size 0.12 ->  spans 0.560 .. 0.680
+#      (camera_link z is tuned 14 mm below the real lens face — see
+#      calibration.yaml — so the offset compensates to keep the box on the real
+#      hardware. Change the two together.)
 camera:
-  size: [0.13, 0.235, 0.12]
-  offset: [0.0, -0.0555, 0.045]
+  size: [0.13, 0.27, 0.12]
+  offset: [0.0, -0.103, -0.010]
 
 # The camera support arm is covered by the stretched camera box above rather than
 # modelled on its own, which is why the schema still needs only three boxes.

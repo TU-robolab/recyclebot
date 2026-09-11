@@ -2,33 +2,47 @@
 # Camera transform and detection filtering parameters.
 #
 # ############################################################################
-# # TRANSLATION MEASURED 2026-08-18. ROTATION IS STILL UNVERIFIED.           #
+# # TRANSLATION MEASURED 2026-09-11 BY THE CAMERA ITSELF.                    #
+# # ROTATION IS STILL UNVERIFIED (tilt checked, yaw not).                    #
 # ############################################################################
 
 # camera transform: static transform from base_link to camera_link (meters)
 # used for projecting detections into the robot frame.
 #
-# How the translation was obtained: the bare flange was pressed up against the
-# underside of the camera and the controller's TCP read directly. The PolyScope
-# TCP offset is zero, so the reported pose is the flange face, and the flange
-# frame origin lies on that face — the contact point is the reading.
+# How the translation was obtained: the arm was parked at under_camera_pose,
+# where the camera looks straight down onto the wrist. The blue cap on top of
+# wrist_2 is centred on the tool axis, so its position is known from FK of the
+# reported joint angles (URDF collision mesh: cap top at z = 0.398, on the axis
+# through tool0 = [0.2315, 0.0889]).
 #
-#   camera underside (base_link) = [0.16646, 0.01297, 0.54795]
+#   height: the table reads 0.642 m in the aligned depth image (median, flat to
+#           +/-6 mm over the whole frame), and the table top is at z = 0.002,
+#           so the depth origin (= camera_link) is at z = 0.644.
+#   x, y:   the cap's circle centre in the colour image, (172.6, 164.7) px,
+#           back-projected at the resulting 0.246 m depth, puts camera_link at
+#           [0.307, 0.058] in base_link.
 #
-# camera_link sits inside the housing rather than on its underside, so 12 mm is
-# added in z (about half the D415's 23 mm body height) to reach the middle of the
-# case. That 12 mm is an ESTIMATE, not a measurement, and it is the largest known
-# error in this transform.
+# The x/y answer is almost insensitive to the unverified yaw: the cap sits only
+# ~0.07 m off the optical axis, so 5 deg of yaw error moves it ~6 mm. It is
+# cross-checked twice: a side photo of the cell puts the camera ~0.30-0.32 m out
+# along x, and the post, seen at the bottom of the depth image, back-projects to
+# x ~ 0.32 — agreeing with the post's corrected touch point in cell.yaml.
+#
+# SUPERSEDES the 2026-08-18 touch reading of the camera underside,
+# [0.16646, 0.01297, 0.54795] (+12 mm), which was 0.14 m short in x and 0.08 m
+# low. With that value the model put the camera below the top of its own post,
+# and every detection was projected 14 cm off in x and 8 cm too low in z.
 #
 # NOTE the frame: parent is base_link (REP-103, X+ forward / Y+ left / Z+ up),
 # NOT the UR "base" frame that sorting_sequence.yaml uses. Mixing them up flips
 # the x/y signs and mirrors every detection through the robot's origin. The
 # numbers below are already in base_link.
 #
-# ROTATION IS NOT MEASURED. Touch points give position only — they say nothing
-# about how the camera is aimed. The quaternion below is carried over unchanged
-# from the UR16e cell and encodes a camera looking straight down in the usual
-# optical-frame convention. Verify it before trusting any detection: put a known
+# ROTATION IS ONLY PARTLY VERIFIED. The quaternion below is carried over
+# unchanged from the UR16e cell and encodes a camera looking straight down in the
+# usual optical-frame convention. The flat table depth confirms the TILT (the
+# camera really does look straight down); the YAW about the vertical is still
+# unchecked. Verify it before trusting detections near the image edge: put a known
 # object under the camera, compare what /vision/detected_object reports against
 # where the flange actually touches that object, and adjust. A rotation error
 # shows up as a detection offset that GROWS with distance from the image centre,
@@ -36,8 +50,12 @@
 camera_transform:
   parent_frame: "base_link"
   child_frame: "camera_link"
-  translation: [0.16646, 0.01297, 0.55995]  # measured underside + 12 mm in z
-  rotation: [-0.5, 0.5, 0.5, 0.5]   # TODO(ur3e-cell): UNVERIFIED — see above
+  # z is 14 mm BELOW the measured 0.644, tuned on the real cell 2026-09-11: at
+  # 0.644 the cup stopped just above the object instead of sealing on it. With
+  # the camera looking straight down, lowering z only lowers every projected
+  # pick by the same amount; x/y are unaffected.
+  translation: [0.307, 0.058, 0.630]  # measured 2026-09-11, z tuned — see above
+  rotation: [-0.5, 0.5, 0.5, 0.5]   # TODO(ur3e-cell): yaw UNVERIFIED — see above
 
 # detection filter thresholds
 # RealSense D415 range: 0.3 m - 10 m (optimal 0.5 m - 3 m)
@@ -47,13 +65,14 @@ detection_filter:
 
   # Depth window, derived from the measured camera height.
   #
-  # Camera underside is at z = 0.548 and the table top at z = 0.002, so the
-  # camera looks down 0.546 m onto the table.
+  # The table reads 0.642 m in the depth image (measured 2026-09-11).
   #
-  # max 0.62 m: the table surface sits at ~0.55 m plus a little slack for an
-  #   uneven surface. Anything beyond that is past the table — the floor, or
-  #   somebody walking by — and cannot be a pickable object.
-  # min 0.30 m: allows objects up to ~0.25 m tall while staying at the D415's
+  # max 0.70 m: the table surface at 0.642 plus slack for an uneven surface.
+  #   Anything beyond that is past the table — the floor, or somebody walking
+  #   by — and cannot be a pickable object. (The previous 0.62 was derived from
+  #   the wrong camera height and sat BELOW the table, silently discarding every
+  #   object less than ~2 cm tall.)
+  # min 0.30 m: allows objects up to ~0.34 m tall while staying at the D415's
   #   rated close range. Anything nearer is the arm itself passing through frame.
   min_depth_m: 0.30
-  max_depth_m: 0.62
+  max_depth_m: 0.70

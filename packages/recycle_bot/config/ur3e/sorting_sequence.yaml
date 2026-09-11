@@ -84,12 +84,14 @@ neutral_joint_pose:
 # TAUGHT 2026-08-18. Joint space, so no IK and no tool-offset ambiguity.
 #
 # For reference, this puts tool0 at [-0.23151, -0.08888, 0.10959] in the "base"
-# frame: 0.108 m above the table, 0.100 m horizontally from the camera axis, with
-# the tool 0.16 deg off vertical.
+# frame: 0.108 m above the table, with the tool 0.16 deg off vertical.
 #
-# It is offset from the camera axis rather than directly beneath it because the
-# table under the camera is inside the arm's inner dead zone and cannot be
-# reached at all — see cell.yaml.
+# It is NOT under the camera: it sits 0.082 m from the camera axis (0.076 m short
+# of it in base_link x). It was taught against the old camera position, which put
+# the camera inside the arm's inner dead zone. The camera was re-measured on
+# 2026-09-11 at [0.307, 0.058] in base_link (0.31 m from the base axis, outside
+# the 0.20 m dead zone — see calibration.yaml), so this pose can now be re-taught
+# directly beneath it.
 #
 # The arm does sit in the camera's view here, which is harmless: rec_bot_vision
 # gates capture on /rec_bot/robot_busy, so no detection is taken while the robot
@@ -179,15 +181,17 @@ grasped_object_size: [0.05, 0.05, 0.05]  # meters (box attached to tool for plan
 # An outer-radius check cannot express this: a pose in the dead zone is CLOSE to
 # the shoulder, so it passes every distance test while being unreachable.
 #
-# This matters on this cell specifically. The camera sits only 0.167 m from the
-# base axis, so the centre of its field of view — where objects naturally sit —
-# falls inside the dead zone. Without this check those objects are detected,
-# routed, queued, and only then fail during planning.
+# This matters on this cell specifically. The camera sits 0.31 m from the base
+# axis (re-measured 2026-09-11; it was previously believed to be at 0.167 m, with
+# the whole image centre inside the dead zone). Its image still extends ~0.4 m
+# either side along base_link x at table height, so the robot-side edge of the
+# view reaches inside the dead zone. Without this check objects there are
+# detected, routed, queued, and only then fail during planning.
 #
 # EMPIRICAL, not derived. Pure forward kinematics says the UR3e can get to
 # 0.066 m, but that ignores self-collision and the table; the real limit was
 # found by jogging. Two measurements bracket it at table height:
-#     r = 0.167 m   could NOT be reached (the point under the camera)
+#     r = 0.167 m   could NOT be reached (then believed to be under the camera)
 #     r = 0.226 m   reached comfortably
 # 0.20 sits between them. Raise it if tasks still fail during planning near the
 # base; lower it if pickable objects are being skipped.
