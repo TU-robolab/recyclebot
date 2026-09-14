@@ -21,6 +21,12 @@ def generate_launch_description():
             description="Use synthetic RGBD frames instead of a real RealSense camera",
         ),
         DeclareLaunchArgument(
+            "launch_rviz",
+            default_value="true",
+            description="Start RViz (the operator dashboard passes false unless "
+                        "asked for the 3D view).",
+        ),
+        DeclareLaunchArgument(
             "ur_type",
             default_value=DEFAULT_UR_TYPE,
             description="Which UR arm's cell config to load (ur16e, ur3e). No "
@@ -96,5 +102,6 @@ def generate_launch_description():
                 ),
             ],
             output="screen",
+            condition=IfCondition(LaunchConfiguration("launch_rviz")),
         ),
     ])

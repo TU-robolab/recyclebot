@@ -56,6 +56,8 @@ setup(
         # second would silently overwrite the first.
         *config_data_files(package_name),
         (os.path.join('share', package_name, 'pkg_resources'), glob(os.path.join('pkg_resources', '*'))),
+        # operator dashboard page, served by recycle_bot/dashboard.py
+        (os.path.join('share', package_name, 'web'), glob(os.path.join('web', '*'))),
         (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*launch.[pxy][yma]*')))
     ],
     install_requires=install_requires,  # add requirements from requirements.txt
@@ -77,6 +79,7 @@ setup(
             'check_robot = recycle_bot.robot_identity:main',
             'read_tcp = recycle_bot.read_tcp:main',
             'test_model = recycle_bot.test_model:main',
+            'dashboard = recycle_bot.dashboard:main',
         ],
     },
 )

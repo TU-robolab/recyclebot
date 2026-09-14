@@ -46,6 +46,7 @@ def launch_setup(context, *args, **kwargs):
     # rather than substituting a path.
     rviz_config = LaunchConfiguration("rviz_config").perform(context).strip()
     rviz_args = ["-d", rviz_config] if rviz_config else []
+    launch_rviz = LaunchConfiguration("launch_rviz").perform(context).lower() != "false"
 
     # Robot IP: resolved per-arm (UR3E_ROBOT_IP / UR16E_ROBOT_IP), falling back
     # to the single-robot REMOTE_IP that export_env.sh writes.
@@ -227,8 +228,8 @@ def launch_setup(context, *args, **kwargs):
                 core_node,
                 control_node,
                 grip_launch,
-                rviz_node,
                 viz_node,
+                *([rviz_node] if launch_rviz else []),
             ],
         )
     )
@@ -254,6 +255,14 @@ def generate_launch_description():
         description="RViz layout file. Pass an empty string for RViz's own default.",
     )
 
+    # The operator dashboard shows the camera and detections itself and passes
+    # launch_rviz:=false unless asked for the 3D view.
+    launch_rviz_arg = DeclareLaunchArgument(
+        "launch_rviz",
+        default_value="true",
+        description="Start RViz.",
+    )
+
     verify_robot_arg = DeclareLaunchArgument(
         "verify_robot",
         default_value="true",
@@ -274,6 +283,7 @@ def generate_launch_description():
             ur_type_arg,
             verify_robot_arg,
             rviz_config_arg,
+            launch_rviz_arg,
             OpaqueFunction(function=launch_setup),
         ]
     )

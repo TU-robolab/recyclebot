@@ -44,6 +44,11 @@
   <!-- Visualization -->
   <depend>visualization_msgs</depend>
 
+  <!-- Operator dashboard: /rosout (rcl_interfaces) and the UR driver's
+       safety/robot-mode topics (ur_dashboard_msgs) -->
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>ur_dashboard_msgs</exec_depend>
+
   <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>numpy</exec_depend>
   

@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RecycleBot</title>
+<link rel="icon" href="icon.svg">
+<!-- Served by recycle_bot/dashboard.py. Self-contained on purpose: the cell PC
+     may have no internet, so no CDN fonts or libraries. -->
+<style>
+  :root {
+    --bg: #f3f4f1; --card: #ffffff; --ink: #1d2320; --muted: #5f6a64; --line: #dde1dc;
+    --ok: #1f8a4c; --ok-bg: #e3f4e9; --wait: #b7791f; --wait-bg: #fbf0dc;
+    --bad: #c0392b; --bad-bg: #fbe5e2; --info: #2c6fbb; --info-bg: #e3edf8;
+    --off: #9aa39e; --accent: #1f8a4c; --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141816; --card: #1d2320; --ink: #e8ece9; --muted: #9aa7a0; --line: #2d3531;
+      --ok: #4cc27f; --ok-bg: #1b3325; --wait: #e2a84a; --wait-bg: #3a2e18;
+      --bad: #ef6b5b; --bad-bg: #3d1f1b; --info: #6aa7ee; --info-bg: #1b2a3d;
+      --off: #5d6862; --accent: #3fb872; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* the UA's [hidden] rule loses to any display: set below — without this the
+     safety banner, gate box and camera placeholder never disappear */
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif; }
+  button { font: inherit; cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: .5; }
+
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+           padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+  header h1 span { color: var(--accent); }
+  .pill { font-size: 13px; padding: 3px 10px; border-radius: 999px; background: var(--bg);
+          color: var(--muted); border: 1px solid var(--line); }
+  .pill.live { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+  .spacer { flex: 1; }
+
+  main { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);
+         gap: 16px; padding: 16px 20px 24px; max-width: 1500px; margin: 0 auto; }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 16px; box-shadow: var(--shadow); }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+             color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  /* Narrow screens: one column, and Start/Stop right under the status, not
+     below the camera — on a tablet at the cell it must not need scrolling. */
+  @media (max-width: 980px) {
+    main { display: flex; flex-direction: column; padding: 12px 16px; }
+    .col { display: contents; }
+    #safety { order: 0; } #status { order: 1; } #controls { order: 2; }
+    #camcard { order: 3; } #msgcard { order: 4; } #lightcard { order: 5; }
+    #countcard { order: 6; } #eventcard { order: 7; }
+  }
+
+  /* status banner */
+  #status { border-left: 6px solid var(--off); }
+  #status.ok { border-left-color: var(--ok); }
+  #status.wait { border-left-color: var(--wait); }
+  #status.bad { border-left-color: var(--bad); }
+  #headline { font-size: 26px; font-weight: 650; margin: 0; letter-spacing: -.01em; }
+  #detail { color: var(--muted); margin: 4px 0 0; font-size: 17px; }
+  .progress { height: 10px; background: var(--bg); border-radius: 99px; margin-top: 14px; overflow: hidden; }
+  .progress > div { height: 100%; background: var(--ok); border-radius: 99px; transition: width .4s; }
+  .gatebox { margin-top: 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+             background: var(--wait-bg); border-radius: 10px; padding: 12px 14px; }
+  .gatebox .count { font-variant-numeric: tabular-nums; color: var(--wait); font-weight: 600; }
+
+  .safety { background: var(--bad); color: #fff; border-radius: 12px; padding: 16px 18px;
+            font-size: 18px; font-weight: 600; display: flex; gap: 12px; align-items: flex-start; }
+  .safety::before { content: "⚠"; font-size: 24px; line-height: 1; }
+
+  /* camera */
+  .cam { position: relative; aspect-ratio: 16 / 9; max-width: 100%; background: #0d0f0e;
+         border-radius: 10px; overflow: hidden; }
+  .cam img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .cam .empty { position: absolute; inset: 0; display: flex; flex-direction: column;
+                align-items: center; justify-content: center; color: #b9c2bd; text-align: center; padding: 20px; }
+  .cam .empty b { font-size: 20px; color: #e8ece9; }
+  .cam .paused { position: absolute; left: 12px; top: 12px; background: rgba(183,121,31,.92); color: #fff;
+                 padding: 6px 12px; border-radius: 8px; font-weight: 600; font-size: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; min-height: 34px; align-items: center; }
+  .chip { background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 14px; }
+  .chip b { font-weight: 600; }
+  .chip .to { color: var(--muted); }
+  .chip.ignored { border-style: dashed; color: var(--muted); background: transparent; }
+  .muted { color: var(--muted); }
+  .small { font-size: 14px; }
+
+  /* controls */
+  .modes { display: grid; gap: 8px; }
+  .opt { display: flex; gap: 12px; align-items: flex-start; text-align: left; width: 100%;
+         border: 2px solid var(--line); background: var(--card); color: var(--ink);
+         border-radius: 10px; padding: 12px 14px; }
+  .opt:hover:not(:disabled) { border-color: var(--muted); }
+  .opt.sel { border-color: var(--accent); background: var(--ok-bg); }
+  .opt.sel.danger { border-color: var(--bad); background: var(--bad-bg); }
+  .opt .radio { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--muted); margin-top: 2px; }
+  .opt.sel .radio { border: 6px solid var(--accent); }
+  .opt.sel.danger .radio { border-color: var(--bad); }
+  .opt b { display: block; font-size: 17px; }
+  .opt span { color: var(--muted); font-size: 14px; }
+  .label { font-weight: 600; margin: 16px 0 8px; }
+  .seg { display: flex; gap: 8px; flex-wrap: wrap; }
+  .seg .opt { flex: 1 1 120px; justify-content: center; text-align: center; padding: 10px; }
+  .seg .opt .radio { display: none; }
+  .check { display: flex; gap: 10px; align-items: center; margin-top: 14px; color: var(--muted); font-size: 15px; }
+  .check input { width: 18px; height: 18px; }
+  .big { width: 100%; margin-top: 16px; padding: 16px; border-radius: 12px; border: 0;
+         font-size: 20px; font-weight: 700; color: #fff; background: var(--ok); }
+  .big.stop { background: #444c48; }
+  .big.danger { background: var(--bad); }
+  .note { margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .runinfo { font-size: 17px; }
+  .runinfo b { font-size: 20px; display: block; }
+  .btn { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; padding: 8px 14px; font-weight: 600; }
+  .btn.primary { background: var(--wait); color: #fff; border-color: transparent; }
+
+  /* lights */
+  .lights { display: grid; gap: 10px; }
+  .light { display: flex; align-items: center; gap: 12px; }
+  .dot { flex: none; width: 14px; height: 14px; border-radius: 50%; background: var(--off); }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-bg); }
+  .dot.wait { background: var(--wait); box-shadow: 0 0 0 4px var(--wait-bg); animation: pulse 1.4s infinite; }
+  .dot.bad { background: var(--bad); box-shadow: 0 0 0 4px var(--bad-bg); }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .light .name { font-weight: 600; }
+  .light .val { margin-left: auto; color: var(--muted); font-size: 14px; text-align: right; }
+
+  /* counts */
+  .counts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .num { font-size: 36px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .num.okc { color: var(--ok); }
+  .num.badc { color: var(--bad); }
+  .bins { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+
+  /* messages + activity */
+  .msg { display: flex; gap: 10px; align-items: flex-start; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .msg.error { background: var(--bad-bg); }
+  .msg.warn { background: var(--wait-bg); }
+  .msg.info { background: var(--info-bg); }
+  .msg p { margin: 0; flex: 1; }
+  .msg .x { border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; padding: 0 4px; }
+  .events { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; }
+  .events li { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .events li:last-child { border-bottom: 0; }
+  .events time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; font-size: 13px; padding-top: 2px; }
+  .events .success { color: var(--ok); }
+  .events .error { color: var(--bad); }
+  .events .warn { color: var(--wait); }
+
+  details summary { cursor: pointer; font-weight: 600; color: var(--muted); }
+  .logwrap { overflow-x: auto; margin-top: 10px; }
+  pre#log { margin: 0; max-height: 420px; overflow: auto; background: #0d0f0e; color: #cfd8d3;
+            padding: 12px; border-radius: 8px; font: 12px/1.45 ui-monospace, "DejaVu Sans Mono", monospace; white-space: pre; }
+
+  .offline { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--bad);
+             color: #fff; padding: 12px 20px; border-radius: 10px; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,.25); z-index: 5; }
+
+  dialog { border: 0; border-radius: 14px; padding: 0; max-width: min(520px, calc(100vw - 32px));
+           background: var(--card); color: var(--ink); box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  .dlg { padding: 22px; }
+  .dlg h3 { margin: 0 0 6px; font-size: 22px; }
+  .dlg label { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--line);
+               border-radius: 10px; margin-top: 10px; cursor: pointer; font-size: 16px; }
+  .dlg label input { width: 22px; height: 22px; flex: none; margin: 0; }
+  .dlg .row { display: flex; gap: 10px; margin-top: 18px; }
+  .dlg .row button { flex: 1; padding: 14px; border-radius: 10px; font-weight: 700; font-size: 17px; }
+  .dlg .cancel { background: var(--bg); color: var(--ink); border: 1px solid var(--line); }
+  .dlg .go { background: var(--bad); color: #fff; border: 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Recycle<span>Bot</span></h1>
+  <span id="runpill" class="pill">Stopped</span>
+  <span class="spacer"></span>
+  <span class="muted small" id="clock"></span>
+</header>
+
+<main>
+  <div class="col">
+    <div id="safety" class="safety" hidden></div>
+
+    <section id="status" class="card">
+      <p id="headline">Connecting…</p>
+      <p id="detail"></p>
+      <div id="progress" class="progress" hidden><div></div></div>
+      <div id="gatebox" class="gatebox" hidden>
+        <span>Continues automatically in <span class="count" id="gatecount">–</span>.</span>
+        <span class="spacer"></span>
+        <button class="btn primary" id="continue">Program is running — continue</button>
+      </div>
+    </section>
+
+    <section class="card" id="camcard">
+      <h2>Camera</h2>
+      <div class="cam">
+        <img id="cam" alt="" hidden>
+        <div id="camempty" class="empty"><b>No camera image</b><span id="camwhy">Press Start to switch the camera on.</span></div>
+        <div id="campaused" class="paused" hidden>Robot moving — recognition paused</div>
+      </div>
+      <div class="chips" id="chips"></div>
+    </section>
+
+    <section class="card" id="msgcard" hidden>
+      <h2>Messages</h2>
+      <div id="msgs"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card" id="controls">
+      <div id="startform">
+        <h2>Start</h2>
+        <div class="label" style="margin-top:0">What do you want to run?</div>
+        <div class="modes" id="modes"></div>
+        <div class="label">Which robot arm?</div>
+        <div class="seg" id="arms"></div>
+        <label class="check" id="rvizrow"><input type="checkbox" id="rviz"> Also open the 3D view (RViz) — for technicians</label>
+        <button class="big" id="start">Start</button>
+        <div class="note" id="startnote"></div>
+      </div>
+      <div id="runform" hidden>
+        <h2>Running</h2>
+        <div class="runinfo"><b id="runmode"></b><span class="muted" id="runmeta"></span></div>
+        <button class="big stop" id="stop">Stop</button>
+        <div class="note">Stop shuts the robot software down in an orderly way. <b>It is not an
+          emergency stop</b> — in an emergency, press the red E-stop button on the teach pendant.</div>
+      </div>
+    </section>
+
+    <section class="card" id="lightcard">
+      <h2>System</h2>
+      <div class="lights" id="lights"></div>
+    </section>
+
+    <section class="card" id="countcard">
+      <h2>This session</h2>
+      <div class="counts">
+        <div><div class="num okc" id="nsorted">0</div><div class="muted small">sorted</div></div>
+        <div><div class="num badc" id="nfailed">0</div><div class="muted small">could not sort</div></div>
+      </div>
+      <div class="bins" id="bins"></div>
+      <div id="queuewrap" hidden>
+        <div class="label">Waiting to be picked</div>
+        <div class="chips" id="queue" style="margin-top:0"></div>
+      </div>
+    </section>
+
+    <section class="card" id="eventcard">
+      <h2>Activity</h2>
+      <ul class="events" id="events"><li class="muted">Nothing yet.</li></ul>
+    </section>
+  </div>
+</main>
+
+<div style="padding: 0 20px 24px; max-width: 1500px; margin: 0 auto;">
+  <details class="card" id="details">
+    <summary>Technical details (for a technician)</summary>
+    <p class="small muted" id="logpath"></p>
+    <div class="logwrap"><pre id="log"></pre></div>
+  </details>
+</div>
+
+<div class="offline" id="offline" hidden>Lost connection to the dashboard. Is the computer running? Retrying…</div>
+
+<dialog id="confirm">
+  <form method="dialog" class="dlg">
+    <h3>Start the real robot?</h3>
+    <div class="muted">The robot will move. Please check each point:</div>
+    <label><input type="checkbox" class="cc"> Nobody is inside the robot's working area.</label>
+    <label><input type="checkbox" class="cc"> I can reach the red emergency-stop button on the teach pendant.</label>
+    <label><input type="checkbox" class="cc"> <span>The robot on the table is the <b id="confirmarm"></b> (check the label on the robot).</span></label>
+    <div class="row">
+      <button value="cancel" class="cancel">Cancel</button>
+      <button value="go" class="go" id="confirmgo" disabled>Start robot</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+
+// Tiny element builder. Everything shown here can come from log text, so it only
+// ever goes in through textContent — never innerHTML.
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+async function post(path, body) {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-RecycleBot": "1" },
+    body: JSON.stringify(body || {}),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+let config = null;
+let state = null;
+let selMode = store.get("rb.mode", "sim");   // Simulation is the safe default
+let selArm = store.get("rb.arm", null);
+let busyAction = false;
+
+// ---------------------------------------------------------------- start form
+
+function renderStartForm() {
+  const modes = $("modes");
+  modes.replaceChildren();
+  for (const m of config.modes) {
+    const b = el("button", "opt" + (m.key === selMode ? " sel" : "") + (m.real_robot ? " danger" : ""));
+    b.type = "button";
+    b.append(el("span", "radio"));
+    const t = el("div");
+    t.append(el("b", null, m.title), el("span", null, m.description));
+    b.append(t);
+    b.onclick = () => { selMode = m.key; store.set("rb.mode", m.key); renderStartForm(); };
+    modes.append(b);
+  }
+  const arms = $("arms");
+  arms.replaceChildren();
+  for (const a of config.arms) {
+    const b = el("button", "opt" + (a.key === selArm ? " sel" : ""));
+    b.type = "button";
+    const t = el("div");
+    t.append(el("b", null, a.title), el("span", null, `reach ${a.reach_mm} mm`));
+    b.append(t);
+    b.onclick = () => { selArm = a.key; store.set("rb.arm", a.key); renderStartForm(); };
+    arms.append(b);
+  }
+  const mode = config.modes.find((m) => m.key === selMode) || config.modes[0];
+  $("rvizrow").hidden = !mode.has_rviz;
+  const start = $("start");
+  start.className = "big" + (mode.real_robot ? " danger" : "");
+  start.textContent = mode.real_robot ? "Start the real robot…" : `Start ${mode.title.toLowerCase()}`;
+}
+
+async function doStart(confirmed) {
+  const mode = config.modes.find((m) => m.key === selMode);
+  busyAction = true; $("start").disabled = true; $("startnote").textContent = "";
+  try {
+    await post("/api/start", { mode: selMode, ur_type: selArm, rviz: $("rviz").checked, confirmed });
+  } catch (e) {
+    $("startnote").textContent = "Could not start: " + e.message;
+  } finally {
+    busyAction = false;
+  }
+  poll();
+}
+
+$("start").onclick = () => {
+  const mode = config.modes.find((m) => m.key === selMode);
+  if (!mode.real_robot) return doStart(false);
+  const arm = config.arms.find((a) => a.key === selArm);
+  $("confirmarm").textContent = arm ? arm.title : selArm;
+  document.querySelectorAll("#confirm .cc").forEach((c) => (c.checked = false));
+  $("confirmgo").disabled = true;
+  $("confirm").showModal();
+};
+document.querySelectorAll("#confirm .cc").forEach((c) => (c.onchange = () => {
+  $("confirmgo").disabled = ![...document.querySelectorAll("#confirm .cc")].every((x) => x.checked);
+}));
+$("confirm").addEventListener("close", () => {
+  if ($("confirm").returnValue === "go") doStart(true);
+});
+
+$("stop").onclick = async () => {
+  $("stop").disabled = true;
+  try { await post("/api/stop"); } catch (e) { alert("Could not stop: " + e.message); }
+  poll();
+};
+$("continue").onclick = async () => {
+  $("continue").disabled = true;
+  try { await post("/api/continue"); } catch (e) { alert(e.message); }
+  setTimeout(() => ($("continue").disabled = false), 3000);
+};
+
+// ---------------------------------------------------------------- rendering
+
+const PHASE_TONE = { watching: "ok", sorting: "ok", starting: "wait", waiting_pendant: "wait",
+                     moving: "wait", stopping: "wait", failed: "bad", external: "bad", stopped: "" };
+
+function fmtDuration(s) {
+  s = Math.max(0, Math.floor(s));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(sec).padStart(2, "0");
+}
+function fmtTime(t) {
+  return new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+let camWasOk = false;
+function render(s) {
+  const running = s.process_running;
+
+  // header + status
+  const mode = config.modes.find((m) => m.key === s.mode);
+  const arm = config.arms.find((a) => a.key === s.ur_type);
+  $("runpill").textContent = running ? `${mode ? mode.title : s.mode} · ${arm ? arm.title : s.ur_type}` : "Stopped";
+  $("runpill").className = "pill" + (running ? " live" : "");
+  $("status").className = "card " + (PHASE_TONE[s.phase] || "");
+  $("headline").textContent = s.headline;
+  $("detail").textContent = s.detail;
+  $("progress").hidden = !s.task;
+  if (s.task) $("progress").firstElementChild.style.width = Math.round(s.task.progress * 100) + "%";
+  const gateOpen = s.phase === "waiting_pendant";
+  $("gatebox").hidden = !gateOpen;
+  $("gatecount").textContent = s.gate.seconds_left != null ? s.gate.seconds_left + " s" : "a moment";
+  $("continue").hidden = !s.gate.can_continue;
+
+  $("safety").hidden = !s.safety;
+  $("safety").textContent = s.safety || "";
+
+  // controls
+  $("startform").hidden = running;
+  $("runform").hidden = !running;
+  if (!running) {
+    $("start").disabled = busyAction || s.external_run;
+    if (s.external_run) $("startnote").textContent = "Stop the other run first.";
+    else if ($("startnote").textContent === "Stop the other run first.") $("startnote").textContent = "";
+  } else {
+    $("runmode").textContent = mode ? mode.title : s.mode;
+    $("runmeta").textContent = `${arm ? arm.title : s.ur_type} · running for ${fmtDuration(Date.now() / 1000 - s.started_at)}`;
+    $("stop").disabled = s.stopping;
+    $("stop").textContent = s.stopping ? "Stopping…" : "Stop";
+  }
+
+  // camera
+  $("camempty").hidden = s.camera.ok;
+  $("cam").hidden = !s.camera.ok;
+  $("camwhy").textContent = running ? "Waiting for the camera to start…" : "Press Start to switch the camera on.";
+  $("campaused").hidden = !s.camera.paused;
+  if (s.camera.ok && !camWasOk) $("cam").src = "stream.mjpg?t=" + Date.now();
+  camWasOk = s.camera.ok;
+  const chips = $("chips");
+  chips.replaceChildren();
+  if (!s.detections.length) {
+    chips.append(el("span", "muted small", s.camera.ok ? "No items recognised right now." : ""));
+  }
+  for (const d of s.detections) {
+    const c = el("span", "chip" + (d.ignored ? " ignored" : ""));
+    c.append(el("b", null, d.label), " " + Math.round(d.conf * 100) + "% ");
+    if (d.ignored) c.append(el("span", "to", "— ignored: " + d.ignored));
+    else if (d.bin) c.append(el("span", "to", "→ " + d.bin));
+    chips.append(c);
+  }
+
+  // lights
+  const lights = $("lights");
+  lights.replaceChildren();
+  for (const l of s.lights) {
+    const row = el("div", "light");
+    row.append(el("span", "dot " + l.state), el("span", "name", l.label), el("span", "val", l.text));
+    lights.append(row);
+  }
+
+  // counts + queue
+  $("nsorted").textContent = s.counts.sorted;
+  $("nfailed").textContent = s.counts.failed;
+  const bins = $("bins");
+  bins.replaceChildren();
+  for (const [b, n] of Object.entries(s.counts.bins)) bins.append(el("span", "chip", `${b}: ${n}`));
+  $("queuewrap").hidden = !s.queue.length;
+  const q = $("queue");
+  q.replaceChildren();
+  for (const it of s.queue) {
+    const c = el("span", "chip");
+    c.append(el("b", null, it.label));
+    if (it.bin) c.append(el("span", "to", " → " + it.bin));
+    q.append(c);
+  }
+
+  // messages
+  $("msgcard").hidden = !s.hints.length;
+  const msgs = $("msgs");
+  msgs.replaceChildren();
+  for (const h of s.hints) {
+    const m = el("div", "msg " + h.severity);
+    m.append(el("p", null, h.text));
+    const x = el("button", "x", "×");
+    x.title = "Dismiss";
+    x.onclick = () => post("/api/dismiss", { key: h.key }).then(poll).catch(() => {});
+    m.append(x);
+    msgs.append(m);
+  }
+
+  // activity
+  const ev = $("events");
+  ev.replaceChildren();
+  if (!s.events.length) ev.append(el("li", "muted", "Nothing yet."));
+  for (const e of s.events) {
+    const li = el("li");
+    li.append(el("time", null, fmtTime(e.t)), el("span", e.severity, e.text));
+    ev.append(li);
+  }
+
+  $("logpath").textContent = s.log_path ? "Full log of this run: " + s.log_path.replace(/^.*\/logs\//, "logs/") + " (in the recyclebot folder)" : "";
+}
+
+// ---------------------------------------------------------------- polling
+
+let offline = false;
+async function poll() {
+  try {
+    const r = await fetch("api/state", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    state = await r.json();
+    if (offline) { offline = false; camWasOk = false; }   // reconnect the stream too
+    $("offline").hidden = true;
+    render(state);
+  } catch {
+    offline = true;
+    $("offline").hidden = false;
+  }
+}
+
+let logSeq = 0;
+let logRun = null;
+async function pollLog() {
+  if (!$("details").open || !state) return;
+  if (state.started_at !== logRun) {          // a new run: show only its output
+    logRun = state.started_at; logSeq = 0; $("log").textContent = "";
+  }
+  try {
+    const r = await fetch("api/log?after=" + logSeq, { cache: "no-store" });
+    const j = await r.json();
+    if (j.seq < logSeq) { logSeq = 0; $("log").textContent = ""; return; }
+    const pre = $("log");
+    const stick = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+    if (j.lines.length) {
+      pre.textContent += j.lines.map((l) => l[1]).join("\n") + "\n";
+      if (pre.textContent.length > 400000) pre.textContent = pre.textContent.slice(-300000);
+      logSeq = j.lines[j.lines.length - 1][0];
+    }
+    if (stick) pre.scrollTop = pre.scrollHeight;
+  } catch {}
+}
+
+setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }, 1000);
+
+(async function init() {
+  for (;;) {
+    try { config = await (await fetch("api/config", { cache: "no-store" })).json(); break; }
+    catch { $("offline").hidden = false; await new Promise((r) => setTimeout(r, 2000)); }
+  }
+  if (!config.modes.some((m) => m.key === selMode)) selMode = "sim";
+  if (!config.arms.some((a) => a.key === selArm)) selArm = config.default_ur_type;
+  renderStartForm();
+  await poll();
+  setInterval(poll, 700);
+  setInterval(pollLog, 1000);
+})();
+</script>
+</body>
+</html>

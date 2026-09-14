@@ -9,6 +9,7 @@ CV based pick-and-place system for trash sorting using ROS2 Jazzy inside a conta
 - [Overview](#overview)
 - [System Requirements](#system-requirements)
 - [Setup & Run](#setup--run)
+- [Operator Dashboard](#operator-dashboard)
 - [Run Modes](#run-modes)
 - [Robot Arms (UR16e / UR3e)](#robot-arms-ur16e--ur3e)
 - [macOS Docker Quickstart](#macos-docker-quickstart)
@@ -118,6 +119,73 @@ source /ros_entrypoint.sh
 colcon build --cmake-clean-first
 source install/setup.bash
 ```
+
+---
+
+## Operator Dashboard
+
+Once steps 1–4 above have been done on a machine, day-to-day running needs no
+terminal. A technician installs a desktop icon once:
+
+```bash
+./start_recyclebot.sh --install-shortcut
+```
+
+Double-clicking **RecycleBot** then does every per-run step of this README and
+opens the dashboard at <http://localhost:8080>:
+
+1. checks Docker is running and usable
+2. runs `export_env.sh` (regenerates `.env`, re-grants display access)
+3. starts the container — building the image first if it does not exist (~30 min)
+4. runs `colcon build` only if anything under `packages/` or `test_suite/`
+   changed since the last build, matching the workspace's existing symlink/copy layout
+5. starts the dashboard node and opens the browser
+
+`./start_recyclebot.sh` run from a terminal does the same. `./start_recyclebot.sh --stop`
+shuts the robot software and the dashboard down.
+
+**From the page** the operator picks a mode — *Simulation*
+(`rec_bot_fake.launch.py`), *Camera check* (`rec_bot_vision_only.launch.py`) or
+*Real robot* (`rec_bot.launch.py`) — and an arm, then presses Start. The page
+opens on Simulation. Real robot asks the operator to confirm three safety checks
+first. While the launch gate is open the page tells them to press Play on
+External Control, and continues by itself as soon as the driver reports the
+program running (`/io_and_status_controller/robot_program_running`). That
+replaces the manual `/launch_gate` call. **Stop** stops External Control through
+the UR dashboard server, then shuts the launch down like Ctrl+C. It is not an
+emergency stop, and the page says so.
+
+What it shows:
+
+- the live camera image with detections drawn on and each item's destination
+  bin. Items `rec_bot_core` will drop (below `min_confidence`, outside the depth
+  range) are drawn grey and labelled with the reason, since the raw
+  `/object_detections` stream includes them.
+- status lights for arm, pendant program, camera, object recognition and gripper
+- a red banner for protective stop, E-stop, safeguard stop or arm powered off
+- the current pick-place step with a progress bar, the waiting queue, and sorted/failed counts per bin
+- plain-language messages for known failures (wrong arm, camera unplugged,
+  gripper offline, item out of reach…), which clear once the cause is fixed
+- the full launch output under *Technical details*, also saved to
+  `logs/dashboard/<time>_<mode>_<arm>.log`
+
+The dashboard starts RViz only if the operator ticks the 3D-view box. It passes
+`launch_rviz:=false` otherwise; that argument now exists on `rec_bot.launch.py`
+and `rec_bot_vision_only.launch.py` and defaults to `true`, so existing commands
+are unchanged.
+
+**Access.** The page listens on `127.0.0.1` only, because anyone who can open it
+can start the real robot. POSTs require a custom header, and the Host header is
+checked, so another website open in the same browser cannot press Start. To
+reach it from a tablet on a trusted cell network, start the node yourself with
+`ros2 run recycle_bot dashboard --ros-args -p bind_address:=0.0.0.0`.
+
+**How it works.** `recycle_bot/dashboard.py` is a passive observer. It publishes
+no detections or goals, and its only service calls are `/launch_gate` and
+`/dashboard_client/stop`. `rec_bot_control` publishes no task state, so the
+dashboard follows tasks by reading control's log lines on `/rosout`.
+`test_suite/test/test_dashboard.py` fails if one of the messages it parses is
+reworded in the node that prints it.
 
 ---
 
@@ -569,6 +637,7 @@ actually do. Two things it surfaces that a live view does not:
 | Test Suite | Command | Description |
 |------------|---------|-------------|
 | Robot Profiles | `python3 -m pytest test/test_robot_profiles.py` | 14 fast config checks, no hardware or ROS graph |
+| Dashboard | `python3 -m pytest test/test_dashboard.py` | Operator dashboard's log parsing, and that the messages it parses still exist in the nodes; no ROS graph |
 | Vision Workflow | `ros2 launch test_suite test_vision_workflow.launch.py` | 7 tests with fake camera |
 | E2E Pipeline | `ros2 launch test_suite test_e2e_pipeline.launch.py` | 13 tests: vision → core → gripper → MoveIt |
 | **Real Robot Motion** | `ros2 launch test_suite test_real_control_robot_motion.launch.py` | **4 tests: pick-place with real UR virtual robot** |
