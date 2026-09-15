@@ -10,6 +10,7 @@ on:
       - 'packages/recycle_bot/config/**'
       - 'packages/recycle_bot_moveit_config/**'
       - 'test_suite/test/test_robot_profiles.py'
+      - 'test_suite/test/test_fallback_pick.py'
       - 'test_suite/test/test_vision_workflow.py'
       - 'test_suite/test_suite/**'
       - 'test_suite/scripts/**'
@@ -27,6 +28,7 @@ on:
       - 'packages/recycle_bot/config/**'
       - 'packages/recycle_bot_moveit_config/**'
       - 'test_suite/test/test_robot_profiles.py'
+      - 'test_suite/test/test_fallback_pick.py'
       - 'test_suite/test/test_vision_workflow.py'
       - 'test_suite/test_suite/**'
       - 'test_suite/scripts/**'
@@ -85,7 +87,7 @@ jobs:
         run: |
           docker exec recyclebot-dev-1 /ros_entrypoint.sh bash -c "
             cd ~/ros2_ws/src/test_suite &&
-            python3 -m pytest test/test_robot_profiles.py -v
+            python3 -m pytest test/test_robot_profiles.py test/test_fallback_pick.py -v
           "
 
       - name: Run vision workflow tests

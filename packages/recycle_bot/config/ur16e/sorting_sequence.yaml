@@ -91,6 +91,31 @@ bin_routing:
 # bin used for any detected label without a bin_routing entry
 default_bin: general_waste
 
+# Fallback pick: for when recognition fails (poor light, an unknown item). Put an
+# item on the spot below, then call /fallback_pick (or press "Pick from the
+# marked spot" on the dashboard). rec_bot_core measures the item's height with
+# the depth camera and sends a normal pick; x/y are used exactly as written.
+# There is no bin_routing rule for it, so it goes to default_bin.
+#
+# position: [x, y] in the UR "base" frame, like every pose in this file. No z —
+#   the height is always measured.
+#
+# NOT TAUGHT. Placed directly beneath the camera, from calibration.yaml's
+# translation [0.35, -0.29] in base_link (negated for "base"), where the depth
+# reading runs along the optical axis. 0.489 m from the shoulder at table
+# height, well inside the envelope. MARK THIS SPOT ON THE TABLE.
+#
+# min_surface_z_m: measured surface lower than this = nothing on the spot, and
+#   the pick is refused. NOT MEASURED on this cell: 0.0 assumes the table
+#   projects a little below z = 0, as the simulated camera's table (0.624 m
+#   deep, camera at 0.61) does. Check what an empty spot measures (rec_bot_core
+#   logs it on every refusal) before relying on it.
+# sample_size_m: the height is the median depth over a square this wide.
+fallback_pick:
+  position: [-0.35, 0.29]
+  min_surface_z_m: 0.0
+  sample_size_m: 0.03
+
 # legacy round-robin sequence (not read by the code anymore; kept for reference)
 sorting_sequence:
   - target_bin_1: { position: [0.425, -0.391, 0.487], orientation: [1.0, 0.0, 0.0, 0.0] }

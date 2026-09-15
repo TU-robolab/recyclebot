@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import os
+import time
 import yaml
 from threading import Lock
 
 # ros imports
 import rclpy
+import rclpy.time
 import tf2_ros
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
@@ -16,8 +18,25 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy, DurabilityPolicy
 from image_geometry import PinholeCameraModel
 from geometry_msgs.msg import Pose, Quaternion, TransformStamped
+from std_msgs.msg import Bool
+from std_srvs.srv import Trigger
+from cv_bridge import CvBridge
 
+from recycle_bot.fallback_pick import (
+    DEPTH_SCALE_BY_ENCODING,
+    FALLBACK_LABEL,
+    FallbackPickError,
+    Pinhole,
+    RigidTransform,
+    measure_pick_height,
+    parse_config as parse_fallback_config,
+    sample_depth,
+)
 from recycle_bot.robot_profile import config_path, profile, resolve_ur_type
+
+# A fallback pick measures height from the latest depth frame; older than this
+# and the camera has probably stopped, so the reading would describe the past.
+FALLBACK_MAX_FRAME_AGE_S = 2.0
 
 class RecBotCore(Node):
 
@@ -35,13 +54,35 @@ class RecBotCore(Node):
         self.get_logger().info(f"rec_bot_core starting for {self.profile}")
 
         # RGBD data (protected by rgbd_lock)
-        self.rgbd_lock = Lock()  # protects: last_depth_image, last_camera_info, last_depth_info
+        self.rgbd_lock = Lock()  # protects: last_depth_image, last_camera_info, last_depth_info, last_rgbd_time
         self.last_depth_image = None
         self.last_camera_info = None
         self.last_depth_info = None
+        self.last_rgbd_time = 0.0
 
         # detection filtering config (loaded from YAML with defaults)
         self.load_filter_config()
+
+        # Fallback pick (see recycle_bot/fallback_pick.py): /fallback_pick picks
+        # whatever sits on a configured spot, measuring only its height — for
+        # when recognition fails. Needs "base" -> camera TF to find the spot in
+        # the depth image, and the robot-busy latch so it never measures while
+        # the arm is in view.
+        self.fallback = self.load_fallback_config()
+        self.bridge = CvBridge()
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.robot_busy = False
+        busy_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            Bool, "/rec_bot/robot_busy", self._robot_busy_callback, busy_qos
+        )
+        self.create_service(Trigger, "/fallback_pick", self.fallback_pick_callback)
 
         # setup ROS quality of service for camera frames
         qos_camera_feed = QoSProfile(
@@ -93,7 +134,110 @@ class RecBotCore(Node):
             self.last_depth_image = msg.depth
             self.last_camera_info = msg.rgb_camera_info
             self.last_depth_info  = msg.depth_camera_info
-        
+            self.last_rgbd_time = time.monotonic()
+
+    def _robot_busy_callback(self, msg: Bool):
+        self.robot_busy = msg.data
+
+    def load_fallback_config(self):
+        """fallback_pick from sorting_sequence.yaml, or None (service then refuses)."""
+        yaml_path = config_path(self.ur_type, "sorting_sequence.yaml")
+        try:
+            with open(yaml_path, 'r') as file:
+                cfg = parse_fallback_config(yaml.safe_load(file))
+        except Exception as e:
+            self.get_logger().error(f"Fallback pick disabled: bad fallback_pick in {yaml_path}: {e}")
+            return None
+        if cfg is None:
+            self.get_logger().info(f"Fallback pick disabled: no fallback_pick in {yaml_path}")
+        else:
+            self.get_logger().info(
+                f"Fallback pick spot: ({cfg.x:.3f}, {cfg.y:.3f}) in base; "
+                "call /fallback_pick to pick from it"
+            )
+        return cfg
+
+    def fallback_pick_callback(self, request, response):
+        try:
+            response.message = self.fallback_pick()
+            response.success = True
+        except FallbackPickError as e:
+            detail = f" ({e.detail})" if e.detail else ""
+            self.get_logger().warn(f"Fallback pick refused: {e}{detail}")
+            response.success = False
+            response.message = str(e)
+        return response
+
+    def fallback_pick(self) -> str:
+        """Measure the height on the fallback spot and send a pick there to control.
+
+        The pick goes out on /vision/detected_object like any detection, but in
+        the "base" frame with the configured x/y kept exactly — only z is
+        measured. Control then applies its usual reach check, duplicate-task
+        rejection and routing (the label has no bin_routing rule, so it goes to
+        default_bin).
+        """
+        if self.fallback is None:
+            raise FallbackPickError(
+                f"No fallback spot is configured for the {self.ur_type}. A "
+                "technician can add fallback_pick to sorting_sequence.yaml.")
+        # Same reason vision gates capture on this: with the arm in view the
+        # depth at the spot is the arm, and the pick would aim at thin air.
+        if self.robot_busy:
+            raise FallbackPickError("The robot is moving. Wait until it stops, then try again.")
+
+        with self.rgbd_lock:
+            depth_msg = self.last_depth_image
+            camera_info = self.last_camera_info
+            frame_age = time.monotonic() - self.last_rgbd_time
+        if depth_msg is None or camera_info is None or frame_age > FALLBACK_MAX_FRAME_AGE_S:
+            raise FallbackPickError("No camera image. Check that the camera is running.")
+
+        scale = DEPTH_SCALE_BY_ENCODING.get(depth_msg.encoding)
+        if scale is None:
+            raise FallbackPickError(f"Unsupported depth encoding '{depth_msg.encoding}'.")
+
+        frame_id = depth_msg.header.frame_id
+        try:
+            tf = self.tf_buffer.lookup_transform(frame_id, "base", rclpy.time.Time())
+        except tf2_ros.TransformException as e:
+            raise FallbackPickError(
+                f"Cannot place the spot in the camera image yet (no transform "
+                f"'base' -> '{frame_id}': {e}). Is the robot driver running?")
+
+        depth = self.bridge.imgmsg_to_cv2(depth_msg, "passthrough")
+        reading = measure_pick_height(
+            self.fallback,
+            RigidTransform.from_msg(tf.transform),
+            Pinhole.from_camera_info(camera_info),
+            lambda u, v, half_px: sample_depth(depth, u, v, half_px, scale),
+            self.min_depth_m,
+            self.max_depth_m,
+        )
+
+        x, y, z = self.fallback.x, self.fallback.y, reading.z
+        self.get_logger().info(
+            f"Fallback pick: surface at z={z:.3f} m on the spot ({x:.3f}, {y:.3f}) in base "
+            f"(depth {reading.depth_m:.3f} m around pixel "
+            f"({reading.pixel[0]:.0f}, {reading.pixel[1]:.0f}))"
+        )
+
+        out = Detection3D()
+        out.header.stamp = self.get_clock().now().to_msg()
+        out.header.frame_id = "base"
+        hypothesis = ObjectHypothesisWithPose()
+        hypothesis.hypothesis.class_id = FALLBACK_LABEL
+        # score stays 0.0: there is no recognition behind this pick, and nothing
+        # downstream of core filters on confidence
+        hypothesis.pose.pose.position.x = x
+        hypothesis.pose.pose.position.y = y
+        hypothesis.pose.pose.position.z = z
+        hypothesis.pose.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+        out.results.append(hypothesis)
+        self.detected_object_pub.publish(out)
+
+        return f"Picking at x={x:.3f}, y={y:.3f}, z={z:.3f} m (base frame)"
+
     def load_filter_config(self):
         """
         Load detection filter config from YAML with defaults.

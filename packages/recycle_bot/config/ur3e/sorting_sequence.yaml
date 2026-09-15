@@ -185,6 +185,36 @@ bin_routing:
 # bin used for any detected label without a bin_routing entry
 default_bin: general_waste
 
+# Fallback pick: for when recognition fails (poor light, an unknown item). Put an
+# item on the spot below, then call /fallback_pick (or press "Pick from the
+# marked spot" on the dashboard). rec_bot_core measures the item's height with
+# the depth camera and sends a normal pick; x/y are used exactly as written.
+# There is no bin_routing rule for it, so it goes to default_bin.
+#
+# position: [x, y] in the UR "base" frame, like every pose in this file. No z —
+#   the height is always measured.
+#
+# NOT TAUGHT. Placed directly beneath the camera, from calibration.yaml's
+# translation [0.307, 0.058] in base_link (negated for "base"). That is the best
+# place for it until someone chooses otherwise: the depth reading there runs
+# along the optical axis, and the camera's still-unverified yaw cannot move a
+# point on that axis. 0.347 m from the shoulder at table height, 0.312 m from
+# the base axis — inside the envelope, outside the 0.20 m dead zone.
+# MARK THIS SPOT ON THE TABLE. If the camera is re-measured, move it with it.
+#
+# min_surface_z_m: if the measured surface is lower than this, the spot counts
+#   as empty and the pick is refused, rather than driving the cup into the
+#   table. The table reads 0.642 m deep against a modelled camera height of
+#   0.630 (see the z note in calibration.yaml), so it projects to z = -0.012.
+#   0.0 therefore needs an item at least ~12 mm tall. Lower it towards -0.005
+#   for flatter items, never below the table's -0.012.
+# sample_size_m: the height is the median depth over a square this wide,
+#   centred on the spot — smaller than the items you will use.
+fallback_pick:
+  position: [-0.307, -0.058]
+  min_surface_z_m: 0.0
+  sample_size_m: 0.03
+
 approach_height_m: 0.05  # meters above pick/place for approach/retreat
 place_transit_height_m: 0.05  # optional higher Step 7 fallback height; keep equal to approach height unless a taller above-bin waypoint is known to be reachable
 place_yaw_candidates_deg: [90.0, -90.0, 180.0, 0.0]  # Step 7/8 may rotate wrist yaw while keeping the tool vertical, avoiding unreachable exact-quaternion place goals

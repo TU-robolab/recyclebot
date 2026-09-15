@@ -6,8 +6,10 @@ from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
     IncludeLaunchDescription,
+    LogInfo,
     OpaqueFunction,
     RegisterEventHandler,
+    TimerAction,
 )
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -47,6 +49,7 @@ def launch_setup(context, *args, **kwargs):
     rviz_config = LaunchConfiguration("rviz_config").perform(context).strip()
     rviz_args = ["-d", rviz_config] if rviz_config else []
     launch_rviz = LaunchConfiguration("launch_rviz").perform(context).lower() != "false"
+    headless = LaunchConfiguration("headless_mode").perform(context).lower() != "false"
 
     # Robot IP: resolved per-arm (UR3E_ROBOT_IP / UR16E_ROBOT_IP), falling back
     # to the single-robot REMOTE_IP that export_env.sh writes.
@@ -92,6 +95,7 @@ def launch_setup(context, *args, **kwargs):
         "tool_stop_bits": "1",
         "tool_rx_idle_chars": "1.5",
         "tool_tx_idle_chars": "3.5",
+        "headless_mode": "true" if headless else "false",
     }
 
     # Per-robot kinematic calibration exported from that arm's teach pendant.
@@ -120,7 +124,36 @@ def launch_setup(context, *args, **kwargs):
     )
 
     # =========================================================================
-    # Stage 2b: Wait gate — operator enables External Control URCap
+    # Stage 2b (headless_mode:=true, the default): the driver sends the External
+    # Control URScript to the robot itself, so nobody has to open and Play a
+    # program on the pendant — the pendant only has to be in Remote Control.
+    # There is no gate: the remaining nodes start after a short delay, and
+    # rec_bot_control's own startup wait holds its first move until the
+    # trajectory controller is active.
+    #
+    # No Polyscope program is loaded, so /dashboard_client/play has nothing to
+    # play. Instead confirm the script via the driver's robot_program_running
+    # flag and, if it is not up yet, re-send it with resend_robot_program (the
+    # documented headless-mode recovery call).
+    # =========================================================================
+    program_check = ExecuteProcess(
+        cmd=["bash", "-c",
+             "for i in $(seq 1 20); do "
+             "if timeout 10 ros2 topic echo --once /io_and_status_controller/robot_program_running 2>/dev/null "
+             "| grep -q 'data: true'; then "
+             "echo '[program] External Control program running'; exit 0; fi; "
+             "echo \"[program] not running yet (attempt $i/20); calling resend_robot_program\"; "
+             "timeout 10 ros2 service call /io_and_status_controller/resend_robot_program std_srvs/srv/Trigger 2>&1 | tail -1; "
+             "sleep 3; "
+             "done; "
+             "echo '[program] WARNING: could not confirm program running - check remote mode / External Control'; "
+             "exit 0"],
+        output="screen",
+    )
+
+    # =========================================================================
+    # Stage 2b (headless_mode:=false): Wait gate — operator enables External
+    # Control URCap on the pendant.
     #   Waits for:
     #     ros2 service call /launch_gate std_srvs/srv/Trigger   (instant)
     #   OR timeout (default wait_timeout seconds, configurable via launch arg)
@@ -207,6 +240,38 @@ def launch_setup(context, *args, **kwargs):
         parameters=[{"ur_type": ur_type}],
     )
 
+    remaining_nodes = [
+        realsense_launch,
+        vision_node,
+        core_node,
+        control_node,
+        grip_launch,
+        viz_node,
+        *([rviz_node] if launch_rviz else []),
+    ]
+
+    if headless:
+        # Stage 2: after cleanup → UR driver; 5 s later the program check and
+        # everything else
+        start_after_cleanup = RegisterEventHandler(
+            OnProcessExit(
+                target_action=cleanup,
+                on_exit=[
+                    ur_robot_driver_launch,
+                    TimerAction(
+                        period=5.0,
+                        actions=[
+                            LogInfo(msg=">>> Headless mode: starting the External "
+                                        "Control program from the driver..."),
+                            program_check,
+                            *remaining_nodes,
+                        ],
+                    ),
+                ],
+            )
+        )
+        return [cleanup, start_after_cleanup]
+
     # Stage 2: after cleanup → start UR driver + wait gate
     start_after_cleanup = RegisterEventHandler(
         OnProcessExit(
@@ -222,15 +287,7 @@ def launch_setup(context, *args, **kwargs):
     start_after_gate = RegisterEventHandler(
         OnProcessExit(
             target_action=wait_gate,
-            on_exit=[
-                realsense_launch,
-                vision_node,
-                core_node,
-                control_node,
-                grip_launch,
-                viz_node,
-                *([rviz_node] if launch_rviz else []),
-            ],
+            on_exit=remaining_nodes,
         )
     )
 
@@ -238,7 +295,20 @@ def launch_setup(context, *args, **kwargs):
 
 
 def generate_launch_description():
-    # Launch argument: seconds to wait for teach pendant before auto-continuing.
+    # Headless by default: the driver starts the robot program itself, so the
+    # operator never has to open and Play External Control on the pendant (the
+    # pendant must be in Remote Control mode). false = the pendant program +
+    # launch gate flow.
+    headless_mode_arg = DeclareLaunchArgument(
+        "headless_mode",
+        default_value="true",
+        description="Driver sends the robot program itself (pendant in Remote "
+                    "Control). false: open External Control on the pendant and "
+                    "press Play, released through the launch gate.",
+    )
+
+    # Launch argument (headless_mode:=false only): seconds to wait for the teach
+    # pendant before auto-continuing.
     # 60 s gives the operator time to walk to the pendant; call the /launch_gate
     # service to continue immediately.
     wait_timeout_arg = DeclareLaunchArgument(
@@ -279,6 +349,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            headless_mode_arg,
             wait_timeout_arg,
             ur_type_arg,
             verify_robot_arg,

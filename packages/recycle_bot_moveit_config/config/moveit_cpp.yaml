@@ -87,6 +87,21 @@ ompl_rrtc:
     max_acceleration_scaling_factor: 0.5
     planning_time: 1.0
 
+# Same planner with a longer search, for going to neutral from an arbitrary pose
+# (see rec_bot_control.return_to_neutral). Pilz PTP is tried first there, but it
+# only interpolates joints in a straight line: from a pose like the UR home
+# (arm straight up) that line folds the E-Pick through the upper arm, and no
+# amount of time changes a straight line. RRTConnect searches around it; the
+# 1 s budget above is tuned for short moves, not a whole-arm reconfiguration.
+ompl_rrtc_long:
+  plan_request_params:
+    planning_attempts: 10
+    planning_pipeline: ompl
+    planner_id: "RRTConnectkConfigDefault"
+    max_velocity_scaling_factor: 0.5
+    max_acceleration_scaling_factor: 0.5
+    planning_time: 5.0
+
 ompl_prmstar:
   plan_request_params:
     planning_attempts: 1

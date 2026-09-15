@@ -119,6 +119,9 @@
   .runinfo b { font-size: 20px; display: block; }
   .btn { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; padding: 8px 14px; font-weight: 600; }
   .btn.primary { background: var(--wait); color: #fff; border-color: transparent; }
+  .btn.wide { width: 100%; margin-top: 10px; padding: 12px 14px; }
+  .fallback { margin-top: 16px; padding-top: 4px; border-top: 1px solid var(--line); }
+  .fallback .label { margin-top: 12px; }
 
   /* lights */
   .lights { display: grid; gap: 10px; }
@@ -233,6 +236,14 @@
         <button class="big stop" id="stop">Stop</button>
         <div class="note">Stop shuts the robot software down in an orderly way. <b>It is not an
           emergency stop</b> — in an emergency, press the red E-stop button on the teach pendant.</div>
+        <div id="fallbackbox" class="fallback" hidden>
+          <div class="label">Items not being recognised?</div>
+          <div class="muted small">For example in poor light. Put one item on the spot marked on
+            the table, then press the button. The robot measures its height and puts it in
+            <span id="fallbackbin">the default bin</span>.</div>
+          <button class="btn wide" id="fallback">Pick from the marked spot</button>
+          <div class="note" id="fallbacknote"></div>
+        </div>
       </div>
     </section>
 
@@ -278,6 +289,7 @@
     <label><input type="checkbox" class="cc"> Nobody is inside the robot's working area.</label>
     <label><input type="checkbox" class="cc"> I can reach the red emergency-stop button on the teach pendant.</label>
     <label><input type="checkbox" class="cc"> <span>The robot on the table is the <b id="confirmarm"></b> (check the label on the robot).</span></label>
+    <label><input type="checkbox" class="cc"> <span>The teach pendant is in <b>Remote Control</b> mode (tap the mode icon at the top right of its screen).</span></label>
     <div class="row">
       <button value="cancel" class="cancel">Cancel</button>
       <button value="go" class="go" id="confirmgo" disabled>Start robot</button>
@@ -392,9 +404,26 @@ $("continue").onclick = async () => {
   setTimeout(() => ($("continue").disabled = false), 3000);
 };
 
+// The answer to the last press stays up a while; otherwise the note says why
+// the button is disabled.
+let fallbackPending = false;
+let fallbackMsg = null;   // { text, t }
+$("fallback").onclick = async () => {
+  fallbackPending = true; $("fallback").disabled = true;
+  try {
+    const j = await post("/api/fallback_pick");
+    fallbackMsg = { text: j.message, t: Date.now() };
+  } catch (e) {
+    fallbackMsg = { text: "Not picked: " + e.message, t: Date.now() };
+  } finally {
+    fallbackPending = false;
+  }
+  poll();
+};
+
 // ---------------------------------------------------------------- rendering
 
-const PHASE_TONE = { watching: "ok", sorting: "ok", starting: "wait", waiting_pendant: "wait",
+const PHASE_TONE = { watching: "ok", sorting: "ok", starting: "wait", waiting_pendant: "wait", waiting_remote: "wait",
                      moving: "wait", stopping: "wait", failed: "bad", external: "bad", stopped: "" };
 
 function fmtDuration(s) {
@@ -441,6 +470,11 @@ function render(s) {
     $("stop").disabled = s.stopping;
     $("stop").textContent = s.stopping ? "Stopping…" : "Stop";
   }
+  $("fallbackbox").hidden = !s.fallback.shown;
+  $("fallbackbin").textContent = s.fallback.bin || "the default bin";
+  $("fallback").disabled = fallbackPending || !!s.fallback.blocker;
+  if (fallbackMsg && Date.now() - fallbackMsg.t > 10000) fallbackMsg = null;
+  $("fallbacknote").textContent = fallbackMsg ? fallbackMsg.text : (s.fallback.blocker || "");
 
   // camera
   $("camempty").hidden = s.camera.ok;

@@ -147,11 +147,14 @@ shuts the robot software and the dashboard down.
 **From the page** the operator picks a mode — *Simulation*
 (`rec_bot_fake.launch.py`), *Camera check* (`rec_bot_vision_only.launch.py`) or
 *Real robot* (`rec_bot.launch.py`) — and an arm, then presses Start. The page
-opens on Simulation. Real robot asks the operator to confirm three safety checks
-first. While the launch gate is open the page tells them to press Play on
-External Control, and continues by itself as soon as the driver reports the
-program running (`/io_and_status_controller/robot_program_running`). That
-replaces the manual `/launch_gate` call. **Stop** stops External Control through
+opens on Simulation. Real robot asks the operator to confirm four checks first,
+the last being that the teach pendant is in Remote Control mode. `rec_bot.launch.py`
+runs headless (see below), so the robot program starts by itself; until the
+driver reports it running, the status banner repeats the Remote Control
+reminder (except under a safety stop, which has its own red banner). (Under
+`headless_mode:=false` the page instead tells the operator to press Play on
+External Control and releases the launch gate itself once the program runs.)
+**Stop** stops External Control through
 the UR dashboard server, then shuts the launch down like Ctrl+C. It is not an
 emergency stop, and the page says so.
 
@@ -180,9 +183,15 @@ checked, so another website open in the same browser cannot press Start. To
 reach it from a tablet on a trusted cell network, start the node yourself with
 `ros2 run recycle_bot dashboard --ros-args -p bind_address:=0.0.0.0`.
 
+**Pick from the marked spot.** While a robot mode runs, the Running card offers
+a [fallback pick](#fallback-pick-when-recognition-fails) for when items are not
+being recognised. The button is disabled while the robot moves or is still
+starting, and it shows why.
+
 **How it works.** `recycle_bot/dashboard.py` is a passive observer. It publishes
-no detections or goals, and its only service calls are `/launch_gate` and
-`/dashboard_client/stop`. `rec_bot_control` publishes no task state, so the
+no detections or goals, and its only service calls are `/launch_gate`,
+`/dashboard_client/stop`, and `/fallback_pick` when the operator presses that
+button. `rec_bot_control` publishes no task state, so the
 dashboard follows tasks by reading control's log lines on `/rosout`.
 `test_suite/test/test_dashboard.py` fails if one of the messages it parses is
 reworded in the node that prints it.
@@ -203,19 +212,61 @@ ros2 launch recycle_bot rec_bot.launch.py
 ros2 launch recycle_bot rec_bot.launch.py ur_type:=ur3e
 ```
 
-`rec_bot.launch.py` starts a launch gate while the operator enables External Control on the teach pendant. Continue immediately with:
+`rec_bot.launch.py` runs the UR driver in **headless mode** by default: the
+driver sends the External Control program to the robot itself, so nothing has to
+be opened or played on the teach pendant. Before launching:
+
+- the arm is powered on with its brakes released
+- the pendant is in **Remote Control** mode (top right of the PolyScope screen;
+  enable it once under Settings → System → Remote Control)
+
+The remaining nodes start 5 s after the driver. A background check waits for
+`/io_and_status_controller/robot_program_running` and re-sends the program
+(`resend_robot_program`) if it has not started; after 20 tries it prints
+`could not confirm program running`, which the dashboard shows as a message.
+
+Note what this removes: nobody has to be at the pendant for the robot to start
+moving. The startup move to neutral follows as soon as the controller is up.
+
+The previous flow — open External Control on the pendant, press Play, then
+release the launch gate — is still available:
 
 ```bash
-ros2 service call /launch_gate std_srvs/srv/Trigger "{}"
+ros2 launch recycle_bot rec_bot.launch.py headless_mode:=false
+ros2 service call /launch_gate std_srvs/srv/Trigger "{}"   # or wait wait_timeout (60 s)
 ```
 
-Or wait for the launch timeout (default: 30s).
+`rec_bot_2.launch.py` was the headless variant before it became the default; it
+lacks `launch_rviz:=`, the calibration warning and the gate option.
 
 ### Full System (Mock UR + Fake Camera + Mock Gripper)
 
 ```bash
 ros2 launch recycle_bot rec_bot_fake.launch.py
 ```
+
+### Fallback pick (when recognition fails)
+
+If YOLO stops recognising items, for example in poor light, the robot can
+still pick from one fixed spot on the table. Put an item on the spot, then:
+
+```bash
+ros2 service call /fallback_pick std_srvs/srv/Trigger "{}"
+```
+
+or press **Pick from the marked spot** on the dashboard. `rec_bot_core` reads
+the item's height from the depth camera at that spot. It then sends a normal
+pick on `/vision/detected_object` with the configured x/y. `rec_bot_control`
+treats it like any detection (reach check, duplicate rejection, the full 10-step
+sequence). It has no `bin_routing` rule, so it goes to `default_bin`.
+
+The spot is `fallback_pick.position` in `config/<ur_type>/sorting_sequence.yaml`,
+as `[x, y]` in the UR `base` frame; there is no z. On both arms it defaults to
+the point directly under the camera. **Mark it on the table.** The request is
+refused, with a reason, if the robot is moving, the camera has no image, there
+is no depth at the spot, or the spot is empty (measured surface below
+`min_surface_z_m`). Refusals are logged by `rec_bot_core` with the measured
+numbers, which is how to tune `min_surface_z_m` on a new cell.
 
 ### Smoke Test (Real UR, no camera)
 

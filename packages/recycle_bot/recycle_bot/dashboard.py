@@ -10,14 +10,18 @@ page a non-technical operator can:
   * watch the live camera image with the YOLO detections drawn on it, and see
     which bin each detected item is headed for;
   * follow what the robot is doing in plain language, and get a readable hint
-    when something goes wrong (camera unplugged, wrong arm, gripper offline...).
+    when something goes wrong (camera unplugged, wrong arm, gripper offline...);
+  * when recognition fails (poor light), ask for a fallback pick of whatever
+    sits on the spot marked on the table (recycle_bot/fallback_pick.py).
 
 It is a passive observer of the pipeline. Everything it knows comes from what the
 existing nodes already publish — /rosout, /rec_bot/camera_image,
 /object_detections, /rec_bot/robot_busy, the UR driver's status topics. It never
-publishes a detection or a motion goal. The only services it calls are
-/launch_gate (the call the README has the operator type by hand) and the UR
-dashboard's /dashboard_client/stop when Stop is pressed on the real robot.
+publishes a detection or a motion goal itself. The only services it calls are
+/launch_gate (the call the README has the operator type by hand), the UR
+dashboard's /dashboard_client/stop when Stop is pressed on the real robot, and
+rec_bot_core's /fallback_pick when the operator presses its button — core then
+decides whether there is anything to pick.
 
 The launch runs as a child `ros2 launch` in its own session, so Stop can signal
 the whole process group the way Ctrl+C in a terminal would.
@@ -42,6 +46,8 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
+
+from recycle_bot.fallback_pick import FALLBACK_LABEL
 
 
 # =============================================================================
@@ -91,6 +97,11 @@ def arm_title(ur_type: str) -> str:
     return ur_type[:-1].upper() + ur_type[-1] if ur_type.endswith("e") else ur_type.upper()
 
 
+# Labels that are not YOLO classes. Worded to fit the sentences they land in:
+# "Found a …", "Sorting: … → bin", "Sorted the …".
+DISPLAY_NAMES = {FALLBACK_LABEL: "marked-spot item"}
+
+
 def pretty_name(raw: Optional[str]) -> str:
     """YOLO labels and bin names are identifiers; show them as words.
 
@@ -99,6 +110,8 @@ def pretty_name(raw: Optional[str]) -> str:
     """
     if not raw:
         return ""
+    if raw in DISPLAY_NAMES:
+        return DISPLAY_NAMES[raw]
     return re.sub(r"[-_]+", " ", raw).strip()
 
 
@@ -122,6 +135,26 @@ def detection_ignored_reason(conf: float, depth_m: float, flt: dict) -> Optional
         return "too close to the camera"
     if depth_m > flt["max_depth_m"]:
         return "too far from the camera"
+    return None
+
+
+def fallback_pick_blocker(mode: Optional[Mode], stopping: bool, control_ready: bool,
+                          busy: bool, service_ready: bool) -> Optional[str]:
+    """Why the fallback-pick button cannot be pressed right now, or None.
+
+    Only a first line of defence: rec_bot_core re-checks the robot-busy latch,
+    and control still reach-checks and dedups the pick like any detection.
+    """
+    if mode is None or not mode.uses_robot:
+        return "Only available when a robot is running."
+    if stopping:
+        return "Stopping…"
+    if not control_ready:
+        return "Available once the robot has started."
+    if busy:
+        return "Available when the robot stops moving."
+    if not service_ready:
+        return "The position calculation is not running."
     return None
 
 
@@ -155,6 +188,12 @@ HINT_RULES = [
      Hint("robot_unreachable", "error",
           "Cannot reach the robot over the network. Check that the robot is "
           "switched on and its network cable is plugged in.")),
+    # rec_bot.launch.py's headless-mode program check giving up (~7 min)
+    (re.compile(r"could not confirm program running"),
+     Hint("program_not_started", "error",
+          "The robot program did not start. On the teach pendant, check the "
+          "robot is switched on with its brakes released, and that the pendant "
+          "is in Remote Control mode (top right of the screen).")),
     (re.compile(r"No RealSense devices were found"),
      Hint("no_camera", "error",
           "The camera was not found. Check the camera's USB cable, then press "
@@ -178,7 +217,11 @@ HINT_RULES = [
      Hint("motion_failed", "warn",
           "A robot movement did not complete. On the real robot, check the "
           "teach pendant for a protective stop.")),
-    (re.compile(r"Planning failed|Joint planning failed"),
+    # Only control's give-up lines, not each planner's "Planning failed": most
+    # moves fall back through several planners (return_to_neutral always does
+    # from the UR home pose), so a single planner failing is routine.
+    (re.compile(r"Failed to reach .*(?:aborting|returning)|Failed to (?:retreat|lift)"
+                r"|No place candidate completed|Could not reach neutral on startup"),
      Hint("planning_failed", "warn",
           "The robot could not find a safe path for a movement. If this keeps "
           "happening, check nothing is blocking the robot.")),
@@ -814,6 +857,7 @@ class Dashboard(Node):
 
         self._gate_client = self.create_client(Trigger, "/launch_gate")
         self._ur_stop_client = self.create_client(Trigger, "/dashboard_client/stop")
+        self._fallback_client = self.create_client(Trigger, "/fallback_pick")
         self._gripper_client = (self.create_client(GripCommand, "/gripper_action")
                                 if GripCommand is not None else None)
 
@@ -882,7 +926,7 @@ class Dashboard(Node):
         "camera": ("no_camera",),
         "robot": ("robot_unreachable",),
         "gripper": ("gripper_waiting", "gripper_down"),
-        "pendant": ("gate_timeout",),
+        "pendant": ("gate_timeout", "program_not_started"),
     }
 
     def _tick(self):
@@ -988,6 +1032,36 @@ class Dashboard(Node):
         self._gate_requested = True
         self._gate_client.call_async(Trigger.Request())
         return True
+
+    def _fallback_blocker(self) -> Optional[str]:
+        mode = MODES.get(self.launch.mode) if self.launch.running else None
+        with self._lock:
+            control_ready, busy = self.tracker.control_ready, self.tracker.busy
+        return fallback_pick_blocker(mode, self.launch.stopping, control_ready, busy,
+                                     self._fallback_client.service_is_ready())
+
+    def fallback_pick(self) -> str:
+        """Ask rec_bot_core to pick whatever sits on the marked spot.
+
+        Raises ValueError with an operator-readable reason when refused, either
+        here or by core (nothing on the spot, robot moving, no camera...).
+        """
+        blocker = self._fallback_blocker()
+        if blocker:
+            raise ValueError(blocker)
+        future = self._fallback_client.call_async(Trigger.Request())
+        deadline = time.monotonic() + 5.0
+        while not future.done() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if not future.done():
+            future.cancel()
+            raise ValueError("The position calculation did not answer. Try again.")
+        result = future.result()
+        if result is None or not result.success:
+            raise ValueError(result.message if result else "The request failed.")
+        with self._lock:
+            self.tracker.note("info", "Asked the robot to pick the item on the marked spot")
+        return "The robot will pick up the item on the marked spot."
 
     def _external_run(self) -> bool:
         if self.launch.running:
@@ -1115,7 +1189,8 @@ class Dashboard(Node):
         lights = self._lights(mode, running, camera_ok, joints_ok,
                               gripper_status, gripper_age)
         phase, headline, detail = self._phase(
-            mode, running, camera_ok, busy, control_ready, snap, last_exit, external)
+            mode, running, camera_ok, busy, control_ready, snap, last_exit, external,
+            safety)
 
         return {
             "process_running": running,
@@ -1152,6 +1227,10 @@ class Dashboard(Node):
             ],
             "external_run": external,
             "last_exit": last_exit,
+            # no bin_routing rule exists for the fallback label: it goes to default_bin
+            "fallback": {"shown": running and mode is not None and mode.uses_robot,
+                         "blocker": self._fallback_blocker(),
+                         "bin": pretty_bin(default_bin)},
         }
 
     def _lights(self, mode, running, camera_ok, joints_ok, gripper_status, gripper_age):
@@ -1177,8 +1256,10 @@ class Dashboard(Node):
                 lights.append(light("pendant", "Pendant program", "ok",
                                     "External Control running"))
             elif self._program_running is False:
+                # rec_bot.launch.py runs headless: the driver starts the program
+                # itself, so there is nothing to press Play on
                 lights.append(light("pendant", "Pendant program", "wait",
-                                    "Not running — press Play"))
+                                    "Starting — pendant must be in Remote Control"))
             else:
                 lights.append(light("pendant", "Pendant program", "wait", "Waiting…"))
 
@@ -1212,7 +1293,8 @@ class Dashboard(Node):
             lights.append(light("gripper", "Gripper", "wait", "Connecting…"))
         return lights
 
-    def _phase(self, mode, running, camera_ok, busy, control_ready, snap, last_exit, external):
+    def _phase(self, mode, running, camera_ok, busy, control_ready, snap, last_exit, external,
+               safety=None):
         if not running:
             if last_exit and last_exit["unexpected"]:
                 return ("failed", "Stopped because of a problem",
@@ -1238,6 +1320,15 @@ class Dashboard(Node):
                     "On the teach pendant, open the External Control program and "
                     "press Play. The dashboard continues by itself once it sees the "
                     "program running.")
+        # Headless (rec_bot.launch.py's default): the driver starts the robot
+        # program itself, which the controller only accepts in Remote Control.
+        # Skipped under a safety stop — the red banner says why the program is
+        # not running, and Remote Control is not it.
+        if mode.real_robot and self._program_running is not True and safety is None:
+            return ("waiting_remote", "Waiting for the robot program…",
+                    "Make sure the teach pendant is in Remote Control mode: tap the "
+                    "mode icon at the top right of its screen and choose Remote. "
+                    "The robot program then starts by itself.")
         if not control_ready:
             return ("starting", "Starting up…",
                     "Loading the robot controller and object recognition. This takes "
@@ -1320,9 +1411,12 @@ def make_handler(app: Dashboard):
             return self._static(name)
 
         def _static(self, name):
-            path = os.path.realpath(os.path.join(app.web_dir, name))
-            if not path.startswith(os.path.realpath(app.web_dir) + os.sep) \
-                    or not os.path.isfile(path):
+            # abspath, not realpath: normalising ".." is what blocks traversal.
+            # Following symlinks would reject every file of a --symlink-install,
+            # where web/* in the install space link into src/.
+            web_dir = os.path.abspath(app.web_dir)
+            path = os.path.abspath(os.path.join(web_dir, name))
+            if not path.startswith(web_dir + os.sep) or not os.path.isfile(path):
                 return self.send_error(HTTPStatus.NOT_FOUND)
             with open(path, "rb") as f:
                 body = f.read()
@@ -1382,6 +1476,8 @@ def make_handler(app: Dashboard):
                 elif path == "/api/dismiss":
                     with app._lock:
                         app.tracker.dismiss_hint(str(body.get("key", "")))
+                elif path == "/api/fallback_pick":
+                    return self._send_json({"ok": True, "message": app.fallback_pick()})
                 else:
                     return self.send_error(HTTPStatus.NOT_FOUND)
             except ValueError as exc:

@@ -789,6 +789,88 @@ def test_poses_outside_the_inner_dead_zone(ur_type):
     )
 
 
+def _fallback_spot(ur_type):
+    from recycle_bot.fallback_pick import parse_config
+
+    data = _load(os.path.join(_robot_config_dir(ur_type), "sorting_sequence.yaml"))
+    cfg = parse_config(data)
+    if cfg is None:
+        pytest.skip(f"{ur_type} has no fallback_pick spot")
+    return cfg, data
+
+
+@pytest.mark.parametrize("ur_type", ALL_ARMS)
+def test_fallback_spot_is_reachable_and_on_the_table(ur_type):
+    """The fallback spot must be pickable: in reach, outside the dead zone, on the table.
+
+    rec_bot_control rejects an out-of-reach spot at startup; this finds it
+    first. A spot entered in base_link instead of base is mirrored through the
+    origin: on the UR3e that puts it off the table. The UR16e's table is big
+    enough to still hold it, so there only the camera-view test below catches it.
+    """
+    cfg, data = _fallback_spot(ur_type)
+    prof = PROFILES[ur_type]
+
+    d = _distance((cfg.x, cfg.y, 0.0), prof.shoulder_height_m)
+    assert d <= prof.planning_reach_m, (
+        f"{ur_type} fallback_pick is {d:.3f} m from the shoulder, outside the "
+        f"{prof.planning_reach_m:.3f} m envelope"
+    )
+    inner = float(data.get("min_reach_radius_m", 0.0))
+    r = math.hypot(cfg.x, cfg.y)
+    assert r >= inner, f"{ur_type} fallback_pick at r={r:.3f} m is inside the dead zone"
+
+    table = _load(os.path.join(_robot_config_dir(ur_type), "cell.yaml"))["table"]
+    # cell.yaml is in world (= base_link); the spot is in "base", x/y negated
+    bx, by = -cfg.x, -cfg.y
+    (sx, sy, _), (px, py, _) = table["size"], table["position"]
+    assert abs(bx - px) <= sx / 2 and abs(by - py) <= sy / 2, (
+        f"{ur_type} fallback_pick ({cfg.x}, {cfg.y}) in base is ({bx}, {by}) in "
+        f"base_link, which is not on the table — was it entered in base_link?"
+    )
+
+
+@pytest.mark.parametrize("ur_type", ALL_ARMS)
+def test_fallback_spot_is_in_the_camera_view(ur_type):
+    """The camera must see the spot, or its height can never be measured.
+
+    Chains the same transforms the running system uses: base -> base_link (180
+    deg about z), calibration.yaml's base_link -> camera_link, and RealSense's
+    camera_link -> optical rotation. Projected with D415-like intrinsics
+    (fake_rgbd_publisher's), with a margin so the depth window fits.
+    """
+    from recycle_bot.fallback_pick import Pinhole, RigidTransform
+
+    cfg, _ = _fallback_spot(ur_type)
+    cam = _load(os.path.join(_robot_config_dir(ur_type), "calibration.yaml"))["camera_transform"]
+
+    def compose(a, b):  # a after b
+        ax, ay, az, aw = a.rotation
+        bx, by, bz, bw = b.rotation
+        q = (aw * bx + ax * bw + ay * bz - az * by,
+             aw * by - ax * bz + ay * bw + az * bx,
+             aw * bz + ax * by - ay * bx + az * bw,
+             aw * bw - ax * bx - ay * by - az * bz)
+        return RigidTransform(a.apply(b.translation), q)
+
+    # RealSense optical convention: rpy (-pi/2, 0, -pi/2) from camera_link
+    link_from_optical = RigidTransform((0.0, 0.0, 0.0), (-0.5, 0.5, -0.5, 0.5))
+    base_link_from_link = RigidTransform(tuple(cam["translation"]), tuple(cam["rotation"]))
+    base_link_from_base = RigidTransform((0.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0))
+    optical_from_base = compose(
+        compose(base_link_from_link, link_from_optical).inverse(), base_link_from_base)
+
+    p = optical_from_base.apply((cfg.x, cfg.y, 0.0))
+    assert p[2] > 0.0, f"{ur_type} fallback_pick is behind the camera"
+    camera = Pinhole(920.0, 920.0, 640.0, 360.0, 1280, 720)
+    u, v = camera.project(p)
+    margin = 60
+    assert margin <= u <= camera.width - margin and margin <= v <= camera.height - margin, (
+        f"{ur_type} fallback_pick projects to pixel ({u:.0f}, {v:.0f}), at or past "
+        "the edge of a D415's view"
+    )
+
+
 def test_dead_zone_is_between_the_measured_bounds():
     """The UR3e dead-zone radius must stay inside its empirical bracket.
 

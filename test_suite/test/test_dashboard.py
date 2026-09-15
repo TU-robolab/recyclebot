@@ -25,10 +25,12 @@ from recycle_bot.dashboard import (
     arm_title,
     build_launch_command,
     detection_ignored_reason,
+    fallback_pick_blocker,
     load_routing,
     match_hint,
     pretty_name,
 )
+from recycle_bot.fallback_pick import FALLBACK_LABEL
 from recycle_bot.robot_profile import PROFILES
 
 CONTROL = "moveit_py"
@@ -144,6 +146,32 @@ def test_default_routed_label_keeps_its_bin(tracker):
     assert tracker.snapshot()["queue"] == [{"label": "bootle", "bin": "General Waste"}]
 
 
+def test_fallback_pick_reads_as_the_marked_spot(tracker, clock):
+    """The fallback label has no routing rule, so control logs it as (default)."""
+    tracker.feed_log(CONTROL, 20, f"Routing label '{FALLBACK_LABEL}' → bin 'general_waste' (default)")
+    tracker.feed_log(CONTROL, 20, f"Queued sorting task for label '{FALLBACK_LABEL}'.")
+    assert tracker.snapshot()["queue"] == [{"label": "marked-spot item", "bin": "General Waste"}]
+    assert tracker.snapshot()["events"][0]["text"] == \
+        "Found a marked-spot item — it goes to General Waste"
+
+    tracker.set_busy(True)
+    step(tracker, "Step 1/10: Moving to neutral (safe start)")
+    assert tracker.snapshot()["task"]["label"] == "marked-spot item"
+
+
+def test_fallback_pick_blocker():
+    real, camera = MODES["real"], MODES["camera"]
+    ready = dict(stopping=False, control_ready=True, busy=False, service_ready=True)
+    assert fallback_pick_blocker(real, **ready) is None
+    assert fallback_pick_blocker(MODES["sim"], **ready) is None
+    assert fallback_pick_blocker(None, **ready)                  # nothing running
+    assert fallback_pick_blocker(camera, **ready)                # no robot in this mode
+    assert "stops moving" in fallback_pick_blocker(real, **{**ready, "busy": True})
+    assert "started" in fallback_pick_blocker(real, **{**ready, "control_ready": False})
+    assert fallback_pick_blocker(real, **{**ready, "service_ready": False})
+    assert fallback_pick_blocker(real, **{**ready, "stopping": True})
+
+
 def test_control_ready(tracker):
     assert not tracker.control_ready
     tracker.feed_log(CONTROL, 20, "ur3e sorter node initialized")
@@ -189,6 +217,8 @@ def test_gate_timeout_closes_and_warns(tracker):
     ("Detection 'food_can_metal' at 0.612 m is outside the ur3e's 0.450 m reach envelope; skipping",
      "item_too_far", "info"),
     ("Grasp not confirmed after retry; releasing and returning to neutral", "grasp_failed", "warn"),
+    ("[bash-12] [program] WARNING: could not confirm program running - check remote mode / "
+     "External Control", "program_not_started", "error"),
 ])
 def test_hints(line, key, severity):
     hint = match_hint(line)
@@ -198,6 +228,21 @@ def test_hints(line, key, severity):
 def test_ordinary_lines_raise_no_hint():
     assert match_hint("Queued sorting task for label 'food_can_metal'.") is None
     assert match_hint("[INFO] [launch_gate-3]: process has finished cleanly [pid 7]") is None
+
+
+def test_planner_fallback_is_not_a_problem_but_giving_up_is():
+    """Pilz failing before OMPL takes over is routine; control giving up is not."""
+    for routine in ("Joint planning failed: no plan result returned",
+                    "Planning failed: INVALID_MOTION_PLAN (-2)",
+                    "Planning failed with pilz_ptp (attempt 1/1)",
+                    "Failed to reach neutral pose"):
+        assert match_hint(routine) is None, routine
+    for gave_up in ("Failed to reach neutral, aborting task",
+                    "Failed to reach pre-pick pose, returning to neutral",
+                    "Failed to lift to neutral, releasing object",
+                    "No place candidate completed both approach and descent (8 tried)",
+                    "Could not reach neutral on startup with any planner; the first task"):
+        assert match_hint(gave_up).key == "planning_failed", gave_up
 
 
 def test_repeated_hint_collapses_and_info_expires(tracker, clock):
@@ -234,6 +279,43 @@ def test_launch_commands():
     assert MODES["real"].real_robot and not MODES["sim"].real_robot
 
 
+def test_real_robot_launch_is_headless_by_default():
+    """The real-robot mode relies on the driver starting the robot program.
+
+    The page no longer tells the operator to press Play, and matches the
+    headless program check's give-up line; both need rec_bot.launch.py to run
+    headless unless told otherwise.
+    """
+    path = os.path.join(get_package_share_directory("recycle_bot"), "launch",
+                        MODES["real"].launch_file)
+    with open(path) as f:
+        src = f.read()
+    assert '"headless_mode",\n        default_value="true"' in src
+    assert "could not confirm program running" in src
+
+
+def test_real_robot_start_reminds_about_remote_control():
+    """Headless start needs Remote Control; say so until the program runs."""
+    from types import SimpleNamespace
+
+    from recycle_bot.dashboard import Dashboard
+
+    snap = ActivityTracker().snapshot()
+
+    def phase(mode, program_running, safety=None):
+        fake = SimpleNamespace(launch=SimpleNamespace(stopping=False),
+                               _program_running=program_running)
+        return Dashboard._phase(fake, MODES[mode], True, True, False, True,
+                                snap, None, False, safety)
+
+    assert phase("real", None)[0] == "waiting_remote"        # driver not reporting yet
+    assert "Remote Control" in phase("real", False)[2]
+    assert phase("real", True)[0] == "watching"
+    # under a protective stop the program is down for another reason
+    assert phase("real", False, safety="Protective stop: …")[0] != "waiting_remote"
+    assert phase("sim", None)[0] == "watching"                # no pendant in simulation
+
+
 @pytest.mark.parametrize("mode", sorted(MODES))
 def test_launch_files_exist_and_take_the_args_we_pass(mode):
     m = MODES[mode]
@@ -250,6 +332,7 @@ def test_display_helpers():
     assert arm_title("ur3e") == "UR3e"
     assert pretty_name("non-food_bottle_pet") == "non food bottle pet"
     assert pretty_name(None) == ""
+    assert pretty_name(FALLBACK_LABEL) == "marked-spot item"
 
 
 # -----------------------------------------------------------------------------
@@ -300,12 +383,17 @@ SOURCE_PHRASES = {
         "Grasp not confirmed after retry", "reach envelope; skipping",
         "the arm cannot reach into", "Trajectory execution failed",
         "Gripper service not available", "configured pose(s) are outside",
+        "Failed to reach neutral, aborting", "Failed to reach pre-pick pose, returning",
+        "Failed to retreat", "Failed to lift", "No place candidate completed",
+        "Could not reach neutral on startup",
     ],
     ("recycle_bot", "launch_gate"): [
         "Enable External Control URCap", "s for auto-continue", "Gate triggered",
         ") reached, continuing",
     ],
     ("recycle_bot", "robot_identity"): ["WRONG ROBOT"],
+    # not a log line: the service the "Pick from the marked spot" button calls
+    ("recycle_bot", "rec_bot_core"): ['"/fallback_pick"'],
     ("grip_command_package", "gripper_node"): [
         "Waiting for serial bridge to subscribe", "Gripper not activated",
         "object detected",

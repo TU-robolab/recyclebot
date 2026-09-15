@@ -31,6 +31,7 @@ from vision_msgs.msg import Detection3D
 from sensor_msgs.msg import JointState
 from controller_manager_msgs.srv import ListControllers
 
+from recycle_bot.fallback_pick import parse_config as parse_fallback_config
 from recycle_bot.robot_profile import PROFILES, config_path, profile, resolve_ur_type
 
 try:
@@ -514,6 +515,14 @@ class cobot_control(Node):
             # load TCP orientation constraint (used by OMPL transit moves)
             self._load_orientation_constraint(data.get("orientation_constraint", None))
 
+            # fallback pick spot — rec_bot_core measures and sends the pick; it is
+            # loaded here only so validate_configured_poses can reach-check it
+            try:
+                self.fallback_pick = parse_fallback_config(data)
+            except ValueError as e:
+                self.get_logger().error(f"Ignoring malformed fallback_pick: {e}")
+                self.fallback_pick = None
+
             # load neutral pose
             neutral_data = data.get("neutral_pose", None)
             neutral_pose = None
@@ -566,6 +575,7 @@ class cobot_control(Node):
             self.grasp_retry_extra_depth_m = 0.01
             self.grasped_object_size = [0.05, 0.05, 0.05]
             self._load_orientation_constraint(None)
+            self.fallback_pick = None
             return None, None, None, {}, {}, None
 
     def reach_distance(self, pose: PoseStamped) -> float:
@@ -653,6 +663,21 @@ class cobot_control(Node):
             elif inner > 0.0 and self.reach_radius(pose) < inner:
                 offenders.append(
                     (f"bins.{bin_name} (inside dead zone)", self.reach_radius(pose))
+                )
+
+        # The fallback spot's height is only known once measured; check it at
+        # table height (z = 0). vision_callback re-checks the measured pick.
+        if self.fallback_pick is not None:
+            spot = self.create_pose_from_dict({
+                "position": [self.fallback_pick.x, self.fallback_pick.y, 0.0],
+                "orientation": [1.0, 0.0, 0.0, 0.0],
+            })
+            d = self.reach_distance(spot)
+            if d > limit:
+                offenders.append(("fallback_pick", d))
+            elif inner > 0.0 and self.reach_radius(spot) < inner:
+                offenders.append(
+                    ("fallback_pick (inside dead zone)", self.reach_radius(spot))
                 )
 
         if not offenders:
@@ -1091,6 +1116,25 @@ class cobot_control(Node):
             return False
         return True
 
+    # Planners for return_to_neutral, in order, with attempts each.
+    NEUTRAL_PLANNERS = [("pilz_ptp", 1), ("ompl_rrtc_long", 2), ("ompl_prmstar", 1)]
+
+    def return_to_neutral(self) -> bool:
+        """Go to neutral from wherever the arm is, trying harder planners if needed.
+
+        Pilz PTP first: deterministic, and the path the arm has always taken
+        when it works. But PTP is a straight line in joint space, not a search —
+        from the UR home pose (arm straight up) that line sweeps the E-Pick
+        through upper_arm_link, and it fails however long it is given. OMPL then
+        searches for a way around (5 s budget, see ompl_rrtc_long in
+        moveit_cpp.yaml), with PRM* as a last resort. Both are collision-checked
+        against the same model, but their paths are less predictable than PTP's.
+        """
+        return self._plan_with_planner_fallbacks(
+            lambda planner: lambda: self.move_to_neutral(planner=planner),
+            self.NEUTRAL_PLANNERS,
+        )
+
     def move_to_joint_positions(self, joint_positions: dict, planner: str = None,
                                 constrain_to=None) -> bool:
         """Plan and execute a joint-space goal.
@@ -1232,7 +1276,7 @@ class cobot_control(Node):
 
         # 1. start from neutral
         self.get_logger().info("\033[94m Step 1/10: Moving to neutral (safe start)\033[0m")
-        if not self.move_to_neutral(planner="pilz_ptp"):
+        if not self.return_to_neutral():
             self.get_logger().error("Failed to reach neutral, aborting task")
             self._abort_task()
             return
@@ -1428,7 +1472,7 @@ class cobot_control(Node):
 
         # 10. return to neutral
         self.get_logger().info("\033[94m Step 10/10: Returning to neutral\033[0m")
-        self.move_to_neutral(planner="pilz_ptp")
+        self.return_to_neutral()
 
         self.get_logger().info("Sorting task completed")
 
@@ -1445,7 +1489,7 @@ class cobot_control(Node):
             else:
                 self.get_logger().warning("Abort cleanup could not detach/remove grasped object")
         if move_to_neutral:
-            self.move_to_neutral(planner="pilz_ptp")
+            self.return_to_neutral()
 
     def build_orientation_constraint(self, reference_orientation, frame_id):
         """Build a path Constraints keeping the TCP near reference_orientation.
@@ -1737,8 +1781,13 @@ def main():
         # publish_busy() itself doesn't need spinning (publishing works before
         # the node is added to an executor), so this move is covered too.
         ur_node.publish_busy(True)
-        if ur_node.wait_for_startup_ready() and ur_node.move_to_neutral(planner="pilz_ptp"):
-            ur_node.get_logger().info("Moved to neutral pose on startup")
+        if ur_node.wait_for_startup_ready():
+            if ur_node.return_to_neutral():
+                ur_node.get_logger().info("Moved to neutral pose on startup")
+            else:
+                ur_node.get_logger().error(
+                    "Could not reach neutral on startup with any planner; the first "
+                    "task will try again. Jog the arm closer to neutral on the pendant.")
         ur_node.publish_busy(False)
         executor.add_node(ur_node)
         executor.spin()
